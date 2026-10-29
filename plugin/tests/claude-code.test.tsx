@@ -93,12 +93,29 @@ const engine = (on: On, store: Record<string, unknown>): World => {
   })
   on('turn.start', (_, e) => ({ turnId: e.turnId ?? 't' }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('command.run', () => ({ text: '' }))
+  on('tool.call', () => ({ result: {}, text: '' }) as never)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('prompt.mention', () => ({ type: 'file' }) as never)
   return world
 }
 
 const begin = async ($: Engine) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 
 const OFFLINE = { options: { serverUrl: '' } }
+
+const ROOM = {
+  plugin: 'toko',
+  component: 'Pane',
+  requestId: 'toko-room',
+  props: { title: '말랑의 방', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} },
+} as const
+
+const typed = async ($: Engine, command: string) => $.command.run({ command, args: '', origin: { kind: 'composer' } } as never)
+
+const healthOf = (world: World) => (world.saved['toko:earn:session-1'] as { health: number } | undefined)?.health ?? 0
+
+const end = async ($: Engine) => $.session.end({ reason: 'other', sessionId: 'session-1', resume: {} } as never)
 
 const newsOf = (world: World) => world.saved['toko:news'] as { seen: string; shownAt: number; notBefore: number; picks: readonly { title: string }[] }
 
@@ -182,4 +199,57 @@ test('/toko event update shows an intro right away for a demo, even for a versio
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /새 기능이 생겼어: \/auto-mode-setup/ })).toBeDefined()
   await band.unmount()
+})
+
+test('the first time a person runs a Claude Code command it joins the feature dex with five coins, and only once', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': { seen: VERSION, pick: null, shownAt: 0, notBefore: 0, picks: [] } })
+  await begin($)
+  await typed($, 'compact')
+  await clock.advance(100)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /기능 도감에 새로 올렸어: \/compact 대화 줄이기 \(1\/16\) \+5 코인/ })).toBeDefined()
+  await band.unmount()
+  await typed($, 'compact')
+  await $.command.run({ command: 'rewind', args: '', origin: { kind: 'plugin', name: 'other' } } as never)
+  await typed($, 'toko')
+  await clock.advance(100)
+  expect(Object.keys(world.saved['toko:features'] as Record<string, number>)).toEqual(['compact'])
+  const text = (await $.command.run({ command: 'toko', args: 'features' } as never)).text
+  expect(text).toContain('기능 도감 1/16')
+  expect(text).toContain('✓ /compact 대화 줄이기')
+  expect(text).toContain('· /rewind 되감기: 코드와 대화를 아까 시점으로 되돌려요')
+  await end($)
+  expect(healthOf(world)).toBe(5)
+})
+
+test('plan mode, a command sent to the background, a pasted image and an @ mention fill the dex too', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': { seen: VERSION, pick: null, shownAt: 0, notBefore: 0, picks: [] } })
+  await begin($)
+  await $.tool.call({ tool: 'ExitPlanMode', plan: 'do it' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true } as never)
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as never)
+  await $.prompt.submit({ text: '이 화면 봐 줘', origin: { kind: 'composer' }, attachments: [{ type: 'image', mediaType: 'image/png' }] } as never)
+  await $.prompt.mention({ mention: 'src/app.ts', path: '/work/src/app.ts' } as never)
+  await clock.advance(100)
+  expect(Object.keys(world.saved['toko:features'] as Record<string, number>).sort()).toEqual(['background', 'image', 'mention', 'plan'])
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const room = await $.ui.mount({ ...ROOM, surface: 'terminal' })
+  expect(await room.find({ type: 'Text', text: /기능 도감 4\/16/ })).toBeDefined()
+  expect(await room.find({ type: 'Text', text: /써 볼 것: \/compact 대화 줄이기/ })).toBeDefined()
+  await room.unmount()
+})
+
+test('the eighth feature tried unlocks 기능 수집가', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const seven = Object.fromEntries(['compact', 'clear', 'resume', 'rewind', 'init', 'memory', 'permissions'].map(id => [id, START - 1000]))
+  const world = engine(on, { 'toko:pet': PET, 'toko:features': seven, 'toko:news': { seen: VERSION, pick: null, shownAt: 0, notBefore: 0, picks: [] } })
+  await begin($)
+  await clock.advance(2500)
+  expect((world.saved['toko:badges'] as Record<string, number> | undefined)?.['features-8']).toBeUndefined()
+  await typed($, 'model')
+  await clock.advance(2500)
+  expect((world.saved['toko:badges'] as Record<string, number>)['features-8']).toBeDefined()
+  expect((await $.command.run({ command: 'toko', args: 'badges' } as never)).text).toContain('✓ 기능 수집가')
 })

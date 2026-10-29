@@ -42,6 +42,8 @@ import type { GachaKind, TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
+import { FEATURE_REWARD, asFeatureDex, featureDef, featureLine, featureViews, featuresUsed, mergeFeatureDex } from './lib/features'
+import type { FeatureDex } from './lib/features'
 import { meterOf } from './lib/meter'
 import { CHANGELOG_URL, EMPTY_NEWS, NEWS_LATER_MS, asNews, freshAdditions, isNewsDue, newsDetail, newsLine, newsPrompt, newsSystem, newsText, parseChangelog, parseNews, withPick } from './lib/news'
 import type { Addition } from './lib/news'
@@ -114,6 +116,7 @@ export const KEY = {
   dex: 'toko:dex',
   memos: 'toko:memos',
   news: 'toko:news',
+  features: 'toko:features',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -174,6 +177,7 @@ export type Brain = {
   badges: Unlocked
   questsPaid: QuestsPaid
   dex: Dex
+  features: FeatureDex
   memos: readonly TokoMemo[]
   memoOfferId: string | null
   news: TokoNews
@@ -256,6 +260,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   badges: {},
   questsPaid: { day: '', ids: [] },
   dex: {},
+  features: {},
   memos: [],
   memoOfferId: null,
   news: EMPTY_NEWS,
@@ -347,7 +352,7 @@ const SHARED_FIELDS = Object.keys(SHARED) as readonly SharedField[]
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, news, keys] = await Promise.all([
+  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, news, features, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.shelf),
     $.store.get(KEY.needs),
@@ -363,6 +368,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.dex),
     $.store.get(KEY.memos),
     $.store.get(KEY.news),
+    $.store.get(KEY.features),
     $.store.keys(),
   ])
   brain.pet = SHARED.pet(pet, brain)
@@ -393,6 +399,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.dex = asDex(dex)
   brain.memos = asMemos(memos)
   brain.news = asNews(news)
+  brain.features = asFeatureDex(features)
   brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
@@ -468,6 +475,7 @@ export async function refreshShared($: $, brain: Brain, isForced = false): Promi
   brain.otherTallies = tallies.flatMap(tally => (tally !== null && tally.day === today(brain) ? [tally] : []))
   brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
   brain.dex = mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex)
+  brain.features = mergeFeatureDex(asFeatureDex(await $.store.get(KEY.features)), brain.features)
   brain.memos = asMemos(await $.store.get(KEY.memos))
   await update($, memosAtom, () => brain.memos)
   brain.news = asNews(await $.store.get(KEY.news))
@@ -488,7 +496,7 @@ const jot = (brain: Brain, text: string): void => {
   brain.isDirty = true
 }
 
-export const progressCounts = (brain: Brain): TokoCounts => ({ ...totalOf(brain.stats, [...brain.otherTallies, brain.tally]), dex: kindsSeen(brain.dex) })
+export const progressCounts = (brain: Brain): TokoCounts => ({ ...totalOf(brain.stats, [...brain.otherTallies, brain.tally]), dex: kindsSeen(brain.dex), features: featuresUsed(brain.features) })
 
 export const todayTally = (brain: Brain): TokoTally => todayOf(brain.stats, [...brain.otherTallies, brain.tally], today(brain))
 
@@ -498,6 +506,7 @@ export const progressOf = (brain: Brain): TokoProgress => ({
   badges: badgeViews(progressCounts(brain), brain.badges),
   quests: questViews(questsOf(brain), todayTally(brain).counts),
   dex: dexViews(brain.dex),
+  features: featureViews(brain.features),
 })
 
 async function awardQuests($: $, brain: Brain): Promise<readonly string[]> {
@@ -1932,6 +1941,26 @@ async function noteSighting($: $, brain: Brain, kind: EncounterKind, isShiny: bo
   brain.dex = sighting.dex
   await $.store.set(KEY.dex, brain.dex)
   return sighting
+}
+
+export async function noteFeature($: $, brain: Brain, id: string): Promise<void> {
+  const def = featureDef(id)
+  if (def === undefined || brain.features[id] !== undefined) {
+    return
+  }
+  const stored = mergeFeatureDex(asFeatureDex(await $.store.get(KEY.features)), brain.features)
+  brain.features = stored[id] === undefined ? { ...stored, [id]: brain.now } : stored
+  await $.store.set(KEY.features, brain.features)
+  if (stored[id] !== undefined) {
+    return
+  }
+  healthReward(brain, FEATURE_REWARD)
+  remember(brain, 'feature', id, 0.5)
+  brain.isProgressDirty = true
+  act(brain, direct.perk(), PRIORITY.reaction)
+  if (!isHushed(brain)) {
+    await say($, brain, featureLine(def, featuresUsed(brain.features), FEATURE_REWARD), 'quiet')
+  }
 }
 
 export async function runEncounter($: $, brain: Brain, kind: EncounterKind, isShiny: boolean): Promise<void> {

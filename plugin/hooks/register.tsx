@@ -25,8 +25,10 @@ import {
   chatStarted,
   choose,
   commandTool,
+  commandUsed,
   createCtx,
   drawFromRoom,
+  featureUsed,
   gachaFromRoom,
   feedCommand,
   focusCommand,
@@ -119,6 +121,9 @@ export const register: Register = (on, options) => {
 
   on('classic.SessionStart', ($, e, next) => {
     titled(ctx, e.session_title, e.transcript_path)
+    if (e.source === 'resume') {
+      $.clock.after(3000, () => void featureUsed($, ctx, 'resume'))
+    }
     return next(e)
   })
 
@@ -129,6 +134,23 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     await submitted($, ctx, e.text, e.origin.kind === 'composer' && e.command === undefined && e.isMeta !== true)
+    if (e.origin.kind === 'composer' && e.attachments?.some(attachment => attachment.type === 'image') === true) {
+      $.clock.after(1, () => void featureUsed($, ctx, 'image'))
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('prompt.mention', ($, e, next) => {
+    if (e.agentId === undefined) {
+      $.clock.after(1, () => void featureUsed($, ctx, 'mention'))
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('command.run', ($, e, next) => {
+    if (e.origin?.kind === 'composer') {
+      $.clock.after(1, () => void commandUsed($, ctx, e.command))
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -153,7 +175,8 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     if (ran.deny === undefined) {
       const command = e.tool === 'Bash' ? e.command : undefined
-      await toolRan($, ctx, String(e.tool), command, ran.isError === true, ran.text ?? '', ran.result)
+      const isBackground = e.tool === 'Bash' && (e as { run_in_background?: unknown }).run_in_background === true
+      await toolRan($, ctx, String(e.tool), command, ran.isError === true, ran.text ?? '', ran.result, isBackground)
     }
     return ran
   }).catch(($, e, next) => next(e))
@@ -450,6 +473,29 @@ export const register: Register = (on, options) => {
             <Text dimColor={progress.dex.every(entry => entry.seen === 0)}>
               {progress.dex.map(entry => (entry.seen === 0 ? '???' : `${entry.name}${entry.shiny > 0 ? ' ✦' : ''}`)).join(' · ')}
             </Text>
+          </Box>
+        )}
+        {progress !== null && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              기능 도감 {progress.features.filter(feature => feature.at !== null).length}/{progress.features.length}
+            </Text>
+            {progress.features.some(feature => feature.at !== null) && (
+              <Text>
+                {progress.features
+                  .filter(feature => feature.at !== null)
+                  .map(feature => `✓ ${feature.how}`)
+                  .join(' · ')}
+              </Text>
+            )}
+            {progress.features
+              .filter(feature => feature.at === null)
+              .slice(0, 3)
+              .map(feature => (
+                <Text key={`feature-${feature.id}`} dimColor wrap="truncate-end">
+                  {`써 볼 것: ${feature.how} ${feature.name}. ${feature.hint}`}
+                </Text>
+              ))}
           </Box>
         )}
         {news !== null && news.picks.length > 0 && (

@@ -2,11 +2,12 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
 import { GACHA, SHOP, SPEND, shopItem } from './lib/economy'
+import { featureOfCommand, featureOfTool, featureText } from './lib/features'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { signalLabel } from './lib/peers'
@@ -266,8 +267,12 @@ async function thinkLater($: $, ctx: Ctx): Promise<void> {
   await sync($, ctx.brain)
 }
 
-export async function toolRan($: $, ctx: Ctx, tool: string, command: string | undefined, isError: boolean, text: string, result: unknown): Promise<void> {
+export async function toolRan($: $, ctx: Ctx, tool: string, command: string | undefined, isError: boolean, text: string, result: unknown, isBackground = false): Promise<void> {
   const brain = ctx.brain
+  const feature = isError ? null : featureOfTool(tool, isBackground)
+  if (feature !== null) {
+    $.clock.after(1, () => void featureUsed($, ctx, feature))
+  }
   if (tool === 'Agent' || tool === 'Task') {
     onSubagents(brain, 1)
   }
@@ -286,6 +291,22 @@ export async function toolRan($: $, ctx: Ctx, tool: string, command: string | un
   const operation = isError ? undefined : (result as { gitOperation?: GitOperation } | undefined)?.gitOperation
   for (const event of readGitEvents(operation)) {
     await onGit($, brain, event.kind, event.detail)
+  }
+}
+
+export async function featureUsed($: $, ctx: Ctx, id: string): Promise<void> {
+  if (!ctx.brain.isLoaded) {
+    return
+  }
+  await now($, ctx)
+  await noteFeature($, ctx.brain, id)
+  await sync($, ctx.brain)
+}
+
+export async function commandUsed($: $, ctx: Ctx, command: string): Promise<void> {
+  const feature = featureOfCommand(command)
+  if (feature !== null) {
+    await featureUsed($, ctx, feature)
   }
 }
 
@@ -348,6 +369,7 @@ export const HELP = [
   '/toko badges — 업적',
   '/toko dex — 인카운터 도감',
   '/toko news — Claude Code 새 기능 소개 다시 보기',
+  '/toko features — 기능 도감(처음 써 본 Claude Code 기능마다 5코인)',
   '/toko memo [내용 | clear] — 생각 주차장 메모 (/memo <내용> 도 같음)',
   '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
@@ -564,6 +586,8 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       return { text: dexText(progressOf(brain).dex) }
     case 'news':
       return { text: await newsReport($, brain) }
+    case 'features':
+      return { text: featureText(progressOf(brain).features) }
     case 'memo':
       return { text: await memoCommand($, ctx, rest.join(' ')) }
     case 'today':
