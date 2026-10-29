@@ -214,11 +214,11 @@ test('a finished turn pays coins on a log scale and the turn line shows them', a
     surface: 'terminal',
     props: { word: 'Baked', durationMs: 20_000 },
   } as never)
-  expect(await ui.find({ type: 'Text', text: /\+6 코인/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\+18 코인/ })).toBeDefined()
   await ui.unmount()
   await $.session.end({ reason: 'other', sessionId: 'session-1', resume: {} } as never)
   const earn = world.saved['toko:earn:session-1'] as { earned: number }
-  expect(earn.earned).toBe(6)
+  expect(earn.earned).toBe(18)
 })
 
 test('/bonk while idle runs the show, then sends Claude a message and offers a calm finish', async ($, on) => {

@@ -1,6 +1,6 @@
 import type { TokoEarn, TokoWallet } from '../../types'
 
-export const DAILY_TOKEN_CAP = 120
+export const DAILY_TOKEN_CAP = 500
 export const CACHE_BONUS_RATIO = 0.5
 export const CACHE_BONUS = 1.2
 
@@ -21,7 +21,7 @@ export const cacheReadRatio = (usage: TurnUsage): number => {
 }
 
 export const turnIncome = (usage: TurnUsage): number => {
-  const base = 3 * Math.log2(1 + usage.output_tokens / 500)
+  const base = 9 * Math.log2(1 + usage.output_tokens / 500)
   const bonus = cacheReadRatio(usage) >= CACHE_BONUS_RATIO ? CACHE_BONUS : 1
   return Math.round(base * bonus)
 }

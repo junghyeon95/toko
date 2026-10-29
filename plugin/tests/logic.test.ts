@@ -22,19 +22,20 @@ const SETTINGS = { isMuted: false, isHidden: false, quiet: null, breakMinutes: 5
 
 test('turn income grows on a log scale, so heavy token use pays less per token', async () => {
   expect(turnIncome(usage(0))).toBe(0)
-  expect(turnIncome(usage(500))).toBe(3)
-  expect(turnIncome(usage(1500))).toBe(6)
-  expect(turnIncome(usage(7500))).toBe(12)
+  expect(turnIncome(usage(500))).toBe(9)
+  expect(turnIncome(usage(1500))).toBe(18)
+  expect(turnIncome(usage(7500))).toBe(36)
   const perTokenSmall = turnIncome(usage(500)) / 500
   const perTokenLarge = turnIncome(usage(50_000)) / 50_000
   expect(perTokenLarge < perTokenSmall / 10).toBe(true)
 })
 
 test('a cache-heavy turn earns the efficiency bonus', async () => {
-  expect(turnIncome(usage(1500, 9000))).toBe(Math.round(3 * Math.log2(4) * 1.2))
+  expect(turnIncome(usage(1500, 9000))).toBe(Math.round(9 * Math.log2(4) * 1.2))
 })
 
 test('token income stops at the daily cap, health rewards do not', async () => {
+  expect(DAILY_TOKEN_CAP).toBe(500)
   expect(capTokenIncome(10, DAILY_TOKEN_CAP - 4)).toBe(4)
   expect(capTokenIncome(10, DAILY_TOKEN_CAP)).toBe(0)
   const wallet = { coins: 10, items: [], worn: [] }
