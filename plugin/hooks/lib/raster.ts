@@ -60,10 +60,10 @@ export const encodeCells = (canvas: Canvas): string => {
       const top = canvas.pixels[row * 2 * canvas.width + x] ?? DEFAULT
       const bottom = canvas.pixels[(row * 2 + 1) * canvas.width + x] ?? DEFAULT
       const at = (row * canvas.width + x) * 3
-      const glyph = top === DEFAULT ? (bottom === DEFAULT ? SPACE : LOWER) : UPPER
+      const glyph = bottom !== DEFAULT ? LOWER : top !== DEFAULT ? UPPER : SPACE
       words[at] = glyph
       words[at + 1] = glyph === LOWER ? bottom : top
-      words[at + 2] = glyph === UPPER ? bottom : DEFAULT
+      words[at + 2] = glyph === LOWER ? top : DEFAULT
     }
   }
   return toBase64(new Uint8Array(words.buffer))

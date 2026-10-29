@@ -9,7 +9,7 @@ import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpe
 import { parseSnapshot, plazaEndpoint } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
-import { createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
+import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
 import { BAND_ROWS, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
 import { hex } from '../hooks/lib/sprites'
@@ -253,7 +253,7 @@ test('the soul prompt and every model call carry the species persona', async () 
   expect(system).toContain(createFallbackSoul(7, 'now').name)
 })
 
-test('cells encode half blocks: top pixel is the foreground, transparent is the terminal default', async () => {
+test('cells encode half blocks: a bottom pixel draws the lower block, transparent is the terminal default', async () => {
   const canvas = createCanvas(3, 1)
   setPixel(canvas, 0, 0, 0xff0000)
   setPixel(canvas, 1, 1, 0x00ff00)
@@ -261,7 +261,9 @@ test('cells encode half blocks: top pixel is the foreground, transparent is the 
   setPixel(canvas, 2, 1, 0xffffff)
   const cells = encodeCells(canvas)
   expect(cells.length).toBe(Math.ceil((3 * 12) / 3) * 4)
-  expect(decodeGlyphs(cells, 3)).toEqual(['▀▄▀'])
+  expect(decodeGlyphs(cells, 3)).toEqual(['▀▄▄'])
+  const words = Uint32Array.of(0x2580, 0xff0000, DEFAULT, 0x2584, 0x00ff00, DEFAULT, 0x2584, 0xffffff, 0x0000ff)
+  expect(cells).toBe(toBase64(new Uint8Array(words.buffer)))
   expect(toBase64(Uint8Array.of(1, 2, 3, 4))).toBe('AQIDBA==')
 })
 
