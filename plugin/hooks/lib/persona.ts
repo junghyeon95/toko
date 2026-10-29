@@ -431,6 +431,14 @@ export const peerSummaryPrompt = (label: string, kind: PeerSignal['kind'], excer
     excerpt,
   ].join('\n')
 
+export const sessionDayPrompt = (sessions: readonly { label: string; excerpt: string }[]): string =>
+  [
+    '오늘 사용자가 Claude Code 세션 여러 개에서 한 일이다. 세션마다 대화 끝부분을 붙였다.',
+    `정확히 ${sessions.length}줄로 답한다. 줄마다 "번호. " 로 시작하고, 그 세션에서 한 일을 40자 안팎 한 문장으로 쓴다. 끝난 일은 "~했어요", 아직 하는 일은 "~하는 중이에요"로 끝낸다. 이름·숫자·파일은 대화에 나온 그대로 쓴다.`,
+    '',
+    ...sessions.flatMap(({ label, excerpt }, index) => [`## ${index + 1}. 「${label || '이름 없는 세션'}」`, excerpt, '']),
+  ].join('\n')
+
 export const bonkMessage = (petName: string, reason: string): string =>
   [
     `${calling(petName)}가 뿅망치로 너를 콩 때렸어. 이유: ${reason.trim() || '그냥 기분이 그랬어'}`,

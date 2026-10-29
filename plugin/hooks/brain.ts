@@ -42,7 +42,7 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
-import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { dayLines, freshSignal, inboxParts, isAlive, isMessage, isSignal, isWorked, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
@@ -99,6 +99,7 @@ export const KEY = {
   signalPrefix: 'toko:signal:',
   inboxPrefix: 'toko:inbox:',
   replyPrefix: 'toko:reply:',
+  workedPrefix: 'toko:worked:',
   stats: 'toko:stats',
   tallyPrefix: 'toko:tally:',
   badges: 'toko:badges',
@@ -356,6 +357,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   const earns = await Promise.all(earnKeys.map(async key => ({ key, value: await $.store.get(key) })))
   await settleEarnings($, brain, earns, day)
   await dropStaleSignals($, keys.filter(key => key.startsWith(KEY.signalPrefix)), now)
+  await dropStaleWorked($, keys.filter(key => key.startsWith(KEY.workedPrefix)), day)
   brain.peersSeenAt = now
   brain.earn = emptyEarn(day)
   const tallyKeys = keys.filter(key => key.startsWith(KEY.tallyPrefix))
@@ -391,6 +393,15 @@ async function dropStaleSignals($: $, keys: readonly string[], now: number): Pro
   for (const key of keys) {
     const value = await $.store.get(key)
     if (!isSignal(value) || !isAlive(value, now)) {
+      await $.store.delete(key)
+    }
+  }
+}
+
+async function dropStaleWorked($: $, keys: readonly string[], day: string): Promise<void> {
+  for (const key of keys) {
+    const value = await $.store.get(key)
+    if (!isWorked(value) || value.day !== day) {
       await $.store.delete(key)
     }
   }
@@ -1430,6 +1441,7 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
     await update($, countdownAtom, () => null)
   }
   await signalPeers($, brain, reason === 'aborted' ? 'idle' : 'done')
+  await noteWorked($, brain)
   if (reason !== 'answer' || usage === undefined) {
     act(brain, direct.flinch(), PRIORITY.reaction)
     return
@@ -1886,6 +1898,38 @@ export async function peersText($: $, brain: Brain): Promise<string> {
 const NO_PEER = '그런 번호의 옆 세션이 없어요. /toko sessions 로 번호를 확인해 주세요.'
 const TRANSCRIPT_TAIL_BYTES = 200_000
 
+async function excerptOf($: $, path: string): Promise<string> {
+  const tail = await $.process
+    .run(['tail', '-c', String(TRANSCRIPT_TAIL_BYTES), path], { timeoutMs: 2000 })
+    .then(result => result.stdout)
+    .catch(() => '')
+  return transcriptExcerpt(tail)
+}
+
+async function noteWorked($: $, brain: Brain): Promise<void> {
+  if (brain.transcriptPath === '') {
+    return
+  }
+  await $.store.set(`${KEY.workedPrefix}${brain.sessionId}`, { day: today(brain), label: brain.signal?.label ?? '', path: brain.transcriptPath, since: brain.signal?.since ?? brain.now })
+}
+
+export async function todaySessions($: $, brain: Brain): Promise<readonly string[]> {
+  const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.workedPrefix))
+  const worked = (await Promise.all(keys.map(key => $.store.get(key))))
+    .filter(isWorked)
+    .filter(session => session.day === today(brain))
+    .sort((a, b) => a.since - b.since)
+  const sessions = (await Promise.all(worked.map(async ({ label, path }) => ({ label, excerpt: await excerptOf($, path) })))).filter(session => session.excerpt !== '')
+  if (sessions.length === 0) {
+    return []
+  }
+  const reply = await ask($, brain, persona.sessionDayPrompt(sessions), 80 * sessions.length + 100, 15000, persona.peerSummarySystem)
+  return dayLines(
+    sessions.map(session => session.label),
+    reply ?? '',
+  )
+}
+
 export async function summarizePeer($: $, brain: Brain, index: number): Promise<string> {
   const peer = (await listPeers($, brain))[index - 1]
   if (peer === undefined) {
@@ -1896,11 +1940,7 @@ export async function summarizePeer($: $, brain: Brain, index: number): Promise<
   if (path === '') {
     return `${header}\n대화 기록 위치를 몰라서 요약은 못 했어요.`
   }
-  const tail = await $.process
-    .run(['tail', '-c', String(TRANSCRIPT_TAIL_BYTES), path], { timeoutMs: 2000 })
-    .then(result => result.stdout)
-    .catch(() => '')
-  const excerpt = transcriptExcerpt(tail)
+  const excerpt = await excerptOf($, path)
   if (excerpt === '') {
     return `${header}\n요약할 대화가 아직 없어요.`
   }

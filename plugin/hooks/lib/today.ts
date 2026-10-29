@@ -22,7 +22,7 @@ const joined = (parts: readonly (string | null)[]): string | null => {
 
 const times = (count: number, label: string, unit = '번'): string | null => (count > 0 ? `${label} ${count}${unit}` : null)
 
-export const todayText = (tally: TokoTally, now: number, memos: number): string => {
+export const todayText = (tally: TokoTally, now: number, memos: number, sessions: readonly string[] = []): string => {
   const count = (key: string): number => countOf(tally.counts, key)
   const date = new Date(now)
   const lines = [
@@ -34,5 +34,9 @@ export const todayText = (tally: TokoTally, now: number, memos: number): string 
     joined([times(count('break'), '휴식'), times(count('focus'), '집중')]),
     memos > 0 ? `남은 메모 ${memos}개` : null,
   ].filter((line): line is string => line !== null)
-  return [`${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdayOf(now)}) 토코 기록`, ...(lines.length === 0 ? ['아직 남은 기록이 없어요'] : lines).map(line => `- ${line}`)].join('\n')
+  return [
+    `${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdayOf(now)}) 토코 기록`,
+    ...(lines.length === 0 ? ['아직 남은 기록이 없어요'] : lines).map(line => `- ${line}`),
+    ...(sessions.length === 0 ? [] : ['세션별 한 일', ...sessions.map(line => `- ${line}`)]),
+  ].join('\n')
 }

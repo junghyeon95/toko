@@ -832,6 +832,50 @@ test('a session without a name signals under the AI title its tab shows', async 
   expect((world.saved['toko:signal:session-1'] as { label: string }).label).toBe('toko 세션 완료 알림 기능')
 })
 
+test('a session that knows its transcript keeps a record of today after each turn', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  on('classic.UserPromptSubmit', () => ({}) as never)
+  await begin($)
+  await runTurn($, clock, 400, 5000)
+  expect(world.store.has('toko:worked:session-1')).toBe(false)
+  await $.classic.UserPromptSubmit({ prompt: '배포 봐 줘', session_title: '배포 확인', transcript_path: '/work/session-1.jsonl' } as never)
+  await runTurn($, clock, 400, 5000)
+  expect(world.store.get('toko:worked:session-1')).toMatchObject({ day: '2026-10-29', label: '배포 확인', path: '/work/session-1.jsonl' })
+})
+
+test('a record from an earlier day is cleared when a session starts', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:worked:old': { day: '2026-10-28', label: '어제 일', path: '/work/old.jsonl', since: START - 86_400_000 } })
+  await begin($)
+  expect(world.store.has('toko:worked:old')).toBe(false)
+})
+
+test('/toko today adds one line per session worked today, in the order they started', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(
+    on,
+    {
+      'toko:pet': PET,
+      'toko:worked:b': { day: '2026-10-29', label: 'B', path: '/work/b.jsonl', since: START - 60_000 },
+      'toko:worked:a': { day: '2026-10-29', label: 'A', path: '/work/a.jsonl', since: START - 3_600_000 },
+      'toko:worked:c': { day: '2026-10-29', label: 'C', path: '/work/c.jsonl', since: START - 30_000 },
+    },
+    '1. 배포를 확인했어요\n2. 리뷰하는 중이에요',
+  )
+  const tail = '{"type":"user","message":{"role":"user","content":"봐 줘"}}\n'
+  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.at(-1) === '/work/c.jsonl' ? '' : tail, stderr: '' } }) as never)
+  await begin($)
+  world.store.set('toko:worked:y', { day: '2026-10-28', label: 'Y', path: '/work/y.jsonl', since: START - 86_400_000 })
+  const text = (await $.command.run({ command: 'toko', args: 'today' } as never)).text ?? ''
+  expect(text).toContain('세션별 한 일\n- 「A」 배포를 확인했어요\n- 「B」 리뷰하는 중이에요')
+  expect(text).not.toContain('「C」')
+  expect(text).not.toContain('「Y」')
+  expect(world.models.filter(prompt => prompt.includes('세션 여러 개')).length).toBe(1)
+  await $.command.run({ command: 'toko', args: 'ai off' } as never)
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text).toContain('세션별 한 일\n- 「A」\n- 「B」')
+})
+
 test('a long turn ending sends no OS notification, even with notify on', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET })

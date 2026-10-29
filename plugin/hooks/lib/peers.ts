@@ -18,6 +18,8 @@ export type PeerMessage = { text: string; from: string; at: number; replyTo?: st
 
 export type Peer = { key: string; signal: PeerSignal }
 
+export type WorkedSession = { day: string; label: string; path: string; since: number }
+
 export const ALIVE_MS = 3 * MINUTE
 const PROMPTS_IN_EXCERPT = 4
 const PROMPT_LENGTH = 300
@@ -47,6 +49,14 @@ export const isSignal = (value: unknown): value is PeerSignal => {
   }
   const raw = value as Record<string, unknown>
   return (raw.kind === 'idle' || raw.kind === 'working' || raw.kind === 'done' || raw.kind === 'waiting') && typeof raw.at === 'number' && typeof raw.label === 'string'
+}
+
+export const isWorked = (value: unknown): value is WorkedSession => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  const raw = value as Record<string, unknown>
+  return typeof raw.day === 'string' && typeof raw.label === 'string' && typeof raw.path === 'string' && raw.path !== '' && typeof raw.since === 'number'
 }
 
 export const isMessage = (value: unknown): value is PeerMessage => {
@@ -109,6 +119,16 @@ export const replyText = (from: string, answer: string): string => {
   const head = clip(lines.slice(0, REPLY_LINES).join('\n'), REPLY_LENGTH)
   const isCut = head !== lines.join('\n')
   return [`${labelName(from)} 답`, head, ...(isCut ? [`…(${[...whole].length.toLocaleString('en-US')}자 중 앞부분 · 전체는 그 세션에서)`] : [])].join('\n')
+}
+
+export const dayLines = (labels: readonly string[], reply: string): readonly string[] => {
+  const done = new Map(
+    reply.split('\n').flatMap(line => {
+      const match = /^\s*(\d+)[.)]\s*(.+)$/.exec(line)
+      return match?.[1] === undefined || match[2] === undefined ? [] : [[Number(match[1]), match[2].trim()] as const]
+    }),
+  )
+  return labels.map((label, index) => [labelName(label), done.get(index + 1)].filter(part => part !== undefined).join(' '))
 }
 
 const recordOf = (line: string): Record<string, unknown> | null => {
