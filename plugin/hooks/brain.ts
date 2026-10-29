@@ -1650,14 +1650,13 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
   brain.bonkRepeat = judgeRepeat($, brain, reason)
   remember(brain, 'bonk', reason, 2)
   await closeOffer($, brain)
-  const isRunning = brain.isTurnRunning
   const onHit = (): void => {
     void update($, ouchAtom, () => true)
     void say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'bonkHit', speciesOf(brain)))
     $.clock.after(3000, () => void update($, ouchAtom, () => false))
   }
   if (brain.scene !== null && !brain.isReducedMotion) {
-    perform(brain.scene, direct.bonk(brain.scene, isRunning, onHit), PRIORITY.show)
+    perform(brain.scene, direct.bonk(brain.scene, onHit), PRIORITY.show)
   } else {
     onHit()
   }

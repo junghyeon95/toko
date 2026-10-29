@@ -3,7 +3,7 @@ import type { TokoSpecies } from '../../types'
 import type { Random } from './random'
 import { pickWeighted } from './random'
 import type { Scene, Step, VisitTiming, Wear } from './scene'
-import { PET_WIDTH, addVisitor, centerX, placeProp, removeProp, rightX, spawn } from './scene'
+import { PET_WIDTH, addVisitor, centerX, placeProp, removeProp, spawn } from './scene'
 import type { EncounterKind, IdleAction } from './sim'
 
 export const PRIORITY = { idle: 0, reaction: 1, encounter: 2, event: 3, show: 4 } as const
@@ -144,20 +144,15 @@ export const apologyAccepted = (): Step[] => [
   },
 ]
 
-export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): Step[] => {
+export const bonk = (scene: Scene, onHit: () => void): Step[] => {
   const clawdX = scene.width - 13
-  const target = isTurnRunning ? rightX(scene) + 6 : clawdX - PET_WIDTH
   return [
     {
       pose: 'run',
       ms: 0,
-      toX: Math.max(0, target),
+      toX: Math.max(0, clawdX - PET_WIDTH),
       speed: 30,
-      enter: s => {
-        if (!isTurnRunning) {
-          placeProp(s, 'clawd', 'clawd', clawdX, 10, 9000)
-        }
-      },
+      enter: s => placeProp(s, 'clawd', 'clawd', clawdX, 10, 9000),
     },
     { pose: 'windup', ms: 400, dir: 1 },
     {
@@ -165,9 +160,7 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
       ms: 200,
       enter: s => {
         onHit()
-        if (!isTurnRunning) {
-          placeProp(s, 'clawd', 'clawd-squashed', clawdX, 10, 6000)
-        }
+        placeProp(s, 'clawd', 'clawd-squashed', clawdX, 10, 6000)
         for (let index = 0; index < 3; index += 1) {
           spawn(s, 'star', clawdX + 2 + index * 3, 3 - index, (index - 1) * 6, -6, 1100)
         }

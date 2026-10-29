@@ -146,9 +146,9 @@ test('a visiting friend keeps only the things toko knows how to draw, and shows 
   expect(colorsIn(canvas, Math.round(scene.x), Math.round(scene.x) + 16).has(CROWN)).toBe(false)
 })
 
-test('a bonk with no turn running sets Clawd down beside toko and squashes it on the hit', async () => {
+test('a bonk sets Clawd down beside toko and squashes it on the hit, turn or no turn', async () => {
   const scene = createScene(90, LOOK, () => [{ pose: 'idle', ms: 1000 }])
-  perform(scene, bonk(scene, false, () => {}), 3)
+  perform(scene, bonk(scene, () => {}), 3)
   const kinds: string[] = []
   for (let at = 0; at < 2500; at += 50) {
     tick(scene, 50, () => 0.5)
