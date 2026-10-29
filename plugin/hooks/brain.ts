@@ -48,7 +48,7 @@ import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, parseSnapshot, plazaEndpoint, shouldDismissVisitor, visitorOf, wireColor } from './lib/plaza'
+import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, shouldDismissVisitor, visitorOf, wireColor } from './lib/plaza'
 import type { PlazaAction, PlazaEvent, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
@@ -1704,6 +1704,7 @@ const plazaMe = (brain: Brain) => ({
   species: brain.pet?.bones.species ?? 'cat',
   mood: brain.mood,
   status: plazaStatus(brain),
+  sprite: lookSprite(lookOf(brain)),
 })
 
 export const isPlazaReady = (brain: Brain): boolean =>

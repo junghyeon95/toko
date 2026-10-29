@@ -6,7 +6,7 @@ import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perc
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
 import { freshSignal, lastAiTitle, signalLabel, signalParts } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
-import { parseSnapshot, plazaEndpoint } from '../hooks/lib/plaza'
+import { lookSprite, parseSnapshot, plazaEndpoint, spriteOf } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
@@ -329,6 +329,20 @@ test('plaza snapshots drop my own echo and anything malformed', async () => {
   expect(parseSnapshot('not json', 'me')).toBe(null)
   expect(plazaEndpoint('https://plaza.example/', '/v1/poll')).toBe('https://plaza.example/v1/poll')
   expect(plazaEndpoint('javascript:alert(1)', '/v1/poll')).toBe(null)
+})
+
+test('the plaza gets the pet’s own picture, one palette key per pixel', async () => {
+  const canvas = createCanvas(2, 1)
+  setPixel(canvas, 1, 1, hex('#FFDD99'))
+  expect(spriteOf(canvas)).toEqual({ palette: ['ffdd99'], rows: ['..', '.0'] })
+  const look: Look = { ...LOOK, bones: { seed: 7, species: 'fox' }, stage: 'adult', hat: 'crown' }
+  const sprite = lookSprite(look)
+  expect(sprite?.rows.length).toBe(BAND_ROWS * 2 + 2)
+  expect(sprite?.rows.filter(row => !/^[.0-9a-z]{20}$/.test(row))).toEqual([])
+  expect(sprite?.palette).toContain(hex(SPECIES_ART.fox.colors.b).toString(16).padStart(6, '0'))
+  expect(sprite?.palette).toContain(hex('#FFDD44').toString(16).padStart(6, '0'))
+  expect(lookSprite(look)).toBe(sprite)
+  expect(lookSprite({ ...look, mood: 'sleepy' })).not.toEqual(sprite)
 })
 
 test('the freshest signal of another session is picked, own and seen ones are not', async () => {

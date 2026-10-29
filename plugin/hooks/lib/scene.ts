@@ -4,7 +4,7 @@ import { rarityOf } from './pet'
 
 import type { Random } from './random'
 import type { Canvas, DrawOptions } from './raster'
-import { clear, drawGrid, setPixel } from './raster'
+import { clear, createCanvas, drawGrid, setPixel } from './raster'
 import type { Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
 import {
   BUBBLE,
@@ -551,7 +551,15 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   drawHammer(canvas, scene, frame.hammer, px, py, scale)
 }
 
-const critterGrid = (critter: { stand: Grid; step: Grid; fur: string }, pose: Pose, isMoving: boolean, clock: number): Grid => {
+const PORTRAIT_MARGIN = 2
+
+export const portraitOf = (look: Look): Canvas => {
+  const canvas = createCanvas(PET_WIDTH + PORTRAIT_MARGIN * 2, BAND_ROWS + 1)
+  paintPet(canvas, createScene(PET_WIDTH, look, () => []), 'idle', 0, PORTRAIT_MARGIN, PORTRAIT_MARGIN, 1)
+  return canvas
+}
+
+const critterGrid =(critter: { stand: Grid; step: Grid; fur: string }, pose: Pose, isMoving: boolean, clock: number): Grid => {
   if (pose === 'sleep') {
     return critter.stand.slice(0, -1).map(row => row.replaceAll('e', critter.fur))
   }

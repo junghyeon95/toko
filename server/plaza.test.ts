@@ -99,6 +99,33 @@ describe('plaza', () => {
     expect(html).not.toContain('<b>말랑')
   })
 
+  test('a pet’s own picture is drawn on the status page but not echoed to friends, and a broken one is dropped', async () => {
+    const plaza = createPlaza()
+    const sprite = { palette: ['332233', 'FFDD99'], rows: ['.00.', '0110', '.00.'] }
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), sprite }, since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: { ...me('bbbb2', '콩떡'), sprite: { palette: ['tomato'], rows: ['00'] } }, since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: { ...me('cccc3', '보들'), sprite: { palette: ['332233'], rows: ['01'] } }, since: 0 }))
+    expect(plaza.members.get('aaaa1')?.sprite).toEqual({ palette: ['332233', 'ffdd99'], rows: sprite.rows })
+    expect(plaza.members.get('bbbb2')?.sprite).toBe(undefined)
+    expect(plaza.members.get('cccc3')?.sprite).toBe(undefined)
+    const seen = await read(await plaza.handle(post('/v1/poll', { me: me('dddd4', '몽떡'), since: 0 })))
+    expect(seen.body.friends.filter((friend: { sprite?: unknown }) => friend.sprite !== undefined)).toEqual([])
+    const html = await (await plaza.handle(new Request('http://plaza.test/'))).text()
+    expect(html).toContain('viewBox="0 0 4 3"')
+    expect(html).toContain('<path fill="#ffdd99" d="M1 1h2v1h-2z"/>')
+    expect(html.match(/<svg /g)?.length).toBe(4)
+  })
+
+  test('the status page refreshes itself, keys pets without their plaza id, and greets an empty plaza', async () => {
+    const plaza = createPlaza()
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    const html = await (await plaza.handle(new Request('http://plaza.test/'))).text()
+    expect(html).toContain('setInterval')
+    expect(html).toMatch(/<li class="toko working" data-key="[0-9a-z]+" data-sig="[0-9a-z]+">/)
+    expect(html).not.toContain('aaaa1')
+    expect(await (await createPlaza().handle(new Request('http://plaza.test/'))).text()).toContain('아직 아무도 없어요')
+  })
+
   test('with an OAuth token, Claude Code writes the line, two at a time at most', async () => {
     const calls: string[][] = []
     let release: () => void = () => {}

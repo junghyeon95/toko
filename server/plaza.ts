@@ -3,7 +3,9 @@ export type Mood = 'excited' | 'calm' | 'sleepy' | 'worried' | 'sulky'
 export type Status = 'working' | 'resting' | 'idle' | 'away'
 export type Action = 'wave' | 'heart' | 'snack' | 'stretch-call' | 'cheer'
 
-export type Member = { id: string; name: string; color: Color; species?: string; mood: Mood; status: Status; lastSeen: number }
+export type Sprite = { palette: readonly string[]; rows: readonly string[] }
+
+export type Member = { id: string; name: string; color: Color; species?: string; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite }
 
 export type PlazaEvent = {
   id: string
@@ -30,6 +32,8 @@ const STATUSES: ReadonlySet<string> = new Set(['working', 'resting', 'idle', 'aw
 const ACTIONS: ReadonlySet<string> = new Set(['wave', 'heart', 'snack', 'stretch-call', 'cheer'])
 const FORBIDDEN = /(바보|멍청|병신|시발|씨발|ㅅㅂ|개새|꺼져|닥쳐|죽어|죽여|미친|한심|쓰레기)/
 const MAX_BODY = 4096
+const SPRITE_KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
+const MAX_SPRITE = 32
 
 export const FALLBACK_LINES: Readonly<Record<Action, readonly string[]>> = {
   wave: ['안녕! 잠깐 숨 돌리고 가', '여기도 열심히 하는 중이야. 같이 천천히 가자'],
@@ -65,6 +69,16 @@ export const sanitizeLine = (text: string | null): string | null => {
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 
+export const parseSprite = (value: unknown): Sprite | null => {
+  const raw = asRecord(value)
+  const palette: unknown[] = Array.isArray(raw?.palette) ? raw.palette : []
+  const rows: unknown[] = Array.isArray(raw?.rows) ? raw.rows : []
+  const keys = SPRITE_KEYS.slice(0, palette.length)
+  const isPalette = palette.length > 0 && palette.length <= SPRITE_KEYS.length && palette.every(color => typeof color === 'string' && /^[0-9a-f]{6}$/i.test(color))
+  const isRows = rows.length > 0 && rows.length <= MAX_SPRITE && rows.every(row => typeof row === 'string' && row.length <= MAX_SPRITE && [...row].every(char => char === '.' || keys.includes(char)))
+  return isPalette && isRows ? { palette: palette.map(color => String(color).toLowerCase()), rows: rows.map(String) } : null
+}
+
 export const parseMe = (value: unknown, now: number): Member | null => {
   const raw = asRecord(value)
   const id = clean(raw?.id, 64)
@@ -72,6 +86,7 @@ export const parseMe = (value: unknown, now: number): Member | null => {
     return null
   }
   const species = clean(raw.species, 16)
+  const sprite = parseSprite(raw.sprite)
   return {
     id,
     name: clean(raw.name, 12) || '친구',
@@ -80,8 +95,11 @@ export const parseMe = (value: unknown, now: number): Member | null => {
     mood: MOODS.has(String(raw.mood)) ? (raw.mood as Mood) : 'calm',
     status: STATUSES.has(String(raw.status)) ? (raw.status as Status) : 'idle',
     lastSeen: now,
+    ...(sprite === null ? {} : { sprite }),
   }
 }
+
+const friendOf = ({ sprite, ...friend }: Member): Omit<Member, 'sprite'> => friend
 
 const senderOf = (me: Member): PlazaEvent['from'] => ({ id: me.id, name: me.name, color: me.color, ...(me.species === undefined ? {} : { species: me.species }) })
 
@@ -131,20 +149,106 @@ export const dllmGenerator = (env: Readonly<Record<string, string | undefined>>,
   }
 }
 
-const COLOR_HEX: Readonly<Record<Color, string>> = { honey: '#FFDD99', mint: '#AAEECC', peach: '#FFBBAA', lavender: '#CCBBEE' }
+const COLOR_HEX: Readonly<Record<Color, string>> = { honey: 'ffdd99', mint: 'aaeecc', peach: 'ffbbaa', lavender: 'ccbbee' }
 const STATUS_LABEL: Readonly<Record<Status, string>> = { working: '일하는 중', resting: '쉬는 중', idle: '잠깐 멈춤', away: '자리 비움' }
+const PIXEL = 5
+
+const STAND_IN: readonly string[] = [
+  '................',
+  '....oooooooo....',
+  '..oobbbbbbbboo..',
+  '.obbbbbbbbbbbbo.',
+  '.obbbbbbbbbbbbo.',
+  'obbwebbbbbbwebbo',
+  'obbeebbbbbbeebbo',
+  'obpbbbbmmbbbbpbo',
+  'obbbbbbbbbbbbbbo',
+  'obbbbbbbbbbbbbbo',
+  '.obbbbbbbbbbbbo.',
+  '.obbbbbbbbbbbbo.',
+  '..obbbbbbbbbbo..',
+  '...oooooooooo...',
+  '...oo......oo...',
+  '................',
+]
+
+const STAND_IN_KEYS: Readonly<Record<string, string>> = { o: '0', b: '1', w: '2', e: '3', p: '4', m: '5' }
+
+const standIn = (color: Color): Sprite => ({
+  palette: ['332233', COLOR_HEX[color], 'ffffff', '221122', 'ff9999', '883344'],
+  rows: STAND_IN.map(row => row.replace(/[a-z]/g, key => STAND_IN_KEYS[key] ?? '.')),
+})
 
 const escapeHtml = (text: string): string => text.replace(/[&<>"']/g, char => `&#${char.charCodeAt(0)};`)
 
+const spriteSvg = (sprite: Sprite): string => {
+  const width = Math.max(...sprite.rows.map(row => row.length))
+  const paths = new Map<string, string>()
+  sprite.rows.forEach((row, y) => {
+    for (const run of row.matchAll(/([0-9a-z])\1*/g)) {
+      const color = sprite.palette[SPRITE_KEYS.indexOf(run[1] ?? '')] ?? '332233'
+      paths.set(color, `${paths.get(color) ?? ''}M${run.index ?? 0} ${y}h${run[0].length}v1h-${run[0].length}z`)
+    }
+  })
+  const shapes = [...paths].map(([color, d]) => `<path fill="#${color}" d="${d}"/>`).join('')
+  return `<svg viewBox="0 0 ${width} ${sprite.rows.length}" width="${width * PIXEL}" height="${sprite.rows.length * PIXEL}" shape-rendering="crispEdges" aria-hidden="true">${shapes}</svg>`
+}
+
+const hashOf = (text: string): string => {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < text.length; index += 1) {
+    hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0
+  }
+  return hash.toString(36)
+}
+
+const cardOf = (member: Member): string => {
+  const body = `<span class="bubble">놀러 왔어!</span>${spriteSvg(member.sprite ?? standIn(member.color))}<span class="name">${escapeHtml(member.name)}</span><small>${STATUS_LABEL[member.status]}</small>`
+  return `<li class="toko ${member.status}" data-key="${hashOf(member.id)}" data-sig="${hashOf(body)}">${body}</li>`
+}
+
+const STYLE = `:root{--bg:#fbf8f2;--ink:#2b2730;--muted:#6b6570;--ground:#eef3e1;--edge:#dbe6c6;--card:#fffdf8;--line:#e6e0d8}
+@media (prefers-color-scheme:dark){:root{--bg:#1f1d22;--ink:#eee;--muted:#b5b0ba;--ground:#3d4739;--edge:#4d5a48;--card:#2b2830;--line:#4a4650}}
+html{font-size:18px}body{font-family:'Noto Sans KR','Apple SD Gothic Neo',sans-serif;font-size:18px;margin:0;padding:32px 16px;background:var(--bg);color:var(--ink)}
+main{max-width:880px;margin:0 auto}h1{font-size:1.4rem;margin:0 0 4px}p{margin:0 0 20px;color:var(--muted)}
+#plaza{list-style:none;margin:0;padding:48px 12px 20px;display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:center;gap:44px 16px;min-height:150px;background:var(--ground);border:2px solid var(--edge);border-radius:16px}
+.toko{position:relative;display:flex;flex-direction:column;align-items:center;width:104px}
+.toko svg{display:block;animation:bob 2.4s ease-in-out infinite}.toko:nth-child(3n+2) svg{animation-delay:-.8s}.toko:nth-child(3n) svg{animation-delay:-1.6s}
+.name{max-width:100%;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem;font-weight:600}small{font-size:.75rem;color:var(--muted)}
+.away svg{opacity:.45;animation:none}
+.bubble{position:absolute;bottom:calc(100% + 2px);left:50%;transform:translateX(-50%);padding:3px 10px;border:2px solid var(--line);border-radius:12px;background:var(--card);white-space:nowrap;font-size:.75rem;opacity:0;pointer-events:none}
+.arrive{animation:arrive .6s cubic-bezier(.3,1.5,.5,1)}.arrive .bubble{animation:say 6s ease forwards}
+.empty{align-self:center;color:var(--muted)}.hint{margin:16px 0 0;font-size:.8rem}
+@keyframes bob{50%{transform:translateY(-3px)}}@keyframes arrive{from{opacity:0;transform:translateY(24px) scale(.6)}}@keyframes say{0%,80%{opacity:1}to{opacity:0}}
+@media (prefers-reduced-motion:reduce){.toko svg,.arrive{animation:none}}`
+
+const REFRESH = `setInterval(async () => {
+  try {
+    const response = await fetch(location.pathname, { cache: 'no-store' })
+    const next = new DOMParser().parseFromString(await response.text(), 'text/html')
+    const incoming = next.getElementById('plaza')
+    const plaza = document.getElementById('plaza')
+    if (!response.ok || incoming === null || plaza === null) return
+    const old = new Map([...plaza.children].map(node => [node.dataset.key, node]))
+    const wanted = [...incoming.children].map(node => {
+      const kept = old.get(node.dataset.key)
+      if (kept === undefined) node.classList.add('arrive')
+      return kept !== undefined && kept.dataset.sig === node.dataset.sig ? kept : node
+    })
+    for (const node of [...plaza.children]) if (!wanted.includes(node)) node.remove()
+    wanted.forEach((node, index) => { if (plaza.children[index] !== node) plaza.insertBefore(node, plaza.children[index] ?? null) })
+    document.getElementById('count').textContent = next.getElementById('count').textContent
+  } catch {}
+}, 5000)`
+
 export const statusPage = (members: readonly Member[]): string => {
-  const rows = members
-    .map(member => `<li><span class="dot" style="background:${COLOR_HEX[member.color]}"></span>${escapeHtml(member.name)}<small>${STATUS_LABEL[member.status]}</small></li>`)
-    .join('')
+  const cards = members.length === 0 ? '<li class="empty" data-key="empty" data-sig="empty">아직 아무도 없어요. 토코를 데리고 놀러 오세요</li>' : members.map(cardOf).join('')
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>토코 광장</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap">
-<style>html{font-size:18px}body{font-family:'Noto Sans KR','Apple SD Gothic Neo',sans-serif;font-size:18px;margin:0;padding:32px 16px;background:#fbf8f2;color:#2b2730}main{max-width:560px;margin:0 auto}h1{font-size:1.4rem;margin:0 0 4px}p{margin:0 0 20px;color:#6b6570}ul{list-style:none;padding:0;margin:0}li{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #e6e0d8}.dot{width:14px;height:14px;border:2px solid #332233}small{margin-left:auto;color:#6b6570}@media (prefers-color-scheme:dark){body{background:#1f1d22;color:#eee}p,small{color:#aaa}li{border-color:#3a3640}}</style></head>
-<body><main><h1>토코 광장</h1><p>지금 ${members.length}마리가 함께 쉬어 가는 중이에요.</p><ul>${rows}</ul></main></body></html>`
+<style>${STYLE}</style></head>
+<body><main><h1>토코 광장</h1><p id="count">지금 ${members.length}마리가 함께 쉬어 가는 중이에요.</p><ul id="plaza">${cards}</ul><p class="hint">Claude Code에서 토코를 켜 두면 이 광장에 들어와요. 화면은 5초마다 새로 고쳐요.</p></main>
+<script>${REFRESH}</script></body></html>`
 }
 
 export type Runner = (argv: readonly string[], timeoutMs: number) => Promise<string | null>
@@ -254,7 +358,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
     members.set(me.id, me)
-    const friends = [...members.values()].filter(member => member.id !== me.id).slice(0, 30)
+    const friends = [...members.values()].filter(member => member.id !== me.id).slice(0, 30).map(friendOf)
     const mine = events.filter(event => event.at > since && event.from.id !== me.id && (event.to === null || event.to === me.id)).slice(-20)
     return json(200, { now: at, friends, events: mine })
   }

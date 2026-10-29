@@ -400,8 +400,10 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })
   const calls: string[] = []
+  const bodies: string[] = []
   on('http.fetch', (_, e) => {
     calls.push(e.url)
+    bodies.push(e.init?.body ?? '')
     const body = JSON.stringify({
       now: START,
       friends: [{ id: 'f1', name: '콩떡', color: 'peach', species: 'fox', mood: 'calm', status: 'working', lastSeen: START }],
@@ -412,6 +414,8 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
   await begin($)
   await clock.advance(25_000)
   expect(calls.some(url => url === 'http://plaza.test/v1/poll')).toBe(true)
+  const me = JSON.parse(bodies[calls.indexOf('http://plaza.test/v1/poll')] ?? '{}').me
+  expect([me.name, me.species, me.sprite.rows.length, me.sprite.palette.length > 3]).toEqual(['말랑', 'penguin', 18, true])
   const status = await $.command.run({ command: 'toko', args: 'plaza' } as never)
   expect(status.text).toContain('콩떡 (여우')
   const sent = await $.command.run({ command: 'toko', args: 'plaza heart 콩떡' } as never)

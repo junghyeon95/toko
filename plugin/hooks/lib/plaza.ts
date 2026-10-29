@@ -1,6 +1,10 @@
 import type { TokoFriend, TokoMood, TokoSpecies, TokoVisitor } from '../../types'
 
 import { SPECIES, isSpecies } from './pet'
+import type { Canvas } from './raster'
+import { DEFAULT } from './raster'
+import type { Look } from './scene'
+import { portraitOf } from './scene'
 
 export const PLAZA_POLL_MS = 20_000
 export const FRIEND_TTL_MS = 90_000
@@ -38,6 +42,37 @@ const WIRE_COLOR: Readonly<Record<TokoSpecies, WireColor>> = {
 }
 
 export const wireColor = (species: TokoSpecies): WireColor => WIRE_COLOR[species]
+
+type PlazaSprite = { palette: readonly string[]; rows: readonly string[] }
+
+const SPRITE_KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
+
+export const spriteOf = (canvas: Canvas): PlazaSprite | null => {
+  const palette: string[] = []
+  const keyOf = (color: number): string => {
+    if (color === DEFAULT) {
+      return '.'
+    }
+    const value = color.toString(16).padStart(6, '0')
+    const index = palette.indexOf(value)
+    return SPRITE_KEYS[index < 0 ? palette.push(value) - 1 : index] ?? '.'
+  }
+  const rows = Array.from({ length: canvas.height }, (_, y) => Array.from(canvas.pixels.subarray(y * canvas.width, (y + 1) * canvas.width), keyOf).join(''))
+  return palette.length <= SPRITE_KEYS.length ? { palette, rows } : null
+}
+
+const sprites = new Map<string, PlazaSprite | null>()
+
+export const lookSprite = (look: Look): PlazaSprite | null => {
+  const key = [look.bones.species, look.stage, look.mood, look.hat, look.neck].join(':')
+  const cached = sprites.get(key)
+  if (cached !== undefined) {
+    return cached
+  }
+  const sprite = spriteOf(portraitOf(look))
+  sprites.set(key, sprite)
+  return sprite
+}
 
 export type PlazaEvent = {
   id: string
