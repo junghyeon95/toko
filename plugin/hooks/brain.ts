@@ -55,7 +55,7 @@ import type { Addition } from './lib/news'
 import type { Limit } from './lib/meter'
 import { addTurn, isWorked, workText } from './lib/today'
 import type { WorkedSession } from './lib/today'
-import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, matchPeers, missText, peerList, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
@@ -1647,6 +1647,7 @@ export async function toggleWear($: $, brain: Brain, id: string): Promise<void> 
 
 export async function startBonk($: $, brain: Brain, reason: string): Promise<string> {
   brain.budget = { ...brain.budget, bonks: brain.budget.bonks + 1 }
+  count(brain, 'bonk')
   if (balance(brain) >= SPEND.bonk) {
     brain.earn = { ...brain.earn, spent: brain.earn.spent + SPEND.bonk }
   }
@@ -1682,7 +1683,11 @@ async function judgeRepeat($: $, brain: Brain, reason: string): Promise<boolean>
     return false
   }
   const reply = await ask($, brain, repeatPrompt(text, past), 40, 4000, repeatSystem)
-  return (reply === null ? null : parseRepeat(reply)) ?? isSimilarReason(text, past)
+  const isRepeat = (reply === null ? null : parseRepeat(reply)) ?? isSimilarReason(text, past)
+  if (isRepeat) {
+    count(brain, 'bonk-repeat')
+  }
+  return isRepeat
 }
 
 async function reportBonk($: $, brain: Brain, reason: string): Promise<void> {
@@ -2466,7 +2471,6 @@ export async function peersText($: $, brain: Brain): Promise<string> {
   return sessionsText(await listPeers($, brain), brain.now)
 }
 
-const NO_PEER = '그런 번호의 옆 세션이 없어요. /toko sessions 로 번호를 확인해 주세요.'
 const TRANSCRIPT_TAIL_BYTES = 200_000
 
 async function excerptOf($: $, path: string): Promise<string> {
@@ -2499,10 +2503,11 @@ export async function todayWork($: $, brain: Brain): Promise<string> {
   return workText(brain.now, sessions, reply)
 }
 
-export async function summarizePeer($: $, brain: Brain, index: number): Promise<string> {
-  const peer = (await listPeers($, brain))[index - 1]
-  if (peer === undefined) {
-    return NO_PEER
+export async function summarizePeer($: $, brain: Brain, query: string): Promise<string> {
+  const matches = matchPeers(await listPeers($, brain), query)
+  const peer = matches[0]
+  if (matches.length !== 1 || peer === undefined) {
+    return missText(matches)
   }
   const header = sessionLine(peer.signal, brain.now)
   const path = peer.signal.path ?? ''
@@ -2524,10 +2529,11 @@ export async function summarizePeer($: $, brain: Brain, index: number): Promise<
 
 const messageId = (brain: Brain): string => `${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`
 
-export async function sendToPeer($: $, brain: Brain, index: number, text: string): Promise<string> {
-  const peer = (await listPeers($, brain))[index - 1]
-  if (peer === undefined) {
-    return NO_PEER
+export async function sendToPeer($: $, brain: Brain, query: string, text: string): Promise<string> {
+  const matches = matchPeers(await listPeers($, brain), query)
+  const peer = matches[0]
+  if (matches.length !== 1 || peer === undefined) {
+    return missText(matches)
   }
   const sessionId = peer.key.slice(KEY.signalPrefix.length)
   await $.store.set(`${inboxKeyPrefix(sessionId)}${messageId(brain)}`, { text, from: brain.signal?.label ?? '', at: brain.now, replyTo: brain.sessionId })

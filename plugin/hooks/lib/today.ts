@@ -36,6 +36,7 @@ export const todayText = (tally: TokoTally, now: number, memos: number): string 
     count('added') + count('removed') > 0 ? `코드 +${count('added')} / -${count('removed')}줄` : null,
     joined([times(count('turn'), 'Claude 턴'), tally.costUsd > 0 ? `비용 $${tally.costUsd.toFixed(2)}` : null]),
     joined([times(count('break'), '휴식'), times(count('focus'), '집중')]),
+    joined([times(count('bonk'), '뿅망치'), times(count('bonk-repeat'), '같은 잘못')]),
     memos > 0 ? `남은 메모 ${memos}개` : null,
   ].filter((line): line is string => line !== null)
   return [`${dateLabel(now)} 토코 기록`, ...(lines.length === 0 ? ['아직 남은 기록이 없어요'] : lines).map(line => `- ${line}`)].join('\n')

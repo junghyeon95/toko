@@ -129,7 +129,7 @@ test('the day sums up in a few lines, skipping what did not happen and keeping e
   const afternoon = new Date(2026, 9, 29, 14, 0).getTime()
   const tally = {
     day: '2026-10-29',
-    counts: { commit: 5, push: 2, merge: 1, 'test-pass': 7, 'test-fail': 3, added: 420, removed: 133, turn: 34, break: 4, focus: 2 },
+    counts: { commit: 5, push: 2, merge: 1, 'test-pass': 7, 'test-fail': 3, added: 420, removed: 133, turn: 34, break: 4, focus: 2, bonk: 3, 'bonk-repeat': 1 },
     notes: ['PR #12 created', 'PR #15 created', 'PR #12 merged'],
     costUsd: 4.123,
   }
@@ -141,6 +141,7 @@ test('the day sums up in a few lines, skipping what did not happen and keeping e
     '- 코드 +420 / -133줄',
     '- Claude 턴 34번 · 비용 $4.12',
     '- 휴식 4번 · 집중 2번',
+    '- 뿅망치 3번 · 같은 잘못 1번',
     '- 남은 메모 1개',
   ])
   expect(todayText(emptyTally('2026-10-29'), afternoon, 0)).toBe('10월 29일 (목) 토코 기록\n- 아직 남은 기록이 없어요')

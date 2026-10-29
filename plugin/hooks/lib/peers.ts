@@ -98,8 +98,22 @@ export const sessionsText = (peers: readonly Peer[], now: number): string =>
     : [
         `옆 세션 ${peers.length}개`,
         ...peers.flatMap(({ signal }, index) => [`${index + 1}. ${sessionLine(signal, now)}`, ...(signal.prompt === undefined || signal.prompt === '' ? [] : [`   마지막 질문: ${signal.prompt}`])]),
-        '/toko sessions <번호> 요약 · /toko send <번호> <내용> 보내기',
+        '/toko sessions <이름|번호> 요약 · /toko send <이름|번호> <내용> 보내기',
       ].join('\n')
+
+export const matchPeers = (peers: readonly Peer[], query: string): readonly Peer[] => {
+  if (/^\d+$/.test(query)) {
+    const peer = peers[Number(query) - 1]
+    return peer === undefined ? [] : [peer]
+  }
+  const needle = query.toLowerCase()
+  return peers.filter(({ signal }) => signal.label.toLowerCase().includes(needle))
+}
+
+export const missText = (matches: readonly Peer[]): string =>
+  matches.length === 0
+    ? '그런 옆 세션이 없어요. /toko sessions 로 이름과 번호를 확인해 주세요.'
+    : `${matches.map(({ signal }) => sessionName(signal)).join(', ')} 중 어느 세션인지 모르겠어요. 이름을 더 쓰거나 번호로 골라 주세요.`
 
 const clip = (text: string, length: number): string => [...text.trim()].slice(0, length).join('')
 

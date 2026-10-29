@@ -558,7 +558,7 @@ test('/toko sessions lists live sessions in the order they started, without itse
   await begin($)
   world.store.set('toko:signal:session-4', { kind: 'done', at: START - 10 * 60_000, label: '닫힌 세션', since: START - 100 * 60_000, aliveAt: START - 4 * 60_000 })
   const listed = await $.command.run({ command: 'toko', args: 'sessions' } as never)
-  expect(listed.text).toBe(['옆 세션 2개', '1. 「A」 작업 중 · 2분째', '   마지막 질문: 배포 로그 봐 줘', '2. 「B」 끝남 · 5분 전', '/toko sessions <번호> 요약 · /toko send <번호> <내용> 보내기'].join('\n'))
+  expect(listed.text).toBe(['옆 세션 2개', '1. 「A」 작업 중 · 2분째', '   마지막 질문: 배포 로그 봐 줘', '2. 「B」 끝남 · 5분 전', '/toko sessions <이름|번호> 요약 · /toko send <이름|번호> <내용> 보내기'].join('\n'))
 })
 
 test('/toko sessions with no other session says so', async ($, on) => {
@@ -582,6 +582,7 @@ test('/toko sessions <n> summarizes the end of that session’s transcript with 
   expect(world.systems.at(-1)).toContain('펫 말투 없이')
   await $.command.run({ command: 'toko', args: 'ai off' } as never)
   expect((await $.command.run({ command: 'toko', args: 'sessions 1' } as never)).text).toBe('「A」 작업 중 · 2분째\n요약은 못 했어요(작은 모델을 쓸 수 없어요).')
+  expect((await $.command.run({ command: 'toko', args: 'sessions a' } as never)).text).toBe('「A」 작업 중 · 2분째\n요약은 못 했어요(작은 모델을 쓸 수 없어요).')
 })
 
 test('/toko send leaves a message for that session, keeping its lines', async ($, on) => {
@@ -593,7 +594,28 @@ test('/toko send leaves a message for that session, keeping its lines', async ($
   const keys = [...world.store.keys()].filter(key => key.startsWith('toko:inbox:session-3:'))
   expect(keys.length).toBe(1)
   expect(world.store.get(keys[0] ?? '')).toMatchObject({ text: '로그도\n같이 봐 줘', replyTo: 'session-1' })
-  expect((await $.command.run({ command: 'toko', args: 'send 9 아무거나' } as never)).text).toContain('그런 번호의 옆 세션이 없어요')
+  expect((await $.command.run({ command: 'toko', args: 'send 9 아무거나' } as never)).text).toBe('그런 옆 세션이 없어요. /toko sessions 로 이름과 번호를 확인해 주세요.')
+})
+
+test('/toko send picks the session by part of its tab name, in any case', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { ...PEER_B, label: 'Deploy 배포' }, 'toko:signal:session-3': { ...PEER_A, label: 'Review 리뷰' } })
+  await begin($)
+  const sent = await $.command.run({ command: 'toko', args: 'send review 로그 봐 줘' } as never)
+  expect(sent.text).toBe('「Review 리뷰」에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.')
+  const inbox = (id: string) => [...world.store.keys()].filter(key => key.startsWith(`toko:inbox:${id}:`))
+  expect(inbox('session-3').length).toBe(1)
+  expect(world.store.get(inbox('session-3')[0] ?? '')).toMatchObject({ text: '로그 봐 줘' })
+  expect(inbox('session-2').length).toBe(0)
+})
+
+test('/toko send sends nothing when the name fits several sessions or none', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { ...PEER_B, label: '배포 확인' }, 'toko:signal:session-3': { ...PEER_A, label: '배포 롤백' } })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'send 배포 로그 봐 줘' } as never)).text).toBe('「배포 롤백」, 「배포 확인」 중 어느 세션인지 모르겠어요. 이름을 더 쓰거나 번호로 골라 주세요.')
+  expect((await $.command.run({ command: 'toko', args: 'send 리뷰 로그 봐 줘' } as never)).text).toBe('그런 옆 세션이 없어요. /toko sessions 로 이름과 번호를 확인해 주세요.')
+  expect([...world.store.keys()].filter(key => key.startsWith('toko:inbox:')).length).toBe(0)
 })
 
 test('a message from another session is sent as the user and the pet says where it came from', async ($, on) => {

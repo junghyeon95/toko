@@ -30,6 +30,8 @@ export type StatKey =
   | 'encounter'
   | 'shiny'
   | 'memo'
+  | 'bonk'
+  | 'bonk-repeat'
 
 export const emptyTally = (day: string): TokoTally => ({ day, counts: {}, notes: [], costUsd: 0 })
 

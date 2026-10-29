@@ -391,6 +391,8 @@ test('a /bonk for the same kind of mistake as before asks Claude to keep it in a
   expect(world.submitted.at(-1)).toContain(MEMORY_ASK)
   expect(await said($, /또 같은 일이라 기억해 두라고 했어/)).toBe(true)
   expect((world.saved['toko:bonks'] as { reason: string }[]).map(entry => entry.reason)).toEqual(['테스트 지우지 말랬잖아', '또 테스트를 지웠네'])
+  await end($)
+  expect((world.saved['toko:tally:session-1'] as { counts: Record<string, number> }).counts).toMatchObject({ bonk: 1, 'bonk-repeat': 1 })
 })
 
 test('a first or a different complaint is fixed and forgiven without touching memory', OFFLINE, async ($, on) => {
@@ -405,6 +407,9 @@ test('a first or a different complaint is fixed and forgiven without touching me
   expect(world.submitted.length).toBe(2)
   expect(world.submitted.some(text => text.includes('auto memory'))).toBe(false)
   expect(await said($, /기억해 두라고 했어/)).toBe(false)
+  await end($)
+  const counts = (world.saved['toko:tally:session-1'] as { counts: Record<string, number> }).counts
+  expect([counts.bonk, counts['bonk-repeat']]).toEqual([2, undefined])
 })
 
 test('with the small model off, a near-identical reason still counts as the same mistake', OFFLINE, async ($, on) => {

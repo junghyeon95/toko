@@ -369,8 +369,8 @@ export const HELP = [
   '/toko ai on | off — 작은 모델 쓰기',
   '/toko notify on | off — 집중이 끝나면 OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
-  '/toko sessions [번호] — 옆 세션 목록 · 번호를 주면 그 세션 요약',
-  '/toko send <번호> <내용> — 옆 세션에 보내기 · 그 세션이 일하는 중이면 끝난 뒤 보내기',
+  '/toko sessions [이름|번호] — 옆 세션 목록 · 탭 이름 일부나 번호를 주면 그 세션 요약',
+  '/toko send <이름|번호> <내용> — 탭 이름 일부나 번호로 고른 옆 세션에 보내기 · 그 세션이 일하는 중이면 끝난 뒤 보내기',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
@@ -519,7 +519,7 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<Command
   return (await subcommand($, ctx, args)) ?? chatCommand($, ctx, args.trim())
 }
 
-const SEND = /^\s*send\s+(\d+)\s+([\s\S]+)$/
+const SEND = /^\s*send\s+(\S+)\s+([\s\S]+)$/
 
 export async function commandTool($: $, ctx: Ctx, args: string): Promise<string> {
   if (/^\s*send(\s|$)/.test(args)) {
@@ -667,11 +667,11 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       return { text: `${kind} 이벤트를 띄웠어요.` }
     }
     case 'sessions':
-      return { text: value === undefined ? await peersText($, brain) : await summarizePeer($, brain, Number(value)) }
+      return { text: value === undefined ? await peersText($, brain) : await summarizePeer($, brain, value) }
     case 'send': {
       const match = SEND.exec(args)
       const text = match?.[2]?.trim() ?? ''
-      return match === null || text === '' ? { text: '예: /toko send 2 로그도 같이 봐 줘' } : { text: await sendToPeer($, brain, Number(match[1]), text) }
+      return match === null || text === '' ? { text: '예: /toko send 배포 로그도 같이 봐 줘' } : { text: await sendToPeer($, brain, match[1] ?? '', text) }
     }
     case 'feed':
       return { text: await feedCommand($, ctx) }
