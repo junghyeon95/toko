@@ -14,7 +14,7 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .tag,.say{position:absolute;left:0;top:0;font-size:calc(11px*var(--u));line-height:1.3}
 .tag{white-space:nowrap;padding:calc(1px*var(--u)) calc(5px*var(--u)) calc(2px*var(--u));border:calc(2px*var(--u)) solid var(--ink);border-radius:calc(4px*var(--u));background:#fffaf0;box-shadow:0 calc(2px*var(--u)) 0 rgba(61,51,70,.3)}
 .tag i{margin-left:calc(4px*var(--u));font-style:normal;color:#8a7f96}
-.tag.working i{color:#2e8b57}.tag.resting i{color:#3b6fc4}.tag.away{opacity:.8}
+.tag.excited i{color:#e0578f}.tag.sleepy i{color:#3b6fc4}.tag.worried i{color:#c27c1a}.tag.sulky i{color:#7a6b8a}
 .say{width:max-content;max-width:calc(160px*var(--u));padding:calc(3px*var(--u)) calc(7px*var(--u)) calc(4px*var(--u));border:calc(2px*var(--u)) solid var(--ink);border-radius:calc(6px*var(--u));background:#fff;text-align:center;word-break:keep-all;animation:pop .3s steps(3)}
 .say::after{content:'';position:absolute;left:50%;bottom:calc(-10px*var(--u));margin-left:calc(-5px*var(--u));border:calc(5px*var(--u)) solid transparent;border-top-color:var(--ink)}
 .sign{position:fixed;left:20px;top:20px;margin:0;padding:10px 16px 12px;background:#c98b55;color:#fff6e6;box-shadow:0 -4px 0 #5a3420,0 4px 0 #5a3420,-4px 0 0 #5a3420,4px 0 0 #5a3420,inset 0 -4px 0 #a86b3c,inset 0 4px 0 #dfa577}
@@ -46,7 +46,7 @@ const ctx = canvas.getContext('2d')
 const labels = $('labels')
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches
 const forcedHour = new URLSearchParams(location.search).get('hour')
-const STATUS = { working: '일하는 중', resting: '쉬는 중', idle: '잠깐 멈춤', away: '자리 비움' }
+const MOOD = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
 const SAY = { wave: '안녕! 잠깐 쉬어 가', heart: '하트 보낼게', snack: '간식 나눠 먹자', 'stretch-call': '다 같이 기지개 켜자!', cheer: '응원해!' }
 const KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
 const INK = '#3d3346'
@@ -106,6 +106,7 @@ const FX = {
   star: art(['..y..', '.yYy.', 'yYYYy', '.yYy.', '.y.y.'], { y: '#ffc93c', Y: '#fff3b0' }),
   note: art(['..kk', '..k.', '..k.', 'kkk.', 'kk..'], { k: '#ff7fb0' }),
   z: art(['zzz', '..z', '.z.', 'z..', 'zzz'], { z: '#7f93d6' }),
+  drop: art(['.b.', 'bBb', 'bbb', '.b.'], { b: '#6fb7e8', B: '#d6efff' }),
   cookie: art(['.gg.', 'gGgg', 'ggGg', '.gg.'], { g: '#d8954a', G: '#7a4a2a' }),
   spark: art(['.Y.', 'YYY', '.Y.'], { Y: '#fff6b8' }),
   crumb: art(['gG', 'Gg'], { g: '#d8954a', G: '#7a4a2a' }),
@@ -399,11 +400,11 @@ const say = (pet, text, seconds) => {
 
 const dress = (pet, data) => {
   pet.name = data.name
-  pet.status = data.status
-  pet.tag.className = `tag ${data.status}`
+  pet.mood = MOOD[data.mood] === undefined ? 'calm' : data.mood
+  pet.tag.className = `tag ${pet.mood}`
   pet.tag.textContent = data.name
   const state = document.createElement('i')
-  state.textContent = STATUS[data.status] ?? ''
+  state.textContent = MOOD[pet.mood]
   pet.tag.append(state)
   const look = JSON.stringify(data.sprite)
   if (look !== pet.look) {
@@ -606,7 +607,7 @@ const step = (pet, dt) => {
   if (target !== undefined) {
     const [dx, dy] = [target.x - pet.x, target.y - pet.y]
     const distance = Math.hypot(dx, dy)
-    const speed = pet.mode === 'visit' ? VISIT_SPEED : (pet.mode === 'idle' ? 14 : 18) * (pet.status === 'resting' ? 0.7 : 1)
+    const speed = pet.mode === 'visit' ? VISIT_SPEED : (pet.mode === 'idle' ? 14 : 18) * (pet.mood === 'sleepy' ? 0.7 : pet.mood === 'excited' ? 1.2 : 1)
     if (Math.abs(dx) > 0.5) pet.dir = dx < 0 ? -1 : 1
     if (distance <= speed * dt) {
       pet.x = target.x
@@ -650,7 +651,7 @@ const step = (pet, dt) => {
   const isCrowded = [...pets.values()].some(other => other !== pet && other.route.length === 0 && Math.abs(other.x - pet.x) < 14 && Math.abs(other.y - pet.y) < 6)
   if (isCrowded && pet.wait > 0.6) pet.wait = 0.6
   pet.wait -= dt
-  if (pet.wait <= 0 && pet.status !== 'away' && !still) {
+  if (pet.wait <= 0 && !still) {
     const friends = [...pets.values()].filter(other => other !== pet && other.mode === 'idle')
     const friend = Math.random() < 0.3 ? friends[Math.floor(Math.random() * friends.length)] : undefined
     const nearFriend = () => ({ x: friend.x + (Math.random() < 0.5 ? -1 : 1) * between(19, 24), y: friend.y + between(-2, 2) })
@@ -661,8 +662,9 @@ const step = (pet, dt) => {
   pet.nextFx -= dt
   if (pet.nextFx <= 0) {
     pet.nextFx = between(1.2, 2.6)
-    if (pet.status === 'away') emit('z', pet.x + 5, pet.y - pet.art.tall)
-    if (pet.status === 'resting') emit('note', pet.x + 4, pet.y - pet.art.tall)
+    if (pet.mood === 'sleepy') emit('z', pet.x + 5, pet.y - pet.art.tall)
+    if (pet.mood === 'excited') emit('note', pet.x + 4, pet.y - pet.art.tall)
+    if (pet.mood === 'worried') emit('drop', pet.x + 5, pet.y - pet.art.tall)
   }
   return true
 }
@@ -670,10 +672,10 @@ const step = (pet, dt) => {
 const drawPet = pet => {
   const { image, w, feet } = pet.art
   const isMoving = pet.route.length > 0
-  const bob = still || pet.status === 'away' ? 0 : isMoving ? Math.floor(clock * 7 + pet.phase) % 2 : Math.floor(clock * 1.6 + pet.phase) % 2
+  const bob = still ? 0 : isMoving ? Math.floor(clock * 7 + pet.phase) % 2 : Math.floor(clock * 1.6 + pet.phase) % 2
   const hop = pet.hopUntil > clock ? Math.round(4 * Math.abs(Math.sin((pet.hopUntil - clock) * Math.PI * 2.5))) : 0
   oval(ctx, pet.x, pet.y + 1, 6, 2, 'rgba(61,51,70,.22)')
-  const [left, top] = [Math.round(pet.x - w / 2), Math.round(pet.y) - feet - bob - hop + (pet.status === 'away' ? 1 : 0)]
+  const [left, top] = [Math.round(pet.x - w / 2), Math.round(pet.y) - feet - bob - hop]
   if (pet.dir < 0) {
     ctx.save()
     ctx.translate(left + w, top)
@@ -688,12 +690,6 @@ const drawPet = pet => {
     const [hx, hy] = [Math.round(pet.x + pet.dir * (w / 2 - 2 + swing * 2)) - Math.floor(hand.width / 2), Math.round(pet.y) - pet.art.tall - bob - hop - 3]
     ctx.drawImage(hand, hx, hy)
     box(ctx, swing === 1 ? hx + hand.width + 1 : hx - 2, hy + 1, 1, 2, INK)
-  }
-  if (pet.status === 'working' && !isMoving && pet.act === null && !isWaving) {
-    const [bx, by] = [Math.round(pet.x + 5), Math.round(pet.y) - pet.art.tall - 7]
-    box(ctx, bx, by, 11, 6, INK)
-    box(ctx, bx + 1, by + 1, 9, 4, '#ffffff')
-    for (let i = 0; i < 3; i += 1) box(ctx, bx + 2 + i * 3, by + 2, 1, 2, Math.floor(clock * 3) % 3 === i ? INK : '#b9b2c2')
   }
 }
 

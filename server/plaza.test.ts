@@ -131,14 +131,14 @@ describe('plaza', () => {
     const hat = { palette: ['332233'], rows: ['00', '00'] }
     const bare = { palette: ['332233'], rows: ['..', '00'] }
     const view = async () => (await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.pets[0]
-    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'one', status: 'working', sprite: hat }, since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'one', status: 'working', mood: 'excited', sprite: hat }, since: 0 }))
     clock += 5_000
-    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'two', status: 'away', sprite: bare }, since: 0 }))
-    expect([(await view()).status, (await view()).sprite.rows]).toEqual(['working', hat.rows])
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'two', status: 'away', mood: 'sleepy', sprite: bare }, since: 0 }))
+    expect([(await view()).mood, (await view()).sprite.rows]).toEqual(['excited', hat.rows])
     expect(plaza.members.size).toBe(1)
     clock += 50_000
-    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'two', status: 'away', sprite: bare }, since: 0 }))
-    expect([(await view()).status, (await view()).sprite.rows]).toEqual(['away', bare.rows])
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'two', status: 'away', mood: 'sleepy', sprite: bare }, since: 0 }))
+    expect([(await view()).mood, (await view()).sprite.rows]).toEqual(['sleepy', bare.rows])
   })
 
   test('a wave carries what the sender wears, and odd values are dropped', async () => {

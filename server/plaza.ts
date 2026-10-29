@@ -207,7 +207,7 @@ export const dllmGenerator = (env: Readonly<Record<string, string | undefined>>,
 }
 
 const COLOR_HEX: Readonly<Record<Color, string>> = { honey: 'ffdd99', mint: 'aaeecc', peach: 'ffbbaa', lavender: 'ccbbee' }
-const STATUS_LABEL: Readonly<Record<Status, string>> = { working: '일하는 중', resting: '쉬는 중', idle: '잠깐 멈춤', away: '자리 비움' }
+const MOOD_LABEL: Readonly<Record<Mood, string>> = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
 
 const STAND_IN: readonly string[] = [
   '................',
@@ -247,7 +247,7 @@ const hashOf = (text: string): string => {
 
 export type PlazaView = {
   now: number
-  pets: { key: string; name: string; status: Status; mood: Mood; sprite: Sprite }[]
+  pets: { key: string; name: string; mood: Mood; sprite: Sprite }[]
   events: { key: string; at: number; kind: Action; from: string; to: string | null; line: string }[]
   bonks: BonkBoard
 }
@@ -255,7 +255,7 @@ export type PlazaView = {
 export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS): PlazaView => ({
   now,
   bonks,
-  pets: members.map(member => ({ key: hashOf(member.id), name: member.name, status: member.status, mood: member.mood, sprite: member.sprite ?? standIn(member.color) })),
+  pets: members.map(member => ({ key: hashOf(member.id), name: member.name, mood: member.mood, sprite: member.sprite ?? standIn(member.color) })),
   events: events
     .flatMap(event => (event.kind === 'join' ? [] : [{ key: hashOf(event.id), at: event.at, kind: event.kind, from: hashOf(event.from.id), to: event.to === null ? null : hashOf(event.to), line: event.line }]))
     .slice(-20),
@@ -264,7 +264,7 @@ export const plazaView = (members: readonly Member[], events: readonly PlazaEven
 const PAGE = await Bun.file(`${import.meta.dir}/page.html`).text()
 
 export const statusPage = (view: PlazaView): string => {
-  const roster = view.pets.map(pet => `<li>${escapeHtml(pet.name)} · ${STATUS_LABEL[pet.status]}</li>`).join('')
+  const roster = view.pets.map(pet => `<li>${escapeHtml(pet.name)} · ${MOOD_LABEL[pet.mood]}</li>`).join('')
   return PAGE.replace('{{count}}', () => String(view.pets.length))
     .replace('{{empty}}', () => (view.pets.length === 0 ? '' : 'hidden'))
     .replace('{{roster}}', () => roster || '<li>아직 아무도 없어요</li>')
