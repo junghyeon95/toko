@@ -24,6 +24,7 @@ import {
   chatAnswered,
   chatStarted,
   choose,
+  commandTool,
   createCtx,
   drawFromRoom,
   feedCommand,
@@ -35,7 +36,6 @@ import {
   memoDrop,
   memoFill,
   permissionAsked,
-  petCommand,
   petStatus,
   pickPet,
   playCommand,
@@ -159,7 +159,7 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'mcp__toko__apologize' }, async $ => ({ result: await apologized($, ctx) })).catch(() => ({ result: 'Toko heard the apology.' }))
 
-  on('tool.call', { tool: 'mcp__toko__command' }, async ($, e) => ({ result: await petCommand($, ctx, String((e as { args?: unknown }).args ?? '')) })).catch(() => ({ result: 'Toko could not do that right now.' }))
+  on('tool.call', { tool: 'mcp__toko__command' }, async ($, e) => ({ result: await commandTool($, ctx, String((e as { args?: unknown }).args ?? '')) })).catch(() => ({ result: 'Toko could not do that right now.' }))
 
   on('session.measure', async ($, e, next) => {
     await measured($, ctx, e.context.percent, e.rateLimits, e.cost?.usd)

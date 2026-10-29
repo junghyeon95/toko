@@ -1,4 +1,4 @@
-import type { EngineInterface } from 'claude-code'
+import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
@@ -360,6 +360,24 @@ async function changeSettings($: $, brain: Brain, change: Partial<TokoSettings>,
   return { text: reply }
 }
 
+type ToggleWord = 'ai' | 'notify' | 'peers' | 'meter' | 'mood-sense'
+
+type Toggle = { key: 'isAiOn' | 'isNotifyOn' | 'isPeersOn' | 'isMeterOn' | 'isMoodSensing'; example: 'on' | 'off'; on: string; off: string }
+
+const TOGGLES: Readonly<Record<ToggleWord, Toggle>> = {
+  ai: { key: 'isAiOn', example: 'off', on: '작은 모델로 생각할게요.', off: '규칙과 준비된 말로만 움직일게요.' },
+  notify: { key: 'isNotifyOn', example: 'on', on: '집중이 끝나면 OS 알림을 하루 3번까지 보낼게요.', off: 'OS 알림을 껐어요.' },
+  peers: { key: 'isPeersOn', example: 'off', on: '옆 세션 소식을 전할게요.', off: '옆 세션 소식은 전하지 않을게요.' },
+  meter: { key: 'isMeterOn', example: 'off', on: '띠에 컨텍스트·비용·한도를 보여 줄게요.', off: '미터를 껐어요.' },
+  'mood-sense': { key: 'isMoodSensing', example: 'on', on: '프롬프트 분위기를 살필게요(원문은 저장하지 않아요).', off: '분위기 살피기를 껐어요.' },
+}
+
+async function toggleSetting($: $, brain: Brain, word: ToggleWord, value: string | undefined): Promise<{ text: string }> {
+  const toggle = TOGGLES[word]
+  const isOn = onOff(value)
+  return isOn === null ? { text: `예: /toko ${word} ${toggle.example}` } : changeSettings($, brain, { [toggle.key]: isOn }, isOn ? toggle.on : toggle.off)
+}
+
 const badgeLine = (brain: Brain): string => {
   const badges = progressOf(brain).badges
   const unlocked = badges.filter(badge => badge.at !== null).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
@@ -441,11 +459,11 @@ export async function openRoom($: $, ctx: Ctx): Promise<string> {
   return opened.isPlaced ? '토코의 방을 열었어요.' : `방을 열 자리가 없어요: ${opened.reason}`
 }
 
-export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text?: string; context?: readonly string[] }> {
+export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<CommandRunResult> {
   return (await subcommand($, ctx, args)) ?? chatCommand($, ctx, args.trim())
 }
 
-export async function petCommand($: $, ctx: Ctx, args: string): Promise<string> {
+export async function commandTool($: $, ctx: Ctx, args: string): Promise<string> {
   return (await subcommand($, ctx, args))?.text ?? `그런 명령은 없어요. 쓸 수 있는 명령:\n${HELP}`
 }
 
@@ -492,30 +510,12 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       const hour = Number(value)
       return Number.isInteger(hour) && hour >= 0 && hour < 24 ? changeSettings($, brain, { offWorkHour: hour }, `${hour}시가 지나면 마무리 정리를 권할게요.`) : { text: '예: /toko off-work 19' }
     }
-    case 'ai': {
-      const toggle = onOff(value)
-      return toggle === null ? { text: '예: /toko ai off' } : changeSettings($, brain, { isAiOn: toggle }, toggle ? '작은 모델로 생각할게요.' : '규칙과 준비된 말로만 움직일게요.')
-    }
-    case 'notify': {
-      const toggle = onOff(value)
-      return toggle === null ? { text: '예: /toko notify on' } : changeSettings($, brain, { isNotifyOn: toggle }, toggle ? '집중이 끝나면 OS 알림을 하루 3번까지 보낼게요.' : 'OS 알림을 껐어요.')
-    }
-    case 'peers': {
-      const toggle = onOff(value)
-      return toggle === null ? { text: '예: /toko peers off' } : changeSettings($, brain, { isPeersOn: toggle }, toggle ? '옆 세션 소식을 전할게요.' : '옆 세션 소식은 전하지 않을게요.')
-    }
-    case 'meter': {
-      const toggle = onOff(value)
-      return toggle === null
-        ? { text: '예: /toko meter off' }
-        : changeSettings($, brain, { isMeterOn: toggle }, toggle ? '띠에 컨텍스트·비용·한도를 보여 줄게요.' : '미터를 껐어요.')
-    }
-    case 'mood-sense': {
-      const toggle = onOff(value)
-      return toggle === null
-        ? { text: '예: /toko mood-sense on' }
-        : changeSettings($, brain, { isMoodSensing: toggle }, toggle ? '프롬프트 분위기를 살필게요(원문은 저장하지 않아요).' : '분위기 살피기를 껐어요.')
-    }
+    case 'ai':
+    case 'notify':
+    case 'peers':
+    case 'meter':
+    case 'mood-sense':
+      return toggleSetting($, brain, sub, value)
     case 'shop':
       return { text: shopText(brain) }
     case 'buy':
@@ -603,7 +603,7 @@ const chatBrief = (brain: Brain): string => {
   ].join('\n')
 }
 
-async function chatCommand($: $, ctx: Ctx, words: string): Promise<{ text?: string; context?: readonly string[] }> {
+async function chatCommand($: $, ctx: Ctx, words: string): Promise<CommandRunResult> {
   const brain = ctx.brain
   if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
     return { text: '아직 알이에요. 깨어나면 이야기해요.' }

@@ -177,8 +177,6 @@ export const resize = (scene: Scene, width: number): void => {
 
 export const centerX = (scene: Scene): number => Math.max(0, Math.round(scene.width / 2 - PET_WIDTH / 2))
 export const rightX = (scene: Scene): number => Math.max(0, scene.width - PET_WIDTH - 10)
-export const isOffstage = (scene: Scene): boolean => scene.x <= -PET_WIDTH || scene.x >= scene.width
-
 export const perform = (scene: Scene, steps: readonly Step[], priority: number): void => {
   const currentPriority = scene.current?.priority ?? 0
   if (priority >= currentPriority) {

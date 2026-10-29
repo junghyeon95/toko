@@ -39,8 +39,6 @@ const WIRE_COLOR: Readonly<Record<TokoSpecies, WireColor>> = {
 
 export const wireColor = (species: TokoSpecies): WireColor => WIRE_COLOR[species]
 
-export type PlazaMe = { id: string; name: string; color: WireColor; species: TokoSpecies; mood: TokoMood; status: PlazaStatus }
-
 export type PlazaEvent = {
   id: string
   at: number

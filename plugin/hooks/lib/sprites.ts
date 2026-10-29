@@ -397,8 +397,6 @@ export const EGG_CRACK: Grid = [
   '..oooooo..',
 ]
 
-export const EGG_SHELL: Grid = ['oEEo..oEEo', 'oEEEooEEEo', '.oooooooo.']
-
 export const HAMMER_UP: Grid = ['rRRRr', 'RRRRR', 'rRRRr', '..h..', '..h..', '..h..']
 export const HAMMER_DOWN: Grid = ['..h..', '..h..', '..h..', 'rRRRr', 'RRRRR', 'rRRRr']
 export const HAMMER_SIDE: Grid = ['.rRr...', 'RRRRhhh', '.rRr...']

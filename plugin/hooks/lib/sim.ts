@@ -70,8 +70,6 @@ export type OfferKind =
   | 'plaza-stretch'
   | 'focus-break'
 
-export const OFFER_KINDS: readonly OfferKind[] = ['stretch', 'eye-rest', 'water', 'nap', 'briefing', 'unstick', 'wrapup', 'gift', 'bugs', 'chat', 'calm-down', 'plaza-stretch', 'focus-break']
-
 export const BREAK_KINDS: ReadonlySet<string> = new Set(['stretch', 'eye-rest', 'water', 'nap', 'unstick', 'calm-down', 'plaza-stretch', 'focus-break'])
 
 export type SimContext = {

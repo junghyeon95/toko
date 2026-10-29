@@ -178,8 +178,6 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
   ]
 }
 
-export const ENCOUNTER_MS = 9000
-
 export const encounter = (scene: Scene, kind: EncounterKind, random: Random): Step[] => {
   const width = scene.width
   switch (kind) {
