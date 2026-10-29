@@ -12,13 +12,13 @@ import {
   BUBBLE,
   BUG,
   BUTTERFLY,
+  CLAWD,
+  CLAWD_SQUASHED,
   CLOUD,
   COIN,
   CRITTERS,
   CRUMB,
   CUP,
-  DOLL,
-  DOLL_SQUASHED,
   DROP,
   EGG,
   EGG_CRACK,
@@ -96,7 +96,7 @@ export type EffectKind = 'z' | 'heart' | 'star' | 'coin' | 'sparkle' | 'note' | 
 
 export type Effect = { kind: EffectKind; x: number; y: number; vx: number; vy: number; until: number; born: number; gravity: number }
 
-export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' | 'umbrella' | 'cloud' | 'sprout' | 'can' | 'bug' | 'pumpkin' | 'boss'
+export type PropKind = 'clawd' | 'clawd-squashed' | 'gift' | 'gift-open' | 'cup' | 'umbrella' | 'cloud' | 'sprout' | 'can' | 'bug' | 'pumpkin' | 'boss'
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
@@ -640,8 +640,8 @@ const EFFECT_GRIDS: Readonly<Record<EffectKind, (age: number) => Grid>> = {
 }
 
 const PROP_GRIDS: Readonly<Record<PropKind, (age: number) => Grid>> = {
-  doll: () => DOLL,
-  'doll-squashed': () => DOLL_SQUASHED,
+  clawd: () => CLAWD,
+  'clawd-squashed': () => CLAWD_SQUASHED,
   gift: () => GIFT,
   'gift-open': () => GIFT_OPEN,
   cup: () => CUP,

@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { bonk } from '../hooks/lib/director'
 import { DAILY_TOKEN_CAP, GACHA, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, gachaPool, pullGacha, turnIncome, wear, wornOf } from '../hooks/lib/economy'
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
@@ -11,7 +12,7 @@ import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
-import { BAND_ROWS, addVisitor, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
+import { BAND_ROWS, addVisitor, createScene, paint, paintRoom, perform, tick } from '../hooks/lib/scene'
 import { mergeShared } from '../hooks/lib/shared'
 import { hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
@@ -116,6 +117,7 @@ const CHICK = hex('#FFEE88')
 const EYE = hex('#221122')
 const FRAME = hex('#334499')
 const CROWN = hex('#FFDD44')
+const CLAWD = hex('#D97757')
 
 test('glasses sit over both eyes with a bridge between them', async () => {
   const still: Step[] = [{ pose: 'sit', ms: 60_000 }]
@@ -142,6 +144,20 @@ test('a visiting friend keeps only the things toko knows how to draw, and shows 
   const at = Math.round(visitor?.x ?? 0)
   expect(colorsIn(canvas, at, at + 16).has(CROWN)).toBe(true)
   expect(colorsIn(canvas, Math.round(scene.x), Math.round(scene.x) + 16).has(CROWN)).toBe(false)
+})
+
+test('a bonk with no turn running sets Clawd down beside toko and squashes it on the hit', async () => {
+  const scene = createScene(90, LOOK, () => [{ pose: 'idle', ms: 1000 }])
+  perform(scene, bonk(scene, false, () => {}), 3)
+  const kinds: string[] = []
+  for (let at = 0; at < 2500; at += 50) {
+    tick(scene, 50, () => 0.5)
+    kinds.push(scene.props.find(prop => prop.id === 'clawd')?.kind ?? '')
+  }
+  expect([kinds.includes('clawd'), kinds.at(-1)]).toEqual([true, 'clawd-squashed'])
+  const canvas = createCanvas(90, BAND_ROWS)
+  paint(scene, canvas)
+  expect(colorsIn(canvas, 90 - 13, 90).has(CLAWD)).toBe(true)
 })
 
 const colorsIn = (canvas: Canvas, fromX: number, toX: number): Set<number> => {

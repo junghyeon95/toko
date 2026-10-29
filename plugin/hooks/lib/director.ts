@@ -145,8 +145,8 @@ export const apologyAccepted = (): Step[] => [
 ]
 
 export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): Step[] => {
-  const dollX = scene.width - 10
-  const target = isTurnRunning ? rightX(scene) + 6 : dollX - PET_WIDTH - 2
+  const clawdX = scene.width - 13
+  const target = isTurnRunning ? rightX(scene) + 6 : clawdX - PET_WIDTH
   return [
     {
       pose: 'run',
@@ -155,7 +155,7 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
       speed: 30,
       enter: s => {
         if (!isTurnRunning) {
-          placeProp(s, 'doll', 'doll', dollX, 9, 9000)
+          placeProp(s, 'clawd', 'clawd', clawdX, 10, 9000)
         }
       },
     },
@@ -166,10 +166,10 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
       enter: s => {
         onHit()
         if (!isTurnRunning) {
-          placeProp(s, 'doll', 'doll-squashed', dollX, 9, 6000)
+          placeProp(s, 'clawd', 'clawd-squashed', clawdX, 10, 6000)
         }
         for (let index = 0; index < 3; index += 1) {
-          spawn(s, 'star', dollX - 2 + index * 3, 3 - index, (index - 1) * 6, -6, 1100)
+          spawn(s, 'star', clawdX + 2 + index * 3, 3 - index, (index - 1) * 6, -6, 1100)
         }
       },
     },

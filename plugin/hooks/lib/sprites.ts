@@ -401,8 +401,8 @@ export const HAMMER_UP: Grid = ['rRRRr', 'RRRRR', 'rRRRr', '..h..', '..h..', '..
 export const HAMMER_DOWN: Grid = ['..h..', '..h..', '..h..', 'rRRRr', 'RRRRR', 'rRRRr']
 export const HAMMER_SIDE: Grid = ['.rRr...', 'RRRRhhh', '.rRr...']
 
-export const DOLL: Grid = ['.oooooo.', 'oWWWWWWo', 'oWDWDWDo', 'oWWWWWWo', '.ooooWWo', '.....oo.']
-export const DOLL_SQUASHED: Grid = ['........', '........', '.oooooo.', 'oWDWDWDo', 'ooooooWo', '.....oo.']
+export const CLAWD: Grid = ['.OOOOOOOOOO.', '.OOeOOOOeOO.', '.OOeOOOOeOO.', 'OOOOOOOOOOOO', '.OOOOOOOOOO.', '..O.O..O.O..']
+export const CLAWD_SQUASHED: Grid = ['............', '............', '.OOOOOOOOOO.', 'OOeeOOOOeeOO', 'OOOOOOOOOOOO', 'O.O......O.O']
 
 export const STAR: Grid = ['.y.', 'yYy', '.y.']
 export const HEART: Grid = ['k.k', 'kkk', '.k.']
@@ -542,6 +542,7 @@ const SHARED: Readonly<Record<string, string>> = {
   N: '#449944',
   t: '#AA6644',
   W: '#FFFFFF',
+  O: '#D97757',
   D: '#888899',
   f: '#DDFF66',
   F: '#889944',
