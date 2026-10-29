@@ -3,6 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { MEMORY_ASK, isSimilarReason } from '../hooks/lib/bonks'
+import { gachaPool, isInSeason, pullGacha } from '../hooks/lib/economy'
 import { CHANGELOG_URL, compareVersions, freshAdditions, parseChangelog } from '../hooks/lib/news'
 
 const PET = {
@@ -425,4 +426,30 @@ test('a repeat /bonk during a running turn carries the memory ask in the turn’
   await clock.advance(1000)
   const result = (await $.command.run({ command: 'bonk', args: '또 테스트 지웠어' } as never)) as { context?: readonly string[] }
   expect(result.context?.[0]).toContain(MEMORY_ASK)
+})
+
+test('the pumpkin hat comes out of the fashion gacha only from 10/24 to 11/1, first in line', async () => {
+  const wallet = { coins: 0, items: [], worn: [] }
+  expect([isInSeason('halloween', '2026-10-24'), isInSeason('halloween', '2026-11-01'), isInSeason('halloween', '2026-10-23'), isInSeason('halloween', '2026-11-02')]).toEqual([true, true, false, false])
+  expect(gachaPool(wallet, 'fashion', '2026-10-29').some(item => item.id === 'pumpkin')).toBe(true)
+  expect(gachaPool(wallet, 'fashion', '2026-11-02').some(item => item.id === 'pumpkin')).toBe(false)
+  const pulled = pullGacha(wallet, 50, 'fashion', 0.99, '2026-10-29')
+  expect('item' in pulled ? [pulled.item.id, pulled.wallet.worn] : pulled).toEqual(['pumpkin', ['pumpkin']])
+  const after = pullGacha({ ...wallet, items: ['pumpkin'] }, 50, 'fashion', 0.99, '2026-10-29')
+  expect('item' in after && after.item.id !== 'pumpkin').toBe(true)
+})
+
+test('a Halloween scene stays out of the dex and points at the pumpkin hat, and the pet wears it', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:wallet': { coins: 80, items: [], worn: [] } })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'event halloween' } as never)).text).toContain('할로윈 장면')
+  expect(await said($, /할로윈이야! 11월 1일까지 패션 뽑기에서 호박 모자가 나와/)).toBe(true)
+  expect(world.saved['toko:dex']).toBeUndefined()
+  await clock.advance(6000)
+  expect((await $.command.run({ command: 'toko', args: 'gacha fashion' } as never)).text).toContain('호박 모자')
+  expect((world.saved['toko:wallet'] as { worn: string[] }).worn).toContain('pumpkin')
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /말랑/ })).toBeDefined()
+  await band.unmount()
 })

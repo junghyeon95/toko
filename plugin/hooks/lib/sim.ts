@@ -246,6 +246,8 @@ export const idleWeights = (needs: TokoNeeds, traits: TokoTraits, mood: TokoMood
 
 export type EncounterKind = 'butterfly' | 'leaves' | 'crumb' | 'bubbles' | 'shooting-star' | 'rain' | 'sprout' | 'firefly'
 
+export const HALLOWEEN_LINES: readonly string[] = ['트릭 오어 트릿! 호박 등불이다', '박쥐가 지나가… 깜짝이야', '할로윈이라 마을이 으스스해']
+
 export const ENCOUNTER_LINES: Readonly<Record<EncounterKind, readonly string[]>> = {
   butterfly: ['나비다… 잠깐만 따라가 볼게', '팔랑팔랑'],
   leaves: ['잎이 떨어지네. 천천히 숨 한 번', '바스락'],

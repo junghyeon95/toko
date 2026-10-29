@@ -178,6 +178,20 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
   ]
 }
 
+export const halloween = (scene: Scene, random: Random): Step[] => [
+  { pose: 'look', ms: 800, enter: s => placeProp(s, 'pumpkin', 'pumpkin', Math.min(scene.width - 8, s.x + PET_WIDTH + 4), 10, 9000) },
+  {
+    pose: 'jump',
+    ms: 650,
+    enter: s => {
+      for (let index = 0; index < 3; index += 1) {
+        spawn(s, 'bat', -8 - index * 7, 1 + index * 2, 11 + index * 2, (random() - 0.5) * 1.5, 7000)
+      }
+    },
+  },
+  { pose: 'idle', ms: 4000 },
+]
+
 export const encounter = (scene: Scene, kind: EncounterKind, random: Random): Step[] => {
   const width = scene.width
   switch (kind) {

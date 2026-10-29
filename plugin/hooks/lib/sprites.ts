@@ -433,6 +433,14 @@ export const GIFT: Grid = ['..yy..', 'RRyyRR', 'RRyyRR', 'RRyyRR']
 export const GIFT_OPEN: Grid = ['.yy.yy', '......', 'RRyyRR', 'RRyyRR']
 export const CUP: Grid = ['uuuu', 'cUUc', 'cUUc', '.cc.']
 export const BUG: readonly Grid[] = [['.v.', 'vVv', 'v.v'], ['.v.', 'vVv', '.v.']]
+export const PUMPKIN: readonly Grid[] = [
+  ['...N...', '.jjNjj.', 'jJyjyJj', 'jjjjjjj', 'jJyyyJj', '.jjjjj.'],
+  ['...N...', '.jjNjj.', 'jJYjYJj', 'jjjjjjj', 'jJYYYJj', '.jjjjj.'],
+]
+export const BAT: readonly Grid[] = [
+  ['V.....V', 'VV.v.VV', '.VVvVV.'],
+  ['.......', 'VVVvVVV', '..VvV..'],
+]
 
 export const HATS: Readonly<Record<string, { grid: Grid; dx: number; dy: number }>> = {
   beanie: { grid: ['.....ii.....', '...iiiiii...', '..iIiIiIii..'], dx: 2, dy: 0 },
@@ -442,6 +450,7 @@ export const HATS: Readonly<Record<string, { grid: Grid; dx: number; dy: number 
   beret: { grid: ['......V.....', '...vvvvvv...', '..vvvvvvvv..'], dx: 2, dy: 0 },
   flower: { grid: ['.k.', 'kyk', '.k.'], dx: 11, dy: 1 },
   party: { grid: ['..Y..', '..k..', '.kyk.', 'kykyk'], dx: 5, dy: -1 },
+  pumpkin: { grid: ['...NN...', '.jjJjjj.', 'jJjjjjJj', '.jjjjjj.'], dx: 4, dy: -1 },
 }
 
 export const NECKS: Readonly<Record<string, { grid: Grid; dx: number; dy: number }>> = {
@@ -537,6 +546,8 @@ const SHARED: Readonly<Record<string, string>> = {
   v: '#663355',
   V: '#AA4477',
   x: '#888899',
+  j: '#FF8822',
+  J: '#CC5511',
 }
 
 export type Palette = ReadonlyMap<string, number>

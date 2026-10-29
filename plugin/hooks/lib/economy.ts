@@ -43,7 +43,15 @@ export const earnedTokenToday = (earns: readonly TokoEarn[], day: string): numbe
 
 export type ShopKind = 'snack' | 'hat' | 'neck' | 'face' | 'room' | 'hammer' | 'pet'
 
-export type ShopItem = { id: string; name: string; kind: ShopKind; price: number; restores?: number }
+export type Season = 'halloween'
+
+export type ShopItem = { id: string; name: string; kind: ShopKind; price: number; restores?: number; season?: Season }
+
+export const SEASONS: Readonly<Record<Season, { from: string; to: string; item: string }>> = {
+  halloween: { from: '10-24', to: '11-01', item: 'pumpkin' },
+}
+
+export const isInSeason = (season: Season, day: string): boolean => day.slice(5) >= SEASONS[season].from && day.slice(5) <= SEASONS[season].to
 
 export const SHOP: readonly ShopItem[] = [
   { id: 'cookie', name: '토큰 쿠키', kind: 'snack', price: 5, restores: 25 },
@@ -56,6 +64,7 @@ export const SHOP: readonly ShopItem[] = [
   { id: 'beret', name: '베레모', kind: 'hat', price: 70 },
   { id: 'flower', name: '꽃핀', kind: 'hat', price: 50 },
   { id: 'party', name: '고깔모자', kind: 'hat', price: 60 },
+  { id: 'pumpkin', name: '호박 모자', kind: 'hat', price: 70, season: 'halloween' },
   { id: 'scarf', name: '목도리', kind: 'neck', price: 60 },
   { id: 'bowtie', name: '나비넥타이', kind: 'neck', price: 60 },
   { id: 'round-glasses', name: '동그란 안경', kind: 'face', price: 70 },
@@ -83,12 +92,13 @@ export const GACHA: Readonly<Record<GachaKind, { name: string; price: number; ki
 
 export const isGachaOnly = (item: ShopItem): boolean => GACHA.fashion.kinds.includes(item.kind)
 
-export const gachaPool = (wallet: TokoWallet, kind: GachaKind): ShopItem[] => SHOP.filter(item => GACHA[kind].kinds.includes(item.kind) && !wallet.items.includes(item.id))
+export const gachaPool = (wallet: TokoWallet, kind: GachaKind, day = ''): ShopItem[] =>
+  SHOP.filter(item => GACHA[kind].kinds.includes(item.kind) && !wallet.items.includes(item.id) && (item.season === undefined || isInSeason(item.season, day)))
 
 export type GachaPull = { wallet: TokoWallet; item: ShopItem; spent: number } | { reason: string }
 
-export const pullGacha = (wallet: TokoWallet, balance: number, kind: GachaKind, roll: number): GachaPull => {
-  const pool = gachaPool(wallet, kind)
+export const pullGacha = (wallet: TokoWallet, balance: number, kind: GachaKind, roll: number, day = ''): GachaPull => {
+  const pool = gachaPool(wallet, kind, day)
   const price = GACHA[kind].price
   if (pool.length === 0) {
     return { reason: '다 모았어! 더 나올 게 없어' }
@@ -96,7 +106,7 @@ export const pullGacha = (wallet: TokoWallet, balance: number, kind: GachaKind, 
   if (balance < price) {
     return { reason: `코인이 ${price - balance}개 모자라` }
   }
-  const item = pool[Math.min(pool.length - 1, Math.floor(roll * pool.length))] ?? pool[0]
+  const item = pool.find(entry => entry.season !== undefined) ?? pool[Math.min(pool.length - 1, Math.floor(roll * pool.length))] ?? pool[0]
   if (item === undefined) {
     return { reason: '다 모았어! 더 나올 게 없어' }
   }

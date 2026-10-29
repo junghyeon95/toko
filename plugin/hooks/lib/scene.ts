@@ -7,6 +7,7 @@ import type { Canvas, DrawOptions } from './raster'
 import { clear, createCanvas, drawGrid, setPixel } from './raster'
 import type { Face, Glasses, Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
 import {
+  BAT,
   BUBBLE,
   BUG,
   BUTTERFLY,
@@ -36,6 +37,7 @@ import {
   MOUTHS,
   NECKS,
   NOTE,
+  PUMPKIN,
   ROOM_PROPS,
   SHOOTING_STAR,
   SPARKLE,
@@ -89,11 +91,11 @@ export type Step = {
   priority?: number
 }
 
-export type EffectKind = 'z' | 'heart' | 'star' | 'coin' | 'sparkle' | 'note' | 'crumb' | 'leaf' | 'bubble' | 'drop' | 'shooting-star' | 'firefly' | 'butterfly'
+export type EffectKind = 'z' | 'heart' | 'star' | 'coin' | 'sparkle' | 'note' | 'crumb' | 'leaf' | 'bubble' | 'drop' | 'shooting-star' | 'firefly' | 'butterfly' | 'bat'
 
 export type Effect = { kind: EffectKind; x: number; y: number; vx: number; vy: number; until: number; born: number; gravity: number }
 
-export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' | 'umbrella' | 'cloud' | 'sprout' | 'can' | 'bug'
+export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' | 'umbrella' | 'cloud' | 'sprout' | 'can' | 'bug' | 'pumpkin'
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
@@ -633,6 +635,7 @@ const EFFECT_GRIDS: Readonly<Record<EffectKind, (age: number) => Grid>> = {
   'shooting-star': () => SHOOTING_STAR,
   firefly: age => FIREFLY[cycle(age, 300, 2)] ?? CRUMB,
   butterfly: age => BUTTERFLY[cycle(age, 180, 2)] ?? CRUMB,
+  bat: age => BAT[cycle(age, 160, 2)] ?? CRUMB,
 }
 
 const PROP_GRIDS: Readonly<Record<PropKind, (age: number) => Grid>> = {
@@ -646,6 +649,7 @@ const PROP_GRIDS: Readonly<Record<PropKind, (age: number) => Grid>> = {
   sprout: age => SPROUT[Math.min(SPROUT.length - 1, Math.floor(age / 2500))] ?? CRUMB,
   can: () => WATERING_CAN,
   bug: age => BUG[cycle(age, 200, 2)] ?? CRUMB,
+  pumpkin: age => PUMPKIN[cycle(age, 500, 2)] ?? CRUMB,
 }
 
 const SHADOW_TINT = hex('#888899')

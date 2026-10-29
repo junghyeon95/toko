@@ -37,7 +37,7 @@ import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordS
 import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
-import { GACHA, HEALTH_REWARD, SPEND, balanceOf, buy, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
+import { GACHA, HEALTH_REWARD, SEASONS, SPEND, balanceOf, buy, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, isInSeason, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
 import type { GachaKind, TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
@@ -69,7 +69,7 @@ import { mergeShared, same } from './lib/shared'
 import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
 import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
 import type { QuestsPaid } from './lib/quests'
-import { BREAK_KINDS, ENCOUNTER_LINES, NEED_KEYS, candidatesOf, clampNeeds, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
+import { BREAK_KINDS, ENCOUNTER_LINES, HALLOWEEN_LINES, NEED_KEYS, candidatesOf, clampNeeds, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from './lib/stats'
 import type { StatKey } from './lib/stats'
 import { HOUR, MINUTE, clockText, dayKey, hourOf } from './lib/time'
@@ -1547,7 +1547,7 @@ export async function purchase($: $, brain: Brain, id: string): Promise<string> 
 }
 
 export async function pullFromGacha($: $, brain: Brain, kind: GachaKind): Promise<string> {
-  const result = pullGacha(brain.wallet, balance(brain), kind, brain.random())
+  const result = pullGacha(brain.wallet, balance(brain), kind, brain.random(), today(brain))
   if ('reason' in result) {
     return refuse($, brain, result.reason)
   }
@@ -2082,11 +2082,31 @@ async function maybeEncounter($: $, brain: Brain): Promise<void> {
   if (options.length === 0 || brain.random() > 0.35) {
     return
   }
+  if (isInSeason('halloween', today(brain)) && brain.random() < HALLOWEEN_CHANCE) {
+    await runHalloween($, brain)
+    return
+  }
   const kind = pickWeighted(brain.random, options)
   if (kind === null) {
     return
   }
   await runEncounter($, brain, kind, brain.random() < SHINY_CHANCE)
+}
+
+export const HALLOWEEN_CHANCE = 0.4
+
+export async function runHalloween($: $, brain: Brain): Promise<void> {
+  brain.lastEncounterAt = brain.now
+  remember(brain, 'encounter', 'halloween', 0.3)
+  count(brain, 'encounter')
+  if (brain.scene !== null) {
+    act(brain, direct.halloween(brain.scene, brain.random), PRIORITY.encounter)
+  }
+  if (isHushed(brain)) {
+    return
+  }
+  const hasHat = brain.wallet.items.includes(SEASONS.halloween.item)
+  await say($, brain, hasHat ? pick(brain.random, HALLOWEEN_LINES) : '할로윈이야! 11월 1일까지 패션 뽑기에서 호박 모자가 나와', 'quiet')
 }
 
 async function noteSighting($: $, brain: Brain, kind: EncounterKind, isShiny: boolean): Promise<Sighting> {
