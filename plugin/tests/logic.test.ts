@@ -197,6 +197,37 @@ test('the perceiver reads tests and git from shell results', async () => {
   expect(failureStreak(events, 'npm test')).toBe(2)
 })
 
+const GHOST: Look = { ...LOOK, bones: { seed: 7, species: 'ghost' } }
+const GLOW = hex('#FFC4DD')
+const GHOST_MOUTH = hex('#3D2B5E')
+const STAY: Step[] = [{ pose: 'idle', ms: 60_000 }]
+
+test('a ghost toko glows pink around its body, and no other species does', async () => {
+  const ghost = run(GHOST, STAY, 500)
+  const x = Math.round(ghost.scene.x)
+  expect(colorsIn(ghost.canvas, x - 1, x).has(GLOW)).toBe(true)
+  expect(colorsIn(ghost.canvas, x + 16, x + 17).has(GLOW)).toBe(true)
+  expect(colorsIn(run(LOOK, STAY, 500).canvas, 0, 100).has(GLOW)).toBe(false)
+})
+
+test('a calm ghost smiles with a small v instead of a flat line', async () => {
+  const { canvas } = run(GHOST, STAY, 500)
+  const mouth: [number, number][] = []
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      if (canvas.pixels[y * canvas.width + x] === GHOST_MOUTH) {
+        mouth.push([x, y])
+      }
+    }
+  }
+  const [left, top] = [Math.min(...mouth.map(([x]) => x)), Math.min(...mouth.map(([, y]) => y))]
+  expect(mouth.map(([x, y]) => [x - left, y - top])).toEqual([
+    [0, 0],
+    [2, 0],
+    [1, 1],
+  ])
+})
+
 test('a draw lands on a known species, rare about one time in ten', async () => {
   const random = createRandom(42)
   const rolls = Array.from({ length: 4000 }, () => rollSpecies(random))

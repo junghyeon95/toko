@@ -5,7 +5,7 @@ import { rarityOf } from './pet'
 import type { Random } from './random'
 import type { Canvas, DrawOptions } from './raster'
 import { clear, drawGrid, setPixel } from './raster'
-import type { Grid, Mark, MouthShape, Palette } from './sprites'
+import type { Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
 import {
   BUBBLE,
   BUG,
@@ -412,7 +412,8 @@ const drawFace = (canvas: Canvas, scene: Scene, frame: Frame, x: number, y: numb
     fillBlock(canvas, x + (face.leftEye[0] + 1) * scale, y + (face.leftEye[1] - 1) * scale, scale, eyeColor)
     fillBlock(canvas, x + face.rightEye[0] * scale, y + (face.rightEye[1] - 1) * scale, scale, eyeColor)
   }
-  const mouth = MOUTHS[frame.mouth ?? mood.mouth]
+  const shape = frame.mouth ?? mood.mouth
+  const mouth = MOUTHS[art.mouths?.[shape] ?? shape]
   for (const [mx, my, key] of mouth) {
     fillBlock(canvas, x + (face.mouth[0] + mx) * scale, y + (face.mouth[1] + my) * scale, scale, scene.palette.get(key) ?? 0)
   }
@@ -464,6 +465,53 @@ const drawMark = (canvas: Canvas, scene: Scene, mark: Mark, x: number, y: number
   drawGrid(canvas, mark.grid, x + dx * scale, y + mark.dy * scale, scene.palette, { scale, isFlipped })
 }
 
+type Point = readonly [number, number]
+
+const NEAR: readonly Point[] = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [-1, 1], [1, -1]]
+const FAR: readonly Point[] = [[-2, 0], [2, 0], [0, -2], [0, 2]]
+const rings = new Map<Grid, { near: Point[]; far: Point[] }>()
+
+const ringOf = (body: Grid): { near: Point[]; far: Point[] } => {
+  const cached = rings.get(body)
+  if (cached !== undefined) {
+    return cached
+  }
+  const isBody = (x: number, y: number): boolean => (body[y]?.[x] ?? '.') !== '.'
+  const ring = { near: [] as Point[], far: [] as Point[] }
+  for (let y = -2; y < body.length + 2; y += 1) {
+    for (let x = -2; x < critterWidth(body) + 2; x += 1) {
+      if (isBody(x, y)) {
+        continue
+      }
+      if (NEAR.some(([dx, dy]) => isBody(x + dx, y + dy))) {
+        ring.near.push([x, y])
+      } else if (FAR.some(([dx, dy]) => isBody(x + dx, y + dy))) {
+        ring.far.push([x, y])
+      }
+    }
+  }
+  rings.set(body, ring)
+  return ring
+}
+
+const drawAura = (canvas: Canvas, scene: Scene, art: SpeciesArt, x: number, y: number, scale: number): void => {
+  if (art.aura === undefined) {
+    return
+  }
+  const ring = ringOf(art.body)
+  const near = hex(art.aura.near)
+  const far = hex(art.aura.far)
+  const phase = cycle(scene.clock, 400, 2)
+  for (const [ax, ay] of ring.near) {
+    fillBlock(canvas, x + ax * scale, y + ay * scale, scale, near)
+  }
+  for (const [ax, ay] of ring.far) {
+    if ((ax + ay + phase) % 2 === 0) {
+      fillBlock(canvas, x + ax * scale, y + ay * scale, scale, far)
+    }
+  }
+}
+
 export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: number, x: number, baseY: number, scale: number): void => {
   const look = scene.look
   if (pose === 'hidden') {
@@ -480,6 +528,7 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   const py = baseY + frame.dy * scale
   const isFlipped = scene.dir < 0
   const art = SPECIES_ART[look.bones.species]
+  drawAura(canvas, scene, art, px, py, scale)
   if (look.stage === 'adult' && art.adult !== undefined) {
     drawMark(canvas, scene, art.adult, px, py, scale, isFlipped)
   }

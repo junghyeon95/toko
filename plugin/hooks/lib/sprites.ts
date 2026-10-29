@@ -15,7 +15,7 @@ export type Face = { leftEye: Point; rightEye: Point; mouth: Point; leftBlush: P
 
 const FACE: Face = { leftEye: [3, 5], rightEye: [11, 5], mouth: [7, 7], leftBlush: [2, 7], rightBlush: [13, 7] }
 
-type EyeStyle = 'round' | 'dot' | 'sparkle'
+type EyeStyle = 'round' | 'dot' | 'sparkle' | 'solid'
 
 type EyeShape = 'open' | 'happy' | 'closed' | 'lidded'
 
@@ -23,6 +23,7 @@ const EYE_GRIDS: Readonly<Record<EyeStyle, readonly [Grid, Grid]>> = {
   round: [['we', 'ee'], ['we', 'ee']],
   dot: [['.e', '.e'], ['e.', 'e.']],
   sparkle: [['we', 'ew'], ['we', 'ew']],
+  solid: [['ee', 'ee'], ['ee', 'ee']],
 }
 
 const EYE_SHAPES: Readonly<Record<Exclude<EyeShape, 'open'>, Grid>> = {
@@ -45,6 +46,8 @@ export type SpeciesArt = {
   adult?: Mark
   hatDy: number
   isFloating?: boolean
+  mouths?: Partial<Record<MouthShape, MouthShape>>
+  aura?: { near: string; far: string }
 }
 
 export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
@@ -256,26 +259,28 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
   },
   ghost: {
     body: [
-      '.....oooooo.....',
-      '...oobbbbbboo...',
-      '..obbbbbbbbbbo..',
-      '.obbbbbbbbbbbbo.',
-      '.obbbbbbbbbbbbo.',
-      'obbbbbbbbbbbbbbo',
-      'obbbbbbbbbbbbbbo',
-      'obbbbbbbbbbbbbbo',
-      'obbbbbbbbbbbbbbo',
-      'obbbbbbbbbbbbbbo',
-      'obbbbbbbbbbbbbbo',
-      'obbbbbbbbbbbbbbo',
-      'obbbbobbbbobbbbo',
-      '.oooo.oooo.oooo.',
+      '......ooooo.....',
+      '....oobbbbboo...',
+      '...obbbbbbbbbo..',
+      '..obbbbbbbbbbbo.',
+      '..obbbbbbbbbbbo.',
+      '.obbbbbbbbbbbbbo',
+      '.obbbbbbbbbbbbbo',
+      '.obbbbbbbbbbbblo',
+      'oobbbbbbbbbbbblo',
+      'obbbbbbbbbbbbblo',
+      '.obbbbbbbbbbbblo',
+      '.obbbbbbbbbbbllo',
+      '.obbbbobbbbobllo',
+      '..oooo.oooo.ooo.',
     ],
-    eyes: 'round',
-    face: FACE,
-    colors: { o: '#555577', b: '#F4F6FF', l: '#FFFFFF', p: '#FFBBDD', t: '#DDE2F5' },
+    eyes: 'solid',
+    face: { leftEye: [4, 6], rightEye: [10, 6], mouth: [7, 8], leftBlush: [3, 8], rightBlush: [12, 8] },
+    colors: { o: '#4B3A78', b: '#FBF8FF', l: '#E6DAFF', p: '#FFB3C7', t: '#E6DAFF', m: '#3D2B5E' },
     hatDy: 0,
     isFloating: true,
+    mouths: { small: 'smile' },
+    aura: { near: '#FFC4DD', far: '#FFD9E8' },
   },
   phoenix: {
     body: [
@@ -353,6 +358,7 @@ export const MOUTHS = {
   flat: [[0, 0, 'o'], [1, 0, 'o']],
   wavy: [[-1, 1, 'm'], [0, 0, 'm'], [1, 0, 'm'], [2, 1, 'm']],
   pout: [[1, 0, 'm'], [1, 1, 'm']],
+  smile: [[0, 0, 'm'], [2, 0, 'm'], [1, 1, 'm']],
 } as const
 
 export type MouthShape = keyof typeof MOUTHS
