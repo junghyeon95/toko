@@ -22,14 +22,19 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .sign p{margin:8px 0 0;font-size:11px}
 #empty{position:fixed;left:50%;top:72%;transform:translate(-50%,-50%);margin:0;padding:6px 12px;border:2px solid var(--ink);background:#fffaf0;font-size:calc(11px*var(--u));white-space:nowrap}
 .sign .hint{margin-top:4px;color:#ffe2c2}
+.board{top:auto;bottom:20px;max-width:300px}
+.board h2{margin:0;font:16px/1.2 Galmuri14,Galmuri11,sans-serif;text-shadow:0 2px 0 #7a4627}
+.board ol{margin:6px 0 0;padding-left:18px;font-size:11px;line-height:1.6}
+.board b{color:#ffe2c2}
 @keyframes pop{from{scale:.4;opacity:0}}
-@media (max-width:520px){.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.tag i{display:none}}
+@media (max-width:520px){.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.board{top:auto;bottom:14px}.tag i{display:none}}
 </style>
 </head>
 <body>
 <canvas id="world" role="img" aria-label="토코 광장: 들어온 토코들이 분수대 광장을 돌아다니는 그림"></canvas>
 <div id="labels" aria-hidden="true"></div>
 <header class="sign"><h1>토코 광장</h1><p id="count">지금 {{count}}마리가 함께 쉬어 가는 중이에요</p><p class="hint">Claude Code에서 토코를 켜 두면 여기로 놀러 와요</p></header>
+<aside class="sign board" id="bonks" hidden><h2>뿅망치 전광판</h2><p>오늘 Clawd가 <b id="bonk-total">0</b>번 맞았어요</p><ol id="bonk-top"></ol></aside>
 <p id="empty" {{empty}}>아직 아무도 없어요. 토코를 데리고 놀러 오세요</p>
 <noscript><ul>{{roster}}</ul></noscript>
 <script id="state" type="application/json">{{state}}</script>
@@ -577,6 +582,18 @@ const sync = view => {
   isFirstSync = false
   $('count').textContent = `지금 ${view.pets.length}마리가 함께 쉬어 가는 중이에요`
   $('empty').hidden = view.pets.length > 0
+  const board = view.bonks ?? { total: 0, top: [] }
+  $('bonks').hidden = board.total === 0
+  $('bonk-total').textContent = String(board.total)
+  $('bonk-top').replaceChildren(
+    ...board.top.slice(0, 3).map(row => {
+      const item = document.createElement('li')
+      const count = document.createElement('b')
+      count.textContent = ` ${row.count}번`
+      item.append(row.label, count)
+      return item
+    }),
+  )
 }
 
 const step = (pet, dt) => {

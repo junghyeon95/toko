@@ -40,6 +40,59 @@ describe('plaza', () => {
     await page.close()
   })
 
+  test('changes made close together reach a listener as one message', async () => {
+    const plaza = createPlaza({ keepAliveMs: 60_000, flushMs: 200 })
+    await plaza.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 }))
+    const kong = await listen('/v1/stream?id=bbbb2&tab=t1', plaza)
+    await kong.next('plaza')
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: me('cccc3', '보들'), since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: me('dddd4', '찹쌀'), since: 0 }))
+    expect((await kong.next('plaza')).friends.length).toBe(3)
+    const more = await Promise.race([kong.next('plaza').then(() => 'more', () => 'more'), Bun.sleep(300).then(() => 'none')])
+    expect(more).toBe('none')
+    await kong.close()
+  })
+
+  test('friends who are working or just changed come first, so late arrivals are not hidden behind the first thirty', async () => {
+    let clock = 1_000
+    const plaza = createPlaza({ now: () => clock })
+    for (let i = 10; i < 45; i += 1) {
+      clock += 1_000
+      await plaza.handle(post('/v1/poll', { me: { ...me(`pet${i}`, `펫${i}`), status: 'idle' }, since: 0 }))
+    }
+    clock += 1_000
+    await plaza.handle(post('/v1/poll', { me: { ...me('pet10', '펫10'), status: 'working' }, since: 0 }))
+    const seen = await read(await plaza.handle(post('/v1/poll', { me: { ...me('watcher', '구경꾼'), status: 'idle' }, since: 0 })))
+    const ids = seen.body.friends.map((friend: { id: string }) => friend.id)
+    expect(ids.length).toBe(30)
+    expect(ids[0]).toBe('pet10')
+    expect(ids[1]).toBe('pet44')
+    expect(ids).not.toContain('pet11')
+  })
+
+  test('bonks are counted by kind for the day, odd kinds are refused, and the board starts over the next day', async () => {
+    let clock = Date.UTC(2026, 9, 29, 3, 0)
+    const plaza = createPlaza({ now: () => clock, actionsPerMinute: 3 })
+    const bonk = async (id: string, kind: string) => (await plaza.handle(post('/v1/bonk', { me: me(id, '말랑'), kind }))).status
+    expect([await bonk('aaaa1', 'unverified'), await bonk('bbbb2', 'unverified'), await bonk('bbbb2', 'overreach')]).toEqual([202, 202, 202])
+    expect(await bonk('aaaa1', '<script>')).toBe(400)
+    const board = (await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.bonks
+    expect(board).toEqual({
+      total: 3,
+      top: [
+        { kind: 'unverified', label: '안 돌려 보고 됐다고 함', count: 2 },
+        { kind: 'overreach', label: '시키지 않은 것까지 고침', count: 1 },
+      ],
+    })
+    expect((await read(await plaza.handle(post('/v1/poll', { me: me('cccc3', '보들'), since: 0 })))).body.bonks.total).toBe(3)
+    expect([await bonk('aaaa1', 'stuck'), await bonk('aaaa1', 'stuck'), await bonk('aaaa1', 'stuck')]).toEqual([202, 202, 429])
+    clock = Date.UTC(2026, 9, 29, 15, 1)
+    expect((await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.bonks).toEqual({ total: 0, top: [] })
+    expect(await bonk('aaaa1', 'wordy')).toBe(202)
+    expect((await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.bonks.total).toBe(1)
+  })
+
   test('friends see each other and a wave reaches only its target', async () => {
     let clock = 1_000
     const plaza = createPlaza({ now: () => clock })
@@ -140,7 +193,7 @@ describe('plaza', () => {
     await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), species: 'fox' }, since: 0 }))
     await plaza.handle(post('/v1/poll', { me: { ...me('bbbb2', '콩떡'), species: '<script>' }, since: 0 }))
     const seen = await read(await plaza.handle(post('/v1/poll', { me: me('cccc3', '보들'), since: 0 })))
-    expect(seen.body.friends.map((friend: { name: string; species?: string }) => [friend.name, friend.species ?? null])).toEqual([
+    expect(seen.body.friends.map((friend: { name: string; species?: string }) => [friend.name, friend.species ?? null]).sort()).toEqual([
       ['말랑', 'fox'],
       ['콩떡', null],
     ])

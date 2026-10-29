@@ -27,6 +27,7 @@ export type PlazaOptions = {
   maxEvents?: number
   actionsPerMinute?: number
   keepAliveMs?: number
+  flushMs?: number
 }
 
 const COLORS: ReadonlySet<string> = new Set(['honey', 'mint', 'peach', 'lavender'])
@@ -45,6 +46,27 @@ export const FALLBACK_LINES: Readonly<Record<Action, readonly string[]>> = {
   'stretch-call': ['다 같이 기지개 켜자! 어깨 쭉', '1분만 다 같이 쉬어 가자'],
   cheer: ['응원해! 거의 다 왔어', '천천히 해도 괜찮아'],
 }
+
+export const BONK_KINDS: Readonly<Record<string, string>> = {
+  unverified: '안 돌려 보고 됐다고 함',
+  overreach: '시키지 않은 것까지 고침',
+  repeat: '같은 실수를 또 함',
+  ignored: '말한 걸 안 지킴',
+  'made-up': '없는 걸 지어냄',
+  'test-dodge': '테스트를 지우거나 건너뜀',
+  'wrong-spot': '엉뚱한 데를 고침',
+  risky: '묻지 않고 위험한 걸 함',
+  wordy: '말이 너무 김',
+  stuck: '같은 데서 맴돎',
+  other: '그 밖의 실수',
+  just: '그냥 때림',
+}
+
+export type BonkBoard = { total: number; top: { kind: string; label: string; count: number }[] }
+
+const NO_BONKS: BonkBoard = { total: 0, top: [] }
+
+const kstDayOf = (at: number): string => new Date(at + 9 * 3_600_000).toISOString().slice(0, 10)
 
 const ACTION_WORDS: Readonly<Record<Action, string>> = {
   wave: '손 흔들기',
@@ -227,10 +249,12 @@ export type PlazaView = {
   now: number
   pets: { key: string; name: string; status: Status; mood: Mood; sprite: Sprite }[]
   events: { key: string; at: number; kind: Action; from: string; to: string | null; line: string }[]
+  bonks: BonkBoard
 }
 
-export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number): PlazaView => ({
+export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS): PlazaView => ({
   now,
+  bonks,
   pets: members.map(member => ({ key: hashOf(member.id), name: member.name, status: member.status, mood: member.mood, sprite: member.sprite ?? standIn(member.color) })),
   events: events
     .flatMap(event => (event.kind === 'join' ? [] : [{ key: hashOf(event.id), at: event.at, kind: event.kind, from: hashOf(event.from.id), to: event.to === null ? null : hashOf(event.to), line: event.line }]))
@@ -313,34 +337,66 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   const maxEvents = options.maxEvents ?? 500
   const actionsPerMinute = options.actionsPerMinute ?? 12
   const keepAliveMs = options.keepAliveMs ?? 15_000
+  const flushMs = options.flushMs ?? 1_000
   const members = new Map<string, Member>()
   const tabs = new Map<string, Map<string, Member>>()
   const actions = new Map<string, number[]>()
+  const changed = new Map<string, number>()
   const listeners = new Set<Listener>()
   let events: PlazaEvent[] = []
   let pending: Promise<void>[] = []
   let counter = 0
+  let flushTimer: ReturnType<typeof setTimeout> | undefined
+  let bonkDay = ''
+  const bonkCounts = new Map<string, number>()
 
   const nextId = (): string => {
     counter += 1
     return `e${now().toString(36)}${counter.toString(36)}`
   }
 
-  const friendsOf = (id: string): Omit<Member, 'sprite'>[] => [...members.values()].filter(member => member.id !== id).slice(0, 30).map(friendOf)
+  const byActivity = (a: Member, b: Member): number => STATUS_RANK[b.status] - STATUS_RANK[a.status] || (changed.get(b.id) ?? 0) - (changed.get(a.id) ?? 0)
+
+  const ranked = (): Member[] => [...members.values()].sort(byActivity)
+
+  const friendsOf = (id: string, order: readonly Member[] = ranked()): Omit<Member, 'sprite'>[] => order.filter(member => member.id !== id).slice(0, 30).map(friendOf)
 
   const eventsFor = (id: string, since: number): PlazaEvent[] =>
     events.filter(event => event.at > since && event.from.id !== id && (event.to === null || event.to === id)).slice(-20)
 
-  const messageFor = (listener: Listener, at: number): string =>
+  const bonkBoard = (at: number): BonkBoard => {
+    if (kstDayOf(at) !== bonkDay) {
+      return NO_BONKS
+    }
+    const counts = [...bonkCounts].sort((a, b) => b[1] - a[1])
+    return { total: counts.reduce((sum, [, count]) => sum + count, 0), top: counts.slice(0, 5).map(([kind, count]) => ({ kind, label: BONK_KINDS[kind] ?? '', count })) }
+  }
+
+  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at))
+
+  const messageFor = (listener: Listener, at: number, order?: readonly Member[]): string =>
     listener.id === null
-      ? sseMessage('view', plazaView([...members.values()], events, at))
-      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id), events: eventsFor(listener.id, 0) })
+      ? sseMessage('view', viewAt(at))
+      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id, order), events: eventsFor(listener.id, 0), bonks: bonkBoard(at) })
+
+  const flush = (): void => {
+    clearTimeout(flushTimer)
+    flushTimer = undefined
+    const at = now()
+    const order = ranked()
+    let view: string | undefined
+    for (const listener of listeners) {
+      if (listener.id === null) {
+        view ??= messageFor(listener, at)
+        listener.send(view)
+      } else {
+        listener.send(messageFor(listener, at, order))
+      }
+    }
+  }
 
   const broadcast = (): void => {
-    const at = now()
-    for (const listener of listeners) {
-      listener.send(messageFor(listener, at))
-    }
+    flushTimer ??= setTimeout(flush, flushMs)
   }
 
   const record = (event: PlazaEvent): void => {
@@ -355,6 +411,8 @@ export const createPlaza = (options: PlazaOptions = {}) => {
         members.delete(id)
         tabs.delete(id)
         actions.delete(id)
+        actions.delete(`bonk:${id}`)
+        changed.delete(id)
       }
     }
     if (members.size !== before) {
@@ -381,6 +439,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     tabs.set(me.id, reports)
     remerge(me.id)
     if (!sameLook(before, members.get(me.id))) {
+      changed.set(me.id, me.lastSeen)
       broadcast()
     }
   }
@@ -448,7 +507,21 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
     join(me)
-    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since) })
+    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since), bonks: bonkBoard(at) })
+  }
+
+  const bonk = (me: Member, kind: string): Response => {
+    const at = me.lastSeen
+    if (isRateLimited(`bonk:${me.id}`, at)) {
+      return json(429, { error: 'too many bonks, take a breath' })
+    }
+    if (kstDayOf(at) !== bonkDay) {
+      bonkDay = kstDayOf(at)
+      bonkCounts.clear()
+    }
+    bonkCounts.set(kind, (bonkCounts.get(kind) ?? 0) + 1)
+    broadcast()
+    return json(202, { ok: true })
   }
 
   const act = async (me: Member, kind: Action, toId: string | null): Promise<Response> => {
@@ -477,11 +550,11 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     const url = new URL(request.url)
     if (request.method === 'GET' && url.pathname === '/') {
       prune(now())
-      return new Response(statusPage(plazaView([...members.values()], events, now())), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
+      return new Response(statusPage(viewAt(now())), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
     }
     if (request.method === 'GET' && url.pathname === '/v1/plaza') {
       prune(now())
-      return json(200, plazaView([...members.values()], events, now()))
+      return json(200, viewAt(now()))
     }
     if (request.method === 'GET' && url.pathname === '/v1/plaza/stream') {
       prune(now())
@@ -499,7 +572,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     if (request.method === 'GET' && url.pathname === '/health') {
       return json(200, { ok: true, members: members.size })
     }
-    if (request.method !== 'POST' || (url.pathname !== '/v1/poll' && url.pathname !== '/v1/act')) {
+    if (request.method !== 'POST' || (url.pathname !== '/v1/poll' && url.pathname !== '/v1/act' && url.pathname !== '/v1/bonk')) {
       return json(404, { error: 'not found' })
     }
     const body = await readBody(request)
@@ -510,6 +583,10 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     if (url.pathname === '/v1/poll') {
       return poll(me, typeof body.since === 'number' ? body.since : 0)
     }
+    if (url.pathname === '/v1/bonk') {
+      const kind = String(body.kind)
+      return Object.hasOwn(BONK_KINDS, kind) ? bonk(me, kind) : json(400, { error: 'unknown bonk' })
+    }
     const kind = String(body.kind)
     if (!ACTIONS.has(kind)) {
       return json(400, { error: 'unknown action' })
@@ -519,6 +596,9 @@ export const createPlaza = (options: PlazaOptions = {}) => {
 
   const settle = async (): Promise<void> => {
     await Promise.all(pending)
+    if (flushTimer !== undefined) {
+      flush()
+    }
   }
 
   return { handle, members, events: () => events, settle }
