@@ -8,6 +8,7 @@ import { clear, createCanvas, drawGrid, setPixel } from './raster'
 import type { Face, Glasses, Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
 import {
   BAT,
+  BOSS,
   BUBBLE,
   BUG,
   BUTTERFLY,
@@ -95,7 +96,7 @@ export type EffectKind = 'z' | 'heart' | 'star' | 'coin' | 'sparkle' | 'note' | 
 
 export type Effect = { kind: EffectKind; x: number; y: number; vx: number; vy: number; until: number; born: number; gravity: number }
 
-export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' | 'umbrella' | 'cloud' | 'sprout' | 'can' | 'bug' | 'pumpkin'
+export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' | 'umbrella' | 'cloud' | 'sprout' | 'can' | 'bug' | 'pumpkin' | 'boss'
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
@@ -650,6 +651,7 @@ const PROP_GRIDS: Readonly<Record<PropKind, (age: number) => Grid>> = {
   can: () => WATERING_CAN,
   bug: age => BUG[cycle(age, 200, 2)] ?? CRUMB,
   pumpkin: age => PUMPKIN[cycle(age, 500, 2)] ?? CRUMB,
+  boss: age => BOSS[cycle(age, 450, 2)] ?? CRUMB,
 }
 
 const SHADOW_TINT = hex('#888899')

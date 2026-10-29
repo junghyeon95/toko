@@ -5,6 +5,7 @@ import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
 import { closestBadges } from './lib/badges'
+import { bossStatus } from './lib/boss'
 import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
 import { meterLevel, meterText } from './lib/meter'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
@@ -79,6 +80,7 @@ const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
 const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
 const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 const newsAtom = atom({ plugin: 'toko', key: 'news' } as const, null)
+const bossAtom = atom({ plugin: 'toko', key: 'boss' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -220,7 +222,7 @@ export const register: Register = (on, options) => {
       ctx.band = null
       return next(e)
     }
-    const [mood, bubble, wallet, countdown, game, progress, focus, meter] = await Promise.all([
+    const [mood, bubble, wallet, countdown, game, progress, focus, meter, boss] = await Promise.all([
       read($, moodAtom),
       read($, bubbleAtom),
       read($, walletAtom),
@@ -229,6 +231,7 @@ export const register: Register = (on, options) => {
       read($, progressAtom),
       read($, focusAtom),
       read($, meterAtom),
+      read($, bossAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const spoken = bubble?.parts === undefined ? bubble?.text : bubble.parts.map((part, index) => (part.color === undefined ? part.text : <Text key={`part-${index}`} color={part.color}>{part.text}</Text>))
@@ -239,6 +242,7 @@ export const register: Register = (on, options) => {
     const status = [
       `${nameOf(pet) ?? (pet.soul === null ? '알' : UNNAMED)} ${KAOMOJI[mood]}`,
       pet.growth.stage === 'egg' ? '부화 중' : MOOD_LABEL[mood],
+      ...(boss === null ? [] : [bossStatus(boss)]),
       `코인 ${wallet?.coins ?? 0}`,
       ...(progress === null || pet.soul === null ? [] : [`퀘스트 ${progress.quests.filter(quest => quest.isDone).length}/${progress.quests.length}`]),
       ...(focus === null ? [] : [`집중 ${left(seconds(focus.endsAt))}`]),

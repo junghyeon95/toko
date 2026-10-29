@@ -178,6 +178,28 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
   ]
 }
 
+export const bossX = (scene: Scene): number => Math.max(0, scene.width - 12)
+
+export const bossAppear = (scene: Scene): Step[] => [
+  { pose: 'cower', ms: 900, enter: s => placeProp(s, 'boss', 'boss', bossX(scene), 8, 60 * 60_000) },
+  { pose: 'look', ms: 1500, dir: 1 },
+]
+
+export const bossDefeat = (scene: Scene): Step[] => [
+  { pose: 'walk', ms: 0, toX: Math.max(0, bossX(scene) - PET_WIDTH - 1) },
+  {
+    pose: 'jump',
+    ms: 650,
+    enter: s => {
+      removeProp(s, 'boss')
+      for (let index = 0; index < 6; index += 1) {
+        spawn(s, 'sparkle', bossX(scene) + 4, 10, (index - 2.5) * 4, -6 - (index % 3) * 2, 900, 18)
+      }
+    },
+  },
+  ...celebrate(),
+]
+
 export const halloween = (scene: Scene, random: Random): Step[] => [
   { pose: 'look', ms: 800, enter: s => placeProp(s, 'pumpkin', 'pumpkin', Math.min(scene.width - 8, s.x + PET_WIDTH + 4), 10, 9000) },
   {

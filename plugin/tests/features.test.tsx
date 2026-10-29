@@ -136,7 +136,7 @@ test('a test that failed three times and then passes unlocks 역전승, pays coi
   expect(await room.find({ type: 'Text', text: /✓ 역전승/ })).toBeDefined()
   await room.unmount()
   await end($)
-  expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(20)
+  expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(20 + 20)
 })
 
 const DEX_DONE = Object.fromEntries(['butterfly', 'leaves', 'crumb', 'bubbles', 'shooting-star', 'rain', 'sprout', 'firefly'].map(kind => [kind, { seen: 1, shiny: 1, firstAt: START }]))

@@ -437,6 +437,10 @@ export const PUMPKIN: readonly Grid[] = [
   ['...N...', '.jjNjj.', 'jJyjyJj', 'jjjjjjj', 'jJyyyJj', '.jjjjj.'],
   ['...N...', '.jjNjj.', 'jJYjYJj', 'jjjjjjj', 'jJYYYJj', '.jjjjj.'],
 ]
+export const BOSS: readonly Grid[] = [
+  ['..y.y.y..', '..yyyyy..', '.RRRRRRR.', 'RRwRRRwRR', 'RReRRReRR', 'RRRRRRRRR', 'RrRrRrRrR', '.RRRRRRR.'],
+  ['.........', '..y.y.y..', '..yyyyy..', '.RRRRRRR.', 'RRwRRRwRR', 'RReRRReRR', 'RrRrRrRrR', 'RRRRRRRRR'],
+]
 export const BAT: readonly Grid[] = [
   ['V.....V', 'VV.v.VV', '.VVvVV.'],
   ['.......', 'VVVvVVV', '..VvV..'],

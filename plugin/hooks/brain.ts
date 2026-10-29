@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type {
   TokoBubblePart,
+  TokoBoss,
   TokoBudget,
   TokoChoice,
   TokoCounts,
@@ -44,6 +45,7 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { FEATURE_REWARD, asFeatureDex, featureDef, featureLine, featureViews, featuresUsed, mergeFeatureDex } from './lib/features'
 import type { FeatureDex } from './lib/features'
+import { BOSS_REWARD, BOSS_STREAK, bossStatus, meetBoss } from './lib/boss'
 import { MEMORY_ASK, addBonk, asBonks, isSimilarReason, parseRepeat, repeatPrompt, repeatSystem } from './lib/bonks'
 import { meterOf } from './lib/meter'
 import { CHECK_TIP_PROMPTS, CHECK_TIP_WINDOW_MS, COMPACT_TIP_PERCENT, KNOWN, PERMISSION_TIP_ASKS, TIPS, asTips, isTipWanted } from './lib/tips'
@@ -94,6 +96,7 @@ const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 const newsAtom = atom({ plugin: 'toko', key: 'news' } as const, null)
+const bossAtom = atom({ plugin: 'toko', key: 'boss' } as const, null)
 
 type $ = EngineInterface
 
@@ -219,6 +222,7 @@ export type Brain = {
   focusDoneMinutes: number | null
   bonk: Bonk | null
   bonkRepeat: Promise<boolean> | null
+  boss: TokoBoss | null
   game: TokoGame | null
   gameSpawnAt: number
   earnings: readonly TokoEarning[]
@@ -308,6 +312,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   focusDoneMinutes: null,
   bonk: null,
   bonkRepeat: null,
+  boss: null,
   game: null,
   gameSpawnAt: 0,
   earnings: [],
@@ -671,6 +676,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, meterAtom, () => brain.meter),
     update($, memosAtom, () => brain.memos),
     update($, newsAtom, () => brain.news),
+    update($, bossAtom, () => brain.boss),
   ])
 }
 
@@ -1792,7 +1798,7 @@ export async function notifyOnce($: $, brain: Brain, text: string): Promise<void
 
 export const COMEBACK_FAILURES = 3
 
-export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass', key: string, summary: string): Promise<void> {
+export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass', key: string, summary: string, failed: number | null = null): Promise<void> {
   const hadFailure = brain.memory.events.some(event => event.kind === 'test-fail' && event.detail.startsWith(key))
   const failures = failureStreak(brain.memory.events, key)
   remember(brain, kind, kind === 'test-fail' ? `${key} :: ${summary}` : key)
@@ -1801,6 +1807,10 @@ export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass'
     count(brain, 'comeback')
   }
   if (kind === 'test-fail') {
+    if (failures + 1 >= BOSS_STREAK) {
+      await showBoss($, brain, key, failed)
+      return
+    }
     act(brain, direct.worry(), PRIORITY.reaction)
     return
   }
@@ -1808,8 +1818,61 @@ export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass'
     brain.lastPassAfterFailAt = brain.now
     brain.memory = { ...brain.memory, events: brain.memory.events.filter(event => !(event.kind === 'test-fail' && event.detail.startsWith(key))) }
   }
+  if (brain.boss?.key === key) {
+    await defeatBoss($, brain, BOSS_REWARD)
+    return
+  }
   act(brain, direct.celebrate(), PRIORITY.reaction)
   await quietLine($, brain, 'testPass')
+}
+
+async function showBoss($: $, brain: Brain, key: string, failed: number | null): Promise<void> {
+  const isNew = brain.boss?.key !== key
+  brain.boss = meetBoss(brain.boss, key, failed, brain.now)
+  await update($, bossAtom, () => brain.boss)
+  if (!isNew) {
+    act(brain, direct.flinch(), PRIORITY.reaction)
+    return
+  }
+  remember(brain, 'boss', brain.boss.name, 1)
+  if (brain.scene !== null) {
+    perform(brain.scene, direct.bossAppear(brain.scene), PRIORITY.event)
+  }
+  if (!isHushed(brain)) {
+    await say($, brain, `${brain.boss.name} 등장! 테스트를 통과시켜서 물리치자`, 'quiet')
+  }
+}
+
+async function defeatBoss($: $, brain: Brain, reward: number): Promise<void> {
+  const boss = brain.boss
+  if (boss === null) {
+    return
+  }
+  brain.boss = null
+  await update($, bossAtom, () => null)
+  if (reward > 0) {
+    healthReward(brain, reward)
+  }
+  remember(brain, 'boss-down', boss.name, 1.5)
+  if (brain.scene !== null) {
+    perform(brain.scene, direct.bossDefeat(brain.scene), PRIORITY.event)
+  }
+  if (!isHushed(brain)) {
+    await say($, brain, reward > 0 ? `${boss.name} 격파! +${reward} 코인` : `${boss.name} 격파!`, 'quiet')
+  }
+}
+
+export async function demoBoss($: $, brain: Brain): Promise<string> {
+  if (brain.boss === null) {
+    await showBoss($, brain, 'demo', 5)
+    return `${bossStatus(brain.boss ?? meetBoss(null, 'demo', 5, brain.now))}. 한 번 더 하면 체력이 줄어요.`
+  }
+  if ((brain.boss.hp ?? 0) > 2) {
+    await showBoss($, brain, brain.boss.key, 2)
+    return `${bossStatus(brain.boss)}. 한 번 더 하면 쓰러뜨려요.`
+  }
+  await defeatBoss($, brain, 0)
+  return '보스를 쓰러뜨렸어요. 시연이라 코인은 주지 않아요.'
 }
 
 export async function onGit($: $, brain: Brain, kind: 'commit' | 'push' | 'pr', detail: string): Promise<void> {

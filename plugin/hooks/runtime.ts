@@ -2,9 +2,10 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, demoBoss, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
+import { failedCount } from './lib/boss'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
 import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
 import { featureOfCommand, featureOfTool, featureText } from './lib/features'
@@ -292,7 +293,7 @@ export async function toolRan($: $, ctx: Ctx, tool: string, command: string | un
   await now($, ctx)
   const outcome = readTestOutcome(command, isError, text)
   if (outcome !== null) {
-    await onTest($, brain, outcome.kind, outcome.key, outcome.summary)
+    await onTest($, brain, outcome.kind, outcome.key, outcome.summary, outcome.kind === 'test-fail' ? failedCount(text) : null)
   }
   const operation = isError ? undefined : (result as { gitOperation?: GitOperation } | undefined)?.gitOperation
   for (const event of readGitEvents(operation)) {
@@ -386,7 +387,7 @@ export const HELP = [
   `/toko gacha fashion | gacha pet — 패션 아이템 · 애완동물 랜덤 뽑기(각 ${GACHA.fashion.price}코인, 안 가진 것만 나와요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
-  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면)',
+  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면, boss: 보스전)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
 ].join('\n')
@@ -641,6 +642,11 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       if (kind === 'update') {
         $.clock.after(1, () => void demoNews($, ctx))
         return { text: '업데이트 내역에서 새 기능을 고르고 있어요. 몇 초 뒤에 토코가 알려 줄게요.' }
+      }
+      if (kind === 'boss') {
+        const text = await demoBoss($, brain)
+        await sync($, brain)
+        return { text }
       }
       if (kind === 'halloween') {
         await runHalloween($, brain)

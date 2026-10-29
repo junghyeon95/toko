@@ -3,6 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { MEMORY_ASK, isSimilarReason } from '../hooks/lib/bonks'
+import { failedCount, hpBar, meetBoss } from '../hooks/lib/boss'
 import { gachaPool, isInSeason, pullGacha } from '../hooks/lib/economy'
 import { CHANGELOG_URL, compareVersions, freshAdditions, parseChangelog } from '../hooks/lib/news'
 
@@ -452,4 +453,51 @@ test('a Halloween scene stays out of the dex and points at the pumpkin hat, and 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /말랑/ })).toBeDefined()
   await band.unmount()
+})
+
+test('the boss reads how many tests failed from the usual runners, and its bar shrinks as they get fixed', async () => {
+  expect(failedCount('Tests:       3 failed, 4 passed, 7 total')).toBe(3)
+  expect(failedCount(' Test Files  1 failed (1)\n      Tests  2 failed | 5 passed (7)')).toBe(2)
+  expect(failedCount('==== 4 failed, 10 passed in 0.31s ====')).toBe(4)
+  expect(failedCount('test result: FAILED. 8 passed; 2 failed; 0 ignored')).toBe(2)
+  expect(failedCount('  3 passing (12ms)\n  1 failing')).toBe(1)
+  expect(failedCount('--- FAIL: TestLogin (0.00s)\n--- FAIL: TestLogout (0.00s)\nFAIL')).toBe(2)
+  expect(failedCount('Error: something broke')).toBeNull()
+  const boss = meetBoss(meetBoss(null, 'npm test', 5, 0), 'npm test', 2, 1)
+  expect([boss.maxHp, boss.hp, hpBar(boss)]).toEqual([5, 2, '■■□□□ 2/5'])
+  expect(hpBar(meetBoss(null, 'go test', null, 0))).toBe('■■■■■')
+})
+
+test('three failures of the same test call up a boss on the band, and passing it defeats the boss for 20 coins', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:badges': { comeback: START - 1000 } })
+  const run = { isError: true, text: 'FAIL src/login.test.ts\nTests:       3 failed, 4 passed, 7 total' }
+  on('tool.call', () => ({ result: { stdout: run.text, stderr: '' }, isError: run.isError, text: run.text }) as never)
+  await begin($)
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+  }
+  expect(await said($, /등장! 테스트를 통과시켜서 물리치자/)).toBe(true)
+  expect(await said($, /보스 .+ ■■■■■ 3\/3/)).toBe(true)
+  run.text = 'Tests:       1 failed, 6 passed, 7 total'
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+  expect(await said($, /보스 .+ ■■□□□ 1\/3/)).toBe(true)
+  run.isError = false
+  run.text = 'Tests:       7 passed, 7 total'
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+  expect(await said($, /격파! \+20 코인/)).toBe(true)
+  expect(await said($, /보스 /)).toBe(false)
+  await end($)
+  expect(healthOf(world)).toBe(20)
+})
+
+test('/toko event boss calls up a boss, knocks its health down, then defeats it without paying coins', OFFLINE, async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'event boss' } as never)).text).toMatch(/■■■■■ 5\/5/)
+  expect((await $.command.run({ command: 'toko', args: 'event boss' } as never)).text).toMatch(/■■□□□ 2\/5/)
+  expect((await $.command.run({ command: 'toko', args: 'event boss' } as never)).text).toContain('쓰러뜨렸어요')
+  await end($)
+  expect(healthOf(world)).toBe(0)
 })
