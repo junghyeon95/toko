@@ -32,7 +32,7 @@ export const THINK_EVERY = 20
 export const SAVE_EVERY = 300
 export const BLIT_DENY_LIMIT = 6
 export const ROOM_ID = 'toko-room'
-export const ROOM_ROWS = 20
+export const ROOM_ROWS = 28
 export const SCENE_KEY = 'toko-scene'
 export const ROOM_KEY = 'toko-room-scene'
 

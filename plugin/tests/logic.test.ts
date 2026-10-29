@@ -11,10 +11,10 @@ import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
 import { createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
-import { BAND_ROWS, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
+import { BAND_ROWS, BODY_ROWS, PET_WIDTH, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
 import { hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
-import { SPECIES_ART } from '../hooks/lib/sprites'
+import { SPECIES_ART, bodyOf } from '../hooks/lib/sprites'
 
 const usage = (output: number, cacheRead = 0) => ({ input_tokens: 1000, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
 
@@ -265,11 +265,15 @@ test('cells encode half blocks: top pixel is the foreground, transparent is the 
   expect(toBase64(Uint8Array.of(1, 2, 3, 4))).toBe('AQIDBA==')
 })
 
-test('every species body fits the 16 by 14 pet frame', async () => {
+test('every species body fits the 24 by 23 pet frame, shaded and breathing alike', async () => {
   for (const species of SPECIES_IDS) {
-    const body = SPECIES_ART[species].body
-    expect([species, body.length]).toEqual([species, 14])
-    expect(body.filter(row => row.length !== 16)).toEqual([])
+    for (const body of [SPECIES_ART[species].body, bodyOf(species), bodyOf(species, true)]) {
+      expect([species, body.length]).toEqual([species, BODY_ROWS])
+      expect(body.filter(row => row.length !== PET_WIDTH)).toEqual([])
+    }
+    const shaded = bodyOf(species).join('')
+    expect([species, ['o', 'H', 'B', 'K'].every(key => shaded.includes(key))]).toEqual([species, true])
+    expect(bodyOf(species, true)).not.toEqual(bodyOf(species))
   }
 })
 
