@@ -5,7 +5,7 @@ import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
 import { closestBadges } from './lib/badges'
-import { SHOP, SPEND, shopItem } from './lib/economy'
+import { GACHA, SHOP, SPEND, shopItem } from './lib/economy'
 import { meterLevel, meterText } from './lib/meter'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
 import { ACTION_LABEL, visitorText } from './lib/plaza'
@@ -27,6 +27,7 @@ import {
   commandTool,
   createCtx,
   drawFromRoom,
+  gachaFromRoom,
   feedCommand,
   focusCommand,
   gameCatch,
@@ -470,6 +471,16 @@ export const register: Register = (on, options) => {
             )}
           </Box>
         )}
+        <Box flexDirection="column">
+          <Text weight="bold">뽑기</Text>
+          <Box flexWrap="wrap" gap={1}>
+            {(['fashion', 'pet'] as const).map(kind => (
+              <Button key={`gacha-${kind}`} variant="primary" onPress={press(() => gachaFromRoom($, ctx, kind))}>
+                {GACHA[kind].name} <Text dimColor>{String(GACHA[kind].price)}</Text>
+              </Button>
+            ))}
+          </Box>
+        </Box>
         {SHELVES.map(([title, shelf]) => (
           <Box key={`shelf-${title}`} flexDirection="column">
             <Text weight="bold">{title}</Text>

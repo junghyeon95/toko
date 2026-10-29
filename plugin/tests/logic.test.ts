@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { DAILY_TOKEN_CAP, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, turnIncome, wear, wornOf } from '../hooks/lib/economy'
+import { DAILY_TOKEN_CAP, GACHA, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, gachaPool, pullGacha, turnIncome, wear, wornOf } from '../hooks/lib/economy'
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
@@ -90,16 +90,42 @@ test('the shop sells, refuses a second hat and swaps worn hats', async () => {
 })
 
 test('the shop sells pets, and only one comes along at a time', async () => {
-  expect(SHOP.filter(item => item.kind === 'pet').map(item => item.id)).toEqual(['chick', 'hamster', 'kitten'])
+  expect(SHOP.filter(item => item.kind === 'pet').map(item => item.id)).toEqual(['chick', 'hamster', 'kitten', 'baby-bunny', 'puppy'])
   const wallet = { coins: 0, items: ['beanie', 'chick', 'kitten'], worn: ['beanie'] }
   const swapped = wear(wear(wallet, 'chick'), 'kitten')
   expect(swapped.worn).toEqual(['beanie', 'kitten'])
   expect(wornOf(swapped, 'pet')).toBe('kitten')
 })
 
+test('each gacha costs 50 coins, gives only what is not owned yet and puts it on', async () => {
+  expect([GACHA.fashion.price, GACHA.pet.price]).toEqual([50, 50])
+  const wallet = { coins: 0, items: ['beanie'], worn: ['beanie'] }
+  expect(gachaPool(wallet, 'fashion').map(item => item.kind).every(kind => kind === 'hat' || kind === 'neck' || kind === 'face')).toBe(true)
+  expect(gachaPool(wallet, 'fashion').some(item => item.id === 'beanie')).toBe(false)
+  expect(pullGacha(wallet, 49, 'pet', 0)).toEqual({ reason: '코인이 1개 모자라' })
+  const pulled = pullGacha(wallet, 50, 'fashion', 0.99)
+  if ('reason' in pulled) {
+    throw new Error(pulled.reason)
+  }
+  expect([pulled.spent, pulled.wallet.items.includes(pulled.item.id), wornOf(pulled.wallet, pulled.item.kind)]).toEqual([50, true, pulled.item.id])
+  const everything = { coins: 0, items: SHOP.map(item => item.id), worn: [] }
+  expect(pullGacha(everything, 999, 'pet', 0.5)).toEqual({ reason: '다 모았어! 더 나올 게 없어' })
+})
+
 const LOOK: Look = { bones: { seed: 7, species: 'cat' }, stage: 'baby', mood: 'calm', hammer: 'toy' }
 const CHICK = hex('#FFEE88')
 const EYE = hex('#221122')
+const FRAME = hex('#334499')
+
+test('glasses sit over both eyes with a bridge between them', async () => {
+  const still: Step[] = [{ pose: 'sit', ms: 60_000 }]
+  expect(colorsIn(run(LOOK, still, 500).canvas, 0, 100).has(FRAME)).toBe(false)
+  for (const face of ['round-glasses', 'sunglasses']) {
+    const { scene, canvas } = run({ ...LOOK, face }, still, 500)
+    const x = Math.round(scene.x)
+    expect([face, colorsIn(canvas, x + 2, x + 6).has(FRAME), colorsIn(canvas, x + 6, x + 10).has(FRAME), colorsIn(canvas, x + 10, x + 14).has(FRAME)]).toEqual([face, true, true, true])
+  }
+})
 
 const colorsIn = (canvas: Canvas, fromX: number, toX: number): Set<number> => {
   const colors = new Set<number>()

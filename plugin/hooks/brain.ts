@@ -37,8 +37,8 @@ import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordS
 import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
-import { HEALTH_REWARD, SPEND, balanceOf, buy, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
-import type { TurnUsage } from './lib/economy'
+import { GACHA, HEALTH_REWARD, SPEND, balanceOf, buy, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
+import type { GachaKind, TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
@@ -667,6 +667,7 @@ export const lookOf = (brain: Brain): Look => ({
   mood: brain.mood,
   hat: wornOf(brain.wallet, 'hat'),
   neck: wornOf(brain.wallet, 'neck'),
+  face: wornOf(brain.wallet, 'face'),
   hammer: wornOf(brain.wallet, 'hammer') ?? 'toy',
   critter: wornOf(brain.wallet, 'pet'),
 })
@@ -1449,6 +1450,24 @@ export async function purchase($: $, brain: Brain, id: string): Promise<string> 
   await say($, brain, item?.kind === 'hat' || item?.kind === 'neck' ? '어때? 잘 어울려?' : item?.kind === 'pet' ? `${item.name}, 잘 부탁해!` : `${item?.name ?? id} 샀다!`)
   await save($, brain)
   return `${item?.name ?? id}을(를) 샀어요.`
+}
+
+export async function pullFromGacha($: $, brain: Brain, kind: GachaKind): Promise<string> {
+  const result = pullGacha(brain.wallet, balance(brain), kind, brain.random())
+  if ('reason' in result) {
+    return refuse($, brain, result.reason)
+  }
+  brain.wallet = result.wallet
+  brain.earn = { ...brain.earn, spent: brain.earn.spent + result.spent }
+  brain.isDirty = true
+  if (brain.scene !== null) {
+    setLook(brain.scene, lookOf(brain))
+  }
+  remember(brain, 'gacha', result.item.id)
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  await say($, brain, result.item.kind === 'pet' ? `${result.item.name}, 잘 부탁해!` : `${result.item.name}! 어때? 잘 어울려?`)
+  await save($, brain)
+  return `${GACHA[kind].name}: ${result.item.name}이(가) 나왔어요. ${result.item.kind === 'pet' ? '바로 데려왔어요' : '바로 입었어요'}.`
 }
 
 async function refuse($: $, brain: Brain, reason: string): Promise<string> {

@@ -66,7 +66,7 @@ export const spriteOf = (canvas: Canvas): PlazaSprite | null => {
 const sprites = new Map<string, PlazaSprite | null>()
 
 export const lookSprite = (look: Look): PlazaSprite | null => {
-  const key = [look.bones.species, look.stage, look.mood, look.hat, look.neck].join(':')
+  const key = [look.bones.species, look.stage, look.mood, look.hat, look.neck, look.face].join(':')
   const cached = sprites.get(key)
   if (cached !== undefined) {
     return cached

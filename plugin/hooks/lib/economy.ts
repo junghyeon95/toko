@@ -41,7 +41,7 @@ export const balanceOf = (wallet: TokoWallet, earns: readonly TokoEarn[]): numbe
 export const earnedTokenToday = (earns: readonly TokoEarn[], day: string): number =>
   earns.filter(earn => earn.day === day).reduce((sum, earn) => sum + earn.earned, 0)
 
-export type ShopKind = 'snack' | 'hat' | 'neck' | 'room' | 'hammer' | 'pet'
+export type ShopKind = 'snack' | 'hat' | 'neck' | 'face' | 'room' | 'hammer' | 'pet'
 
 export type ShopItem = { id: string; name: string; kind: ShopKind; price: number; restores?: number }
 
@@ -52,7 +52,15 @@ export const SHOP: readonly ShopItem[] = [
   { id: 'beanie', name: '털모자', kind: 'hat', price: 40 },
   { id: 'ribbon', name: '리본', kind: 'hat', price: 50 },
   { id: 'crown', name: '작은 왕관', kind: 'hat', price: 80 },
+  { id: 'cap', name: '야구모자', kind: 'hat', price: 70 },
+  { id: 'beret', name: '베레모', kind: 'hat', price: 70 },
+  { id: 'flower', name: '꽃핀', kind: 'hat', price: 50 },
+  { id: 'party', name: '고깔모자', kind: 'hat', price: 60 },
   { id: 'scarf', name: '목도리', kind: 'neck', price: 60 },
+  { id: 'bowtie', name: '나비넥타이', kind: 'neck', price: 60 },
+  { id: 'round-glasses', name: '동그란 안경', kind: 'face', price: 70 },
+  { id: 'sunglasses', name: '선글라스', kind: 'face', price: 90 },
+  { id: 'heart-glasses', name: '하트 안경', kind: 'face', price: 90 },
   { id: 'plant', name: '화분', kind: 'room', price: 60 },
   { id: 'lamp', name: '무드등', kind: 'room', price: 90 },
   { id: 'rug', name: '폭신 러그', kind: 'room', price: 150 },
@@ -62,7 +70,36 @@ export const SHOP: readonly ShopItem[] = [
   { id: 'chick', name: '병아리', kind: 'pet', price: 60 },
   { id: 'hamster', name: '햄스터', kind: 'pet', price: 90 },
   { id: 'kitten', name: '아기 고양이', kind: 'pet', price: 120 },
+  { id: 'baby-bunny', name: '아기 토끼', kind: 'pet', price: 100 },
+  { id: 'puppy', name: '강아지', kind: 'pet', price: 120 },
 ]
+
+export type GachaKind = 'fashion' | 'pet'
+
+export const GACHA: Readonly<Record<GachaKind, { name: string; price: number; kinds: readonly ShopKind[] }>> = {
+  fashion: { name: '패션 뽑기', price: 50, kinds: ['hat', 'neck', 'face'] },
+  pet: { name: '애완동물 뽑기', price: 50, kinds: ['pet'] },
+}
+
+export const gachaPool = (wallet: TokoWallet, kind: GachaKind): ShopItem[] => SHOP.filter(item => GACHA[kind].kinds.includes(item.kind) && !wallet.items.includes(item.id))
+
+export type GachaPull = { wallet: TokoWallet; item: ShopItem; spent: number } | { reason: string }
+
+export const pullGacha = (wallet: TokoWallet, balance: number, kind: GachaKind, roll: number): GachaPull => {
+  const pool = gachaPool(wallet, kind)
+  const price = GACHA[kind].price
+  if (pool.length === 0) {
+    return { reason: '다 모았어! 더 나올 게 없어' }
+  }
+  if (balance < price) {
+    return { reason: `코인이 ${price - balance}개 모자라` }
+  }
+  const item = pool[Math.min(pool.length - 1, Math.floor(roll * pool.length))] ?? pool[0]
+  if (item === undefined) {
+    return { reason: '다 모았어! 더 나올 게 없어' }
+  }
+  return { wallet: wear({ ...wallet, items: [...wallet.items, item.id] }, item.id), item, spent: price }
+}
 
 export const shopItem = (id: string): ShopItem | undefined => SHOP.find(item => item.id === id)
 

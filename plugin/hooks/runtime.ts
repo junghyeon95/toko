@@ -2,11 +2,11 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
-import { SHOP, SPEND, shopItem } from './lib/economy'
+import { GACHA, SHOP, SPEND, shopItem } from './lib/economy'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { signalLabel } from './lib/peers'
@@ -23,7 +23,7 @@ import { createCanvas, encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, tick } from './lib/scene'
 import { MINUTE } from './lib/time'
 import { todayText } from './lib/today'
-import type { ShopItem, TurnUsage } from './lib/economy'
+import type { GachaKind, ShopItem, TurnUsage } from './lib/economy'
 
 type $ = EngineInterface
 
@@ -352,6 +352,7 @@ export const HELP = [
   '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   `/toko draw — 펫 뽑기(${SPEND.draw}코인, 알부터 키워요)`,
+  `/toko gacha fashion | gacha pet — 패션 아이템 · 애완동물 랜덤 뽑기(각 ${GACHA.fashion.price}코인, 안 가진 것만 나와요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
   '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개)',
@@ -431,6 +432,7 @@ const shopText = (brain: Brain): string =>
     ...SHOP.filter(item => item.kind !== 'pet').map(item => shopLine(brain, item)),
     '애완동물:',
     ...SHOP.filter(item => item.kind === 'pet').map(item => shopLine(brain, item)),
+    `뽑기: /toko gacha fashion (모자 · 안경 · 목도리, ${GACHA.fashion.price}코인) · /toko gacha pet (애완동물, ${GACHA.pet.price}코인)`,
     `코인 ${balance(brain)}`,
   ].join('\n')
 
@@ -578,6 +580,15 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       const line = isAwaitingName(brain.pet) ? `${name}! 마음에 쏙 들어. 잘 부탁해` : `이제 나는 ${name}! 새 이름 마음에 들어`
       await namePet($, brain, name, line)
       return { text: `이름을 "${name}"(으)로 지었어요.` }
+    }
+    case 'gacha': {
+      const kind = value === 'pet' || value === '애완동물' ? 'pet' : value === 'fashion' || value === '패션' ? 'fashion' : null
+      if (kind === null) {
+        return { text: '예: /toko gacha fashion · /toko gacha pet' }
+      }
+      const text = await pullFromGacha($, brain, kind)
+      await sync($, brain)
+      return { text }
     }
     case 'draw': {
       const text = await drawPet($, brain)
@@ -782,6 +793,12 @@ export async function choose($: $, ctx: Ctx, choice: TokoChoice): Promise<void> 
 export async function buyItem($: $, ctx: Ctx, id: string): Promise<void> {
   await now($, ctx)
   await purchase($, ctx.brain, id)
+  await sync($, ctx.brain)
+}
+
+export async function gachaFromRoom($: $, ctx: Ctx, kind: GachaKind): Promise<void> {
+  await now($, ctx)
+  await pullFromGacha($, ctx.brain, kind)
   await sync($, ctx.brain)
 }
 

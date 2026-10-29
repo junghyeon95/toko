@@ -5,7 +5,7 @@ import { rarityOf } from './pet'
 import type { Random } from './random'
 import type { Canvas, DrawOptions } from './raster'
 import { clear, createCanvas, drawGrid, setPixel } from './raster'
-import type { Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
+import type { Face, Glasses, Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
 import {
   BUBBLE,
   BUG,
@@ -22,6 +22,7 @@ import {
   EGG_CRACK,
   FEET,
   FIREFLY,
+  GLASSES,
   GIFT,
   GIFT_OPEN,
   HAMMER_DOWN,
@@ -104,6 +105,7 @@ export type Look = {
   mood: TokoMood
   hat?: string
   neck?: string
+  face?: string
   hammer: string
   critter?: string
 }
@@ -429,6 +431,16 @@ const drawFace = (canvas: Canvas, scene: Scene, frame: Frame, x: number, y: numb
   drawMouth(canvas, scene.palette, art, frame.mouth ?? mood.mouth, x, y, scale)
 }
 
+const drawGlasses = (canvas: Canvas, palette: Palette, face: Face, glasses: Glasses, x: number, y: number, scale: number): void => {
+  for (const [ex, ey] of [face.leftEye, face.rightEye]) {
+    drawGrid(canvas, glasses.lens, x + (ex - 1) * scale, y + (ey - 1) * scale, palette, { scale })
+  }
+  const bridge = palette.get(glasses.bridge) ?? 0
+  for (let bx = face.leftEye[0] + 3; bx < face.rightEye[0] - 1; bx += 1) {
+    fillBlock(canvas, x + bx * scale, y + face.leftEye[1] * scale, scale, bridge)
+  }
+}
+
 const drawMouth = (canvas: Canvas, palette: Palette, art: SpeciesArt, shape: MouthShape, x: number, y: number, scale: number): void => {
   for (const [mx, my, key] of MOUTHS[art.mouths?.[shape] ?? shape]) {
     fillBlock(canvas, x + (art.face.mouth[0] + mx) * scale, y + (art.face.mouth[1] + my) * scale, scale, palette.get(key) ?? 0)
@@ -557,6 +569,10 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
     drawGrid(canvas, [FEET[frame.feet]], px, feetY + 14 * scale, scene.palette, { scale, isFlipped })
   }
   drawFace(canvas, scene, frame, px, py, scale, scene.clock < scene.blinkUntil)
+  const glasses = look.face === undefined ? undefined : GLASSES[look.face]
+  if (glasses !== undefined) {
+    drawGlasses(canvas, scene.palette, art.face, glasses, px, py, scale)
+  }
   const hat = look.hat === undefined ? undefined : HATS[look.hat]
   if (hat !== undefined) {
     drawGrid(canvas, hat.grid, px + hat.dx * scale, py + (hat.dy + art.hatDy) * scale, scene.palette, { scale })

@@ -438,10 +438,23 @@ export const HATS: Readonly<Record<string, { grid: Grid; dx: number; dy: number 
   beanie: { grid: ['.....ii.....', '...iiiiii...', '..iIiIiIii..'], dx: 2, dy: 0 },
   ribbon: { grid: ['kk.kk', '.kkk.', 'kk.kk'], dx: 10, dy: 0 },
   crown: { grid: ['y.y.y', 'yYyYy', 'yyyyy'], dx: 5, dy: -1 },
+  cap: { grid: ['....RRRR....', '...RRRRRR...', '...RRRRRRrrr'], dx: 2, dy: 0 },
+  beret: { grid: ['......V.....', '...vvvvvv...', '..vvvvvvvv..'], dx: 2, dy: 0 },
+  flower: { grid: ['.k.', 'kyk', '.k.'], dx: 11, dy: 1 },
+  party: { grid: ['..Y..', '..k..', '.kyk.', 'kykyk'], dx: 5, dy: -1 },
 }
 
 export const NECKS: Readonly<Record<string, { grid: Grid; dx: number; dy: number }>> = {
   scarf: { grid: ['.RRRRRRRRRRRR.', '..RRrr....RRR.', '..........RR..'], dx: 1, dy: 12 },
+  bowtie: { grid: ['RR..RR', 'RRrrRR', 'RR..RR'], dx: 5, dy: 12 },
+}
+
+export type Glasses = { lens: Grid; bridge: string }
+
+export const GLASSES: Readonly<Record<string, Glasses>> = {
+  'round-glasses': { lens: ['.II.', 'I..I', 'I..I', '.II.'], bridge: 'I' },
+  sunglasses: { lens: ['IIII', 'IweI', 'IeeI', '.II.'], bridge: 'I' },
+  'heart-glasses': { lens: ['k..k', 'kqqk', 'kqqk', '.kk.'], bridge: 'k' },
 }
 
 export const CRITTERS: Readonly<Record<string, { stand: Grid; step: Grid; fur: string }>> = {
@@ -459,6 +472,16 @@ export const CRITTERS: Readonly<Record<string, { stand: Grid; step: Grid; fur: s
     stand: ['oo...oo.', 'oqoooqo.', 'oAaAaAo.', 'oAeAeAo.', 'oAckcAoa', '.oAAAo.a', '..ooo.a.', '.a...a..'],
     step: ['oo...oo.', 'oqoooqo.', 'oAaAaAo.', 'oAeAeAo.', 'oAckcAoa', '.oAAAo.a', '..ooo.a.', '..a.a...'],
     fur: 'A',
+  },
+  'baby-bunny': {
+    stand: ['.o...o.', 'oqo.oqo', 'oqoooqo', 'oWWWWWo', 'oWeWeWo', 'oWWkWWo', '.oWWWo.', '..ooo..', '.W...W.'],
+    step: ['.o...o.', 'oqo.oqo', 'oqoooqo', 'oWWWWWo', 'oWeWeWo', 'oWWkWWo', '.oWWWo.', '..ooo..', '..W.W..'],
+    fur: 'W',
+  },
+  puppy: {
+    stand: ['.ooooo.', 'SsssssS', 'SsesesS', '.ssess.', '.oskso.', '..ooo..', '.s...s.'],
+    step: ['.ooooo.', 'SsssssS', 'SsesesS', '.ssess.', '.oskso.', '..ooo..', '..s.s..'],
+    fur: 's',
   },
 }
 
