@@ -1,12 +1,15 @@
-import type { TokoBones, TokoMood, TokoSpecies, TokoStage } from '../../types'
+import type { TokoBones, TokoMood, TokoRoom, TokoSpecies, TokoStage } from '../../types'
 
 import { rarityOf } from './pet'
+import type { RoomSlot } from './room'
+import { ROOM_SLOTS, completedSets } from './room'
 
 import type { Random } from './random'
 import type { Canvas, DrawOptions } from './raster'
 import { clear, createCanvas, drawGrid, setPixel } from './raster'
-import type { Face, Glasses, Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
+import type { DayPhase, Face, Glasses, Grid, Mark, MouthShape, Palette, SpeciesArt } from './sprites'
 import {
+  BACKS,
   BAT,
   BOSS,
   BUBBLE,
@@ -16,6 +19,7 @@ import {
   CLAWD_SQUASHED,
   CLOUD,
   COIN,
+  COOKIE,
   CRITTERS,
   CRUMB,
   CUP,
@@ -25,6 +29,7 @@ import {
   FEET,
   FIREFLY,
   GLASSES,
+  HANDS,
   GIFT,
   GIFT_OPEN,
   HAMMER_DOWN,
@@ -33,21 +38,28 @@ import {
   HAMMER_UP,
   HATS,
   HEART,
+  LAMP_GLOW,
   LEAF,
   MOOD_FACE,
   MOUTHS,
   NECKS,
   NOTE,
   PUMPKIN,
+  ROOM_COLORS,
+  ROOM_PHASES,
   ROOM_PROPS,
+  SET_BONUS,
   SHOOTING_STAR,
   SPARKLE,
   SPECIES_ART,
   SPROUT,
   STAR,
+  STICKERS,
+  TROPHY,
   UMBRELLA,
   WATERING_CAN,
   ZZZ,
+  dyeGrid,
   eyeGrids,
   hex,
   paletteOf,
@@ -101,7 +113,7 @@ export type PropKind = 'clawd' | 'clawd-squashed' | 'gift' | 'gift-open' | 'cup'
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
-export type Wear = { hat?: string; neck?: string; face?: string }
+export type Wear = { hat?: string; neck?: string; face?: string; back?: string; hand?: string; dyes?: Readonly<Record<string, number>> }
 
 export type Visitor = { id: string; species: TokoSpecies | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number; pausePose: Pose; wear: Wear }
 
@@ -112,6 +124,9 @@ export type Look = {
   hat?: string
   neck?: string
   face?: string
+  back?: string
+  hand?: string
+  dyes?: Readonly<Record<string, number>>
   hammer: string
   critter?: string
 }
@@ -445,14 +460,37 @@ const drawWear = (canvas: Canvas, palette: Palette, art: SpeciesArt, wear: Wear,
   }
   const hat = wear.hat === undefined ? undefined : HATS[wear.hat]
   if (hat !== undefined) {
-    drawMark(canvas, palette, { ...hat, dy: hat.dy + art.hatDy }, x, y, scale, isFlipped)
+    drawMark(canvas, palette, { ...hat, grid: dyeGrid(hat.grid, wear.dyes?.[wear.hat ?? ''] ?? 0), dy: hat.dy + art.hatDy }, x, y, scale, isFlipped)
   }
+  const hand = wear.hand === undefined ? undefined : HANDS[wear.hand]
+  if (hand !== undefined) {
+    const [, right] = bodyEdges(art)
+    drawGrid(canvas, dyeGrid(hand.grid, wear.dyes?.[wear.hand ?? ''] ?? 0), x + (right + 1) * scale, y + (art.armY + hand.dy) * scale, palette, { scale })
+  }
+}
+
+const bodyEdges = (art: SpeciesArt): readonly [number, number] => {
+  const row = art.body[art.armY] ?? ''
+  return [row.search(/[^.]/), row.length - 1 - [...row].reverse().join('').search(/[^.]/)]
+}
+
+const drawBack = (canvas: Canvas, palette: Palette, art: SpeciesArt, wear: Wear, x: number, y: number, scale: number): void => {
+  const back = wear.back === undefined ? undefined : BACKS[wear.back]
+  if (back === undefined) {
+    return
+  }
+  const dye = wear.dyes?.[wear.back ?? ''] ?? 0
+  const [left, right] = bodyEdges(art)
+  const top = y + (art.armY + back.dy) * scale
+  const width = Math.max(0, ...back.left.map(row => row.length))
+  drawGrid(canvas, dyeGrid(back.left, dye), x + (left - width) * scale, top, palette, { scale })
+  drawGrid(canvas, dyeGrid(back.right, dye), x + (right + 1) * scale, top, palette, { scale })
 }
 
 const drawNeck = (canvas: Canvas, palette: Palette, art: SpeciesArt, wear: Wear, x: number, y: number, scale: number, isFlipped: boolean): void => {
   const neck = wear.neck === undefined ? undefined : NECKS[wear.neck]
   if (neck !== undefined) {
-    drawMark(canvas, palette, { ...neck, dy: art.neckY + neck.dy }, x, y, scale, isFlipped)
+    drawMark(canvas, palette, { ...neck, grid: dyeGrid(neck.grid, wear.dyes?.[wear.neck ?? ''] ?? 0), dy: art.neckY + neck.dy }, x, y, scale, isFlipped)
   }
 }
 
@@ -586,6 +624,7 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   const isFlipped = scene.dir < 0
   const art = SPECIES_ART[look.bones.species]
   drawAura(canvas, scene, art, px, py, scale)
+  drawBack(canvas, scene.palette, art, look, px, py, scale)
   drawGrid(canvas, art.body, px, py, scene.palette, { scale })
   if (art.isFloating !== true) {
     const feetY = frame.feet === 'tuck' ? py : baseY
@@ -700,24 +739,241 @@ export const paint = (scene: Scene, canvas: Canvas): void => {
   }
 }
 
-export const paintRoom = (scene: Scene, canvas: Canvas, items: readonly string[]): void => {
+export type RoomGuest = { id: string; look: Look }
+
+export type RoomActKind = 'hug' | 'snack' | 'play' | 'nap'
+
+export type RoomActMark = { guest: string; act: RoomActKind; at: number }
+
+export type RoomView = {
+  layout: TokoRoom
+  placed: { slot: string; at: number } | null
+  hour: number
+  guests: readonly RoomGuest[]
+  acts: readonly RoomActMark[]
+  owner: Look | null
+  stickers: readonly string[]
+  trophies: number
+  care: { kind: 'eat' | 'play'; at: number } | null
+}
+
+export type DecorView = Pick<RoomView, 'layout' | 'hour'> & Partial<Pick<RoomView, 'stickers' | 'trophies'>>
+
+export const dayPhase = (hour: number): DayPhase => (hour >= 20 || hour < 7 ? 'night' : hour < 10 ? 'morning' : hour >= 17 ? 'sunset' : 'day')
+
+const ACT_SHOW = 3000
+
+const ACT_POSE: Readonly<Record<RoomActKind, Pose>> = { hug: 'jump', snack: 'eat', play: 'run', nap: 'sleep' }
+
+const ACT_EFFECT: Readonly<Record<RoomActKind, Grid>> = { hug: HEART, snack: COOKIE, play: NOTE, nap: ZZZ }
+
+const lookScenes = new Map<string, Scene>()
+
+const sceneOfLook = (look: Look, clock: number): Scene => {
+  const key = JSON.stringify(look)
+  const scene = lookScenes.get(key) ?? createScene(PET_WIDTH, look, () => [{ pose: 'idle', ms: 60_000 }])
+  lookScenes.set(key, scene)
+  scene.clock = clock
+  return scene
+}
+
+const ROOM_BEAT = 9000
+const ROOM_WALK = 1500
+const PLACE_RUN = 1000
+export const PLACE_SHOW = 3000
+const NARROW_ROOM = 96
+
+const ROOM_USE: Readonly<Record<string, Pose>> = {
+  plant: 'look',
+  lamp: 'sleep',
+  cushion: 'sleep',
+  fishbowl: 'look',
+  bookshelf: 'sit',
+  'cat-tower': 'jump',
+  frame: 'look',
+  window: 'look',
+  clock: 'look',
+  rug: 'dance',
+  'stripe-rug': 'dance',
+  'flower-rug': 'dance',
+  'cloud-rug': 'sleep',
+  'water-bottle': 'eat',
+  'yoga-mat': 'stretch',
+  telescope: 'look',
+}
+
+type RoomProp = { id: string; slot: RoomSlot; grid: Grid; x: number; y: number; width: number }
+
+type RoomSpot = { x: number; pose: Pose; guest?: number }
+
+const isNight = (hour: number): boolean => hour >= 20 || hour < 7
+
+const slotX = (slot: RoomSlot, width: number, size: number): number =>
+  ({
+    'wall-left': 6,
+    'wall-right': width - 6 - size,
+    'floor-1': 3,
+    'floor-2': 22,
+    'floor-3': width - 22 - size,
+    'floor-4': width - 3 - size,
+    rug: Math.round(width / 2 - size / 2),
+    wallpaper: 0,
+    flooring: 0,
+  })[slot]
+
+const isShownSlot = (slot: RoomSlot, width: number): boolean => width >= NARROW_ROOM || (slot !== 'floor-2' && slot !== 'floor-3')
+
+const roomProps = (view: DecorView, width: number, floor: number): readonly RoomProp[] =>
+  ROOM_SLOTS.map(({ id: slot, spot }) => {
+    const id = view.layout[slot]
+    const grid = id === undefined ? undefined : (ROOM_PHASES[id]?.[dayPhase(view.hour)] ?? ROOM_PROPS[id])
+    if (id === undefined || grid === undefined || !isShownSlot(slot, width)) {
+      return null
+    }
+    const size = (grid[0]?.length ?? 0) * 2
+    const y = spot === 'wall' ? 3 : spot === 'rug' ? floor : floor + 2 - grid.length * 2
+    return { id, slot, grid, x: slotX(slot, width, size), y, width: size }
+  }).filter((prop): prop is RoomProp => prop !== null)
+
+const mix = (n: number): number => {
+  const h = Math.imul(n ^ (n >>> 16), 0x45d9f3b) >>> 0
+  return (h ^ (h >>> 13)) >>> 0
+}
+
+const lerp = (from: number, to: number, t: number): number => Math.round(from + (to - from) * Math.min(1, Math.max(0, t)))
+
+const besideOf = (prop: RoomProp, width: number): number => {
+  if (prop.slot === 'rug') {
+    return Math.round(prop.x + prop.width / 2 - PET_WIDTH)
+  }
+  return prop.x + prop.width / 2 < width / 2 ? prop.x + prop.width + 1 : prop.x - PET_WIDTH * 2 - 1
+}
+
+const spotFor = (prop: RoomProp, width: number): number => Math.min(width - PET_WIDTH * 2, Math.max(0, besideOf(prop, width)))
+
+const guestX = (index: number, width: number): number => {
+  const home = Math.round(width / 2 - PET_WIDTH)
+  return Math.min(width - PET_WIDTH * 2, Math.max(0, index === 0 ? home - 40 : home + 60))
+}
+
+const besideGuest = (index: number, width: number): number => {
+  const x = guestX(index, width)
+  return Math.min(width - PET_WIDTH * 2, Math.max(0, index === 0 ? x + PET_WIDTH * 2 + 2 : x - PET_WIDTH * 2 - 2))
+}
+
+const roomSpots = (scene: Scene, props: readonly RoomProp[], width: number, hour: number, guests: number): readonly RoomSpot[] => {
+  const home: RoomSpot = { x: Math.round(width / 2 - PET_WIDTH), pose: scene.current?.pose === 'sleep' ? 'sleep' : scene.look.mood === 'excited' ? 'dance' : 'idle' }
+  const lamp = props.find(prop => prop.id === 'lamp')
+  if (isNight(hour) && lamp !== undefined) {
+    return [{ x: spotFor(lamp, width), pose: 'sleep' }]
+  }
+  const withGuests = Array.from({ length: Math.min(2, guests) }, (_, index): RoomSpot => ({ x: besideGuest(index, width), pose: 'wave', guest: index }))
+  return [home, ...withGuests, ...props.filter(prop => ROOM_USE[prop.id] !== undefined).map(prop => ({ x: spotFor(prop, width), pose: ROOM_USE[prop.id] ?? 'idle' }))]
+}
+
+const petInRoom = (scene: Scene, spots: readonly RoomSpot[], placed: RoomProp | undefined, placedAt: number, width: number): RoomSpot => {
+  const home = Math.round(width / 2 - PET_WIDTH)
+  const age = scene.clock - placedAt
+  if (placed !== undefined && age >= 0 && age < PLACE_SHOW) {
+    return { x: lerp(home, spotFor(placed, width), age / PLACE_RUN), pose: age < PLACE_RUN ? 'run' : 'jump' }
+  }
+  const beat = Math.floor(scene.clock / ROOM_BEAT)
+  const at = (n: number): RoomSpot => spots[mix(n) % spots.length] ?? { x: home, pose: 'idle' }
+  const [before, now] = [at(beat - 1), at(beat)]
+  const into = scene.clock % ROOM_BEAT
+  return into < ROOM_WALK && before.x !== now.x ? { x: lerp(before.x, now.x, into / ROOM_WALK), pose: 'walk' } : now
+}
+
+const fillBand = (canvas: Canvas, id: string | undefined, fromY: number, toY: number, step: number): boolean => {
+  const colors = id === undefined ? undefined : ROOM_COLORS[id]
+  if (colors === undefined) {
+    return false
+  }
+  const [base, dot] = [hex(colors.base), hex(colors.dot)]
+  for (let y = fromY; y < toY; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      setPixel(canvas, x, y, (x + (Math.floor(y / step) % 2) * Math.floor(step / 2)) % step === 0 && y % step === 1 ? dot : base)
+    }
+  }
+  return true
+}
+
+export const paintDecor = (canvas: Canvas, palette: Palette, view: DecorView): readonly RoomProp[] => {
   clear(canvas)
   const floor = canvas.height - 3
-  const floorColor = hex('#CCBBAA')
-  for (let x = 0; x < canvas.width; x += 1) {
-    setPixel(canvas, x, floor + 2, floorColor)
+  fillBand(canvas, view.layout.wallpaper, 0, floor + 1, 6)
+  if (!fillBand(canvas, view.layout.flooring, floor + 1, canvas.height, 2)) {
+    const floorColor = hex('#CCBBAA')
+    for (let x = 0; x < canvas.width; x += 1) {
+      setPixel(canvas, x, floor + 2, floorColor)
+    }
   }
-  if (items.includes('rug')) {
-    drawGrid(canvas, ROOM_PROPS.rug ?? [], Math.round(canvas.width / 2 - 18), floor, scene.palette, { scale: 2 })
+  for (const [index, set] of completedSets(view.layout).entries()) {
+    const bonus = SET_BONUS[set] ?? []
+    const span = bonus[0]?.length ?? 1
+    for (let x = 0; x < canvas.width; x += span) {
+      drawGrid(canvas, bonus, x, index * 3, palette)
+    }
   }
-  if (items.includes('plant')) {
-    drawGrid(canvas, ROOM_PROPS.plant ?? [], 3, floor - 8, scene.palette, { scale: 2 })
+  const stickers = (view.stickers ?? []).slice(-12)
+  for (const [index, sticker] of stickers.entries()) {
+    drawGrid(canvas, STICKERS[sticker] ?? [], Math.round(canvas.width / 2) - 30 + index * 5, 0, palette)
   }
-  if (items.includes('lamp')) {
-    drawGrid(canvas, ROOM_PROPS.lamp ?? [], canvas.width - 14, floor - 10, scene.palette, { scale: 2 })
+  const props = roomProps(view, canvas.width, floor)
+  for (const prop of props) {
+    drawGrid(canvas, prop.grid, prop.x, prop.y, palette, { scale: 2 })
+    if (prop.id === 'lamp' && isNight(view.hour)) {
+      drawGrid(canvas, LAMP_GLOW, prop.x - 1, prop.y - 4, palette)
+    }
+    if (prop.id === 'trophy-shelf') {
+      for (let index = 0; index < Math.min(3, view.trophies ?? 0); index += 1) {
+        drawGrid(canvas, TROPHY, prop.x + 2 + index * 4, prop.y + 2, palette)
+      }
+    }
   }
-  const pose = scene.current?.pose === 'sleep' ? 'sleep' : scene.look.mood === 'excited' ? 'dance' : 'idle'
-  const petX = Math.round(canvas.width / 2 - PET_WIDTH)
-  paintPet(canvas, scene, pose, scene.clock, petX, floor - PET_HEIGHT * 2, 2)
-  paintCritter(canvas, scene, pose === 'sleep' ? 'sleep' : 'sit', petX + PET_WIDTH * 2 + 4, floor + 2, -1, false, 2)
+  return props
+}
+
+export const paintRoom = (scene: Scene, canvas: Canvas, view: RoomView): void => {
+  const floor = canvas.height - 3
+  const props = paintDecor(canvas, scene.palette, view)
+  const host = view.owner === null ? scene : sceneOfLook(view.owner, scene.clock)
+  const guests = view.guests.slice(0, 2)
+  const act = view.acts.filter(mark => scene.clock - mark.at >= 0 && scene.clock - mark.at < ACT_SHOW).at(-1)
+  const actGuest = act === undefined ? -1 : guests.findIndex(guest => guest.id === act.guest)
+  const placed = view.placed === null ? undefined : props.find(prop => prop.slot === view.placed?.slot)
+  const roaming = petInRoom(host, roomSpots(host, props, canvas.width, view.hour, guests.length), placed, view.placed?.at ?? 0, canvas.width)
+  const pair = host.look.neck === 'friend-heart' ? guests.findIndex(guest => guest.look.neck === 'friend-heart') : -1
+  const care = view.care !== null && scene.clock - view.care.at >= 0 && scene.clock - view.care.at < ACT_SHOW ? view.care : null
+  const settled: RoomSpot = care !== null ? { x: roaming.x, pose: care.kind === 'eat' ? 'eat' : 'jump' } : pair >= 0 && view.placed === null ? { x: besideGuest(pair, canvas.width), pose: 'sit', guest: pair } : roaming
+  const pet: RoomSpot = act === undefined ? settled : { x: actGuest < 0 ? settled.x : besideGuest(actGuest, canvas.width), pose: ACT_POSE[act.act], ...(actGuest < 0 ? {} : { guest: actGuest }) }
+  for (const [index, guest] of guests.entries()) {
+    const guestPose: Pose = act !== undefined && index === actGuest ? ACT_POSE[act.act] : pet.pose === 'sleep' ? 'sleep' : cycle(scene.clock + index * 4000, 6000, 2) === 0 ? 'idle' : 'sit'
+    paintPet(canvas, sceneOfLook(guest.look, scene.clock), guestPose, scene.clock, guestX(index, canvas.width), floor - PET_HEIGHT * 2, 2)
+  }
+  paintPet(canvas, host, pet.pose, scene.clock, pet.x, floor - PET_HEIGHT * 2, 2)
+  if (view.owner === null) {
+    const critterX = pet.x + PET_WIDTH * 2 + 4 + 16 <= canvas.width ? pet.x + PET_WIDTH * 2 + 4 : pet.x - 18
+    paintCritter(canvas, scene, pet.pose === 'sleep' ? 'sleep' : 'sit', critterX, floor + 2, -1, false, 2)
+  }
+  if (care !== null) {
+    drawGrid(canvas, care.kind === 'eat' ? COOKIE : NOTE, pet.x + PET_WIDTH - 2, 2 + cycle(scene.clock - care.at, 300, 3), scene.palette, { scale: 2 })
+  } else if (act !== undefined) {
+    const at = actGuest < 0 ? pet.x + PET_WIDTH : Math.round((pet.x + guestX(actGuest, canvas.width)) / 2 + PET_WIDTH)
+    drawGrid(canvas, ACT_EFFECT[act.act], at - 1, 2 + cycle(scene.clock - act.at, 300, 3), scene.palette, { scale: 2 })
+  } else if (pet.guest !== undefined && cycle(scene.clock, 600, 2) === 0) {
+    drawGrid(canvas, HEART, guestX(pet.guest, canvas.width) + PET_WIDTH - 3, 1, scene.palette, { scale: 2 })
+  }
+  const age = scene.clock - (view.placed?.at ?? 0)
+  if (placed !== undefined && age >= 0 && age < PLACE_SHOW) {
+    const sparks = [
+      [placed.x - 4, placed.y - 2],
+      [placed.x + placed.width + 1, placed.y],
+      [placed.x + Math.round(placed.width / 2), placed.y - 5],
+    ] as const
+    const lit = sparks[cycle(age, 150, sparks.length)]
+    if (lit !== undefined) {
+      drawGrid(canvas, SPARKLE, lit[0], lit[1], scene.palette)
+    }
+  }
 }

@@ -278,3 +278,80 @@ describe('plaza', () => {
     expect(sanitizeLine('# 제목\n\n"**같이 쉬자**"')).toBe('같이 쉬자')
   })
 })
+
+describe('rooms and visits', () => {
+  const memoryStorage = () => {
+    let text: string | null = null
+    return { read: () => text, write: (next: string) => void (text = next) }
+  }
+  const host = { ...me('host1', '말랑'), room: { 'floor-1': 'cushion', rug: 'rug' } }
+
+  test('a guest stays in a room until it leaves, even across a server restart', async () => {
+    const storage = memoryStorage()
+    const first = createPlaza({ storage })
+    await first.handle(post('/v1/poll', { me: host, since: 0 }))
+    expect((await read(await first.handle(post('/v1/visit', { me: me('guest1', '콩떡'), to: 'host1' })))).status).toBe(200)
+    expect((await read(await first.handle(post('/v1/poll', { me: host, since: 0 })))).body.events.at(-1)).toMatchObject({ kind: 'visit', line: '콩떡이(가) 놀러 왔어' })
+    const second = createPlaza({ storage })
+    const guestHome = await read(await second.handle(post('/v1/poll', { me: me('guest1', '콩떡'), since: 0 })))
+    expect(guestHome.body.away).toMatchObject({ host: 'host1', hostName: '말랑' })
+    const hostHome = await read(await second.handle(post('/v1/poll', { me: host, since: 0 })))
+    expect(hostHome.body.guests.map((guest: { name: string }) => guest.name)).toEqual(['콩떡'])
+    const room = await read(await second.handle(new Request('http://plaza.test/v1/room?id=host1')))
+    expect(room.body).toMatchObject({ layout: { 'floor-1': 'cushion', rug: 'rug' }, guests: [{ id: 'guest1' }] })
+    await second.handle(post('/v1/visit/end', { me: me('guest1', '콩떡') }))
+    expect((await read(await second.handle(post('/v1/poll', { me: me('guest1', '콩떡'), since: 0 })))).body.away).toBe(null)
+  })
+
+  test('a closed or full room turns a visit away', async () => {
+    const plaza = createPlaza({ maxGuests: 1 })
+    await plaza.handle(post('/v1/poll', { me: { ...host, isRoomOpen: false }, since: 0 }))
+    expect((await plaza.handle(post('/v1/visit', { me: me('guest1', '콩떡'), to: 'host1' }))).status).toBe(403)
+    await plaza.handle(post('/v1/poll', { me: host, since: 0 }))
+    expect((await plaza.handle(post('/v1/visit', { me: me('guest1', '콩떡'), to: 'host1' }))).status).toBe(200)
+    expect((await plaza.handle(post('/v1/visit', { me: me('guest2', '두부'), to: 'host1' }))).status).toBe(409)
+    expect((await plaza.handle(post('/v1/visit', { me: me('guest2', '두부'), to: 'nobody' }))).status).toBe(403)
+  })
+
+  test('playing in the room reaches the other side and is remembered by the guest', async () => {
+    const plaza = createPlaza()
+    await plaza.handle(post('/v1/poll', { me: host, since: 0 }))
+    await plaza.handle(post('/v1/visit', { me: me('guest1', '콩떡'), to: 'host1' }))
+    await plaza.handle(post('/v1/room/act', { me: host, guest: 'guest1', kind: 'nap' }))
+    const guest = await read(await plaza.handle(post('/v1/poll', { me: me('guest1', '콩떡'), since: 0 })))
+    expect(guest.body.events.at(-1)).toMatchObject({ kind: 'room-act', act: 'nap', line: '같이 낮잠을 잤어', to: 'guest1' })
+    expect(guest.body.away.notes).toEqual(['같이 낮잠을 잤어'])
+    expect((await plaza.handle(post('/v1/room/act', { me: me('other1', '두부'), guest: 'guest1', kind: 'hug' }))).status).toBe(404)
+    await plaza.handle(post('/v1/visit/end', { me: host, guest: 'guest1' }))
+    const after = await read(await plaza.handle(post('/v1/poll', { me: me('guest1', '콩떡'), since: 0 })))
+    expect(after.body.away).toBe(null)
+    expect(after.body.events.at(-1)).toMatchObject({ kind: 'home', line: '말랑네 방에서 집으로 돌아왔어' })
+  })
+
+  test('stickers stay on the wall, three a day per friend, and gifts wait until they are taken', async () => {
+    const storage = memoryStorage()
+    const plaza = createPlaza({ storage })
+    await plaza.handle(post('/v1/poll', { me: host, since: 0 }))
+    for (const kind of ['heart', 'star', 'flower']) {
+      expect((await plaza.handle(post('/v1/room/sticker', { me: me('guest1', '콩떡'), to: 'host1', kind }))).status).toBe(200)
+    }
+    expect((await plaza.handle(post('/v1/room/sticker', { me: me('guest1', '콩떡'), to: 'host1', kind: 'heart' }))).status).toBe(429)
+    expect((await plaza.handle(post('/v1/gift', { me: me('guest1', '콩떡'), to: 'host1', item: 'cushion' }))).status).toBe(200)
+    const again = createPlaza({ storage })
+    const home = await read(await again.handle(post('/v1/poll', { me: host, since: 0 })))
+    expect(home.body.stickers).toEqual(['heart', 'star', 'flower'])
+    expect(home.body.gifts).toMatchObject([{ item: 'cushion', from: '콩떡' }])
+    await again.handle(post('/v1/gift/take', { me: host, ids: [home.body.gifts[0].id] }))
+    expect((await read(await again.handle(post('/v1/poll', { me: host, since: 0 })))).body.gifts).toEqual([])
+  })
+
+  test('what a pet is doing reaches friends but never the public page, and rude words are dropped', async () => {
+    const plaza = createPlaza()
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), doing: '테스트 돌리고 있는 중...' }, since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: { ...me('bbbb2', '콩떡'), doing: '바보 같은 버그' }, since: 0 }))
+    const friends = (await read(await plaza.handle(post('/v1/poll', { me: me('cccc3', '두부'), since: 0 })))).body.friends
+    expect(friends.map((friend: { doing?: string }) => friend.doing ?? null).sort()).toEqual([null, '테스트 돌리고 있는 중...'])
+    const view = await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))
+    expect(view.body.pets.some((pet: { doing?: string }) => pet.doing !== undefined)).toBe(false)
+  })
+})

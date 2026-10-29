@@ -426,6 +426,103 @@ test('a pet bought in the room gets its own shop row and comes along one at a ti
   await ui.unmount()
 })
 
+test('decor bought in the room lands in a free slot, and a slot button swaps what sits there', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 400, items: ['plant'], worn: [] } })
+  await begin($)
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const ui = await $.ui.mount({
+    plugin: 'toko',
+    component: 'Pane',
+    requestId: 'toko-room',
+    surface: 'terminal',
+    props: { title: '말랑의 방', isFocused: true, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  })
+  expect(await ui.find({ type: 'Text', text: /방 꾸미기/ })).toBeDefined()
+  await ui.press({ key: 'buy-cushion' })
+  await clock.advance(100)
+  await ui.press({ key: 'buy-fishbowl' })
+  await clock.advance(100)
+  expect((world.saved['toko:wallet'] as { room: Record<string, string> }).room).toEqual({ 'floor-1': 'plant', 'floor-2': 'cushion', 'floor-3': 'fishbowl' })
+  await ui.press({ key: 'slot-floor-1' })
+  await clock.advance(100)
+  expect((world.saved['toko:wallet'] as { room: Record<string, string> }).room).toEqual({ 'floor-1': 'cushion', 'floor-3': 'fishbowl' })
+  const moved = await $.command.run({ command: 'toko', args: 'place plant floor-4' } as never)
+  expect(moved.text).toBe('화분을(를) 오른쪽 구석에 놓았어요.')
+  expect((await $.command.run({ command: 'toko', args: 'layout' } as never)).text).toContain('- floor-4 · 오른쪽 구석: 화분')
+  await ui.unmount()
+})
+
+test('a rest souvenir shows up in the room without costing a coin', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 0, items: [], worn: [] } })
+  await begin($)
+  const result = await $.command.run({ command: 'toko', args: 'event souvenir' } as never)
+  expect(result.text).toBe('물병 기념품을 받았어요.')
+  expect(world.saved['toko:wallet']).toMatchObject({ items: ['water-bottle'], room: { 'floor-1': 'water-bottle' } })
+})
+
+test('a friend’s pet stays in the room and plays with toko, and toko can visit and come back', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me', 'toko:wallet': { coins: 0, items: ['cushion'], worn: [], room: { 'floor-1': 'cushion' } } })
+  const posts: { url: string; body: Record<string, unknown> }[] = []
+  const friend = { id: 'f1', name: '콩떡', color: 'peach', species: 'fox' }
+  let away: unknown = null
+  on('http.fetch', (_, e) => {
+    posts.push({ url: e.url, body: JSON.parse(e.init?.body ?? '{}') })
+    const body = {
+      now: START,
+      friends: [{ ...friend, mood: 'calm', status: 'working', lastSeen: START, isRoomOpen: true }],
+      events: [{ id: 'v1', at: START, kind: 'visit', from: friend, to: 'me', line: '콩떡이(가) 놀러 왔어', guest: 'f1' }],
+      guests: [{ ...friend, since: START }],
+      away,
+    }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } }
+  })
+  await begin($)
+  await clock.advance(25_000)
+  expect(posts.find(post => post.url === 'http://plaza.test/v1/poll')?.body.me).toMatchObject({ room: { 'floor-1': 'cushion' }, isRoomOpen: true })
+  const played = await $.command.run({ command: 'toko', args: 'guest 콩떡 nap' } as never)
+  expect(played.text).toBe('콩떡와(과) 놀았어요: 같이 낮잠')
+  expect(posts.at(-1)).toMatchObject({ url: 'http://plaza.test/v1/room/act', body: { guest: 'f1', kind: 'nap' } })
+  away = { host: 'f1', hostName: '콩떡', since: START, notes: ['같이 낮잠을 잤어'] }
+  expect((await $.command.run({ command: 'toko', args: 'visit 콩떡' } as never)).text).toBe('콩떡네 방에 놀러 갔어요. 데려오기 전까지 거기서 지내요.')
+  expect(posts.at(-1)).toMatchObject({ url: 'http://plaza.test/v1/visit', body: { to: 'f1' } })
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const ui = await $.ui.mount({
+    plugin: 'toko',
+    component: 'Pane',
+    requestId: 'toko-room',
+    surface: 'terminal',
+    props: { title: '말랑의 방', isFocused: true, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  })
+  expect(await ui.find({ type: 'Button', key: 'hug-guest-f1' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'come-home' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'visit-f1' })).toBeUndefined()
+  await ui.unmount()
+  expect((await $.command.run({ command: 'toko', args: 'home' } as never)).text).toBe('콩떡네에서 데려왔어요.')
+  expect(posts.at(-1)).toMatchObject({ url: 'http://plaza.test/v1/visit/end', body: {} })
+})
+
+test('a gift from a friend lands in the room with their name on it, and what toko is doing rides along on the poll', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me', 'toko:wallet': { coins: 0, items: [], worn: [] } })
+  const posts: { url: string; body: Record<string, unknown> }[] = []
+  on('http.fetch', (_, e) => {
+    posts.push({ url: e.url, body: JSON.parse(e.init?.body ?? '{}') })
+    const body = { now: START, friends: [], events: [], guests: [], away: null, stickers: ['star'], gifts: [{ id: 'g1', item: 'cushion', from: '콩떡' }] }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } }
+  })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'doing 회의 준비 중' } as never)).text).toBe('광장 이름표에 "회의 준비 중"을(를) 보여 줘요.')
+  await clock.advance(25_000)
+  expect(posts.find(post => post.url === 'http://plaza.test/v1/poll')?.body.me).toMatchObject({ doing: '회의 준비 중' })
+  expect(posts.find(post => post.url === 'http://plaza.test/v1/gift/take')?.body).toMatchObject({ ids: ['g1'] })
+  await clock.advance(60_000)
+  const wallet = world.saved['toko:wallet'] as { items: string[]; giftedBy: Record<string, string>; room: Record<string, string> }
+  expect([wallet.items.includes('cushion'), wallet.giftedBy.cushion, wallet.room['floor-1']]).toEqual([true, '콩떡', 'cushion'])
+})
+
 test('the plaza polls the server and a friend’s wave reaches the pet', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })
@@ -1029,8 +1126,8 @@ test('/toko draw spends coins, shelves the current pet and hatches a new egg', a
   expect((world.saved['toko:earn:session-1'] as { spent: number }).spent).toBe(200)
   const pet = world.store.get('toko:pet') as { id: string; bones: { species: string }; growth: { stage: string } }
   const shelf = ((world.store.get('toko:shelf') ?? []) as { id: string }[]).map(shelved => shelved.id)
-  if (String(drawn.text).startsWith('꽝')) {
-    expect(drawn.text).toContain('펭귄')
+  if (String(drawn.text).startsWith('이미 있는')) {
+    expect(drawn.text).toContain('펭귄이(가) 나와서 별조각 1개로 바꿨어요')
     expect([pet.id, shelf]).toEqual([PET.id, []])
   } else {
     expect(drawn.text).toContain('알이 나왔어요')

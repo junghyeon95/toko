@@ -2,6 +2,7 @@ import { atom, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type {
+  TokoAway,
   TokoBubblePart,
   TokoBoss,
   TokoBudget,
@@ -10,6 +11,7 @@ import type {
   TokoEarn,
   TokoEarning,
   TokoFocus,
+  TokoGuest,
   TokoFriend,
   TokoVisitor,
   TokoGame,
@@ -22,6 +24,7 @@ import type {
   TokoNewsPick,
   TokoOffer,
   TokoPet,
+  TokoRoom,
   TokoProgress,
   TokoSettings,
   TokoSoul,
@@ -38,8 +41,10 @@ import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordS
 import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
-import { GACHA, HEALTH_REWARD, SEASONS, SPEND, balanceOf, buy, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, isInSeason, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
-import type { GachaKind, TurnUsage } from './lib/economy'
+import { DYES, GACHA, HEALTH_REWARD, SEASONS, SPEND, balanceOf, buy, dyeOf, exchangeStars, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, isInSeason, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
+import type { GachaKind, ShopItem, TurnUsage } from './lib/economy'
+import type { RoomSlot } from './lib/room'
+import { SOUVENIRS, autoPlace, completedSets, cozinessOf, cycleSlot, isRoomItem, layoutOf, newSouvenirs, placeItem, slotLabel, storeItem, ROOM_SETS } from './lib/room'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
@@ -61,11 +66,11 @@ import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, RESERVED_AI_CALLS, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, NO_BONKS, PLAZA_POLL_MS, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, plazaStreamUrl, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
-import type { PlazaAction, PlazaBonks, PlazaEvent, PlazaSnapshot, PlazaStatus } from './lib/plaza'
+import { FRIEND_TTL_MS, NO_BONKS, PLAZA_POLL_MS, ROOM_ACT_LABEL, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseRoom, parseSnapshot, plazaEndpoint, plazaStreamUrl, roomPicture, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
+import type { PlazaAction, PlazaBonks, PlazaEvent, PlazaHome, PlazaSnapshot, PlazaStatus, RoomAct } from './lib/plaza'
 import type { Random } from './lib/random'
-import { createRandom, pick, pickWeighted } from './lib/random'
-import type { Look, Scene, Step } from './lib/scene'
+import { createRandom, hashText, pick, pickWeighted } from './lib/random'
+import type { Look, RoomView, Scene, Step } from './lib/scene'
 import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook, visitTiming } from './lib/scene'
 import { mergeShared, same } from './lib/shared'
 import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
@@ -125,6 +130,7 @@ export const KEY = {
   news: 'toko:news',
   features: 'toko:features',
   tips: 'toko:tips',
+  guestbook: 'toko:guestbook',
   bonks: 'toko:bonks',
 } as const
 
@@ -144,6 +150,8 @@ export const DEFAULT_SETTINGS: TokoSettings = {
   isPlazaOn: true,
   isPeersOn: true,
   isMeterOn: true,
+  isRoomOpen: true,
+  doing: 'off',
 }
 
 const emptyMemory = (): TokoMemory => ({
@@ -162,6 +170,10 @@ const EMPTY_MARKS: Marks = { wrappedDay: '', calmedDay: '', firstCommitDay: '', 
 const EMPTY_WALLET: TokoWallet = { coins: 0, items: [], worn: [] }
 
 type Countdown = { kind: string; label: string; endsAt: number; reward: number; then: 'praise' | 'unstick' | 'quiet' }
+
+export type RoomActShown = { guest: string; act: RoomAct; at: number }
+
+export type FriendRoom = { host: string; name: string; look: Look; layout: TokoRoom; guests: readonly TokoGuest[]; stickers: readonly string[]; fetchedAt: number }
 
 type Bonk = { reason: string; isTurnRunning: boolean; hasApology: boolean; isSubmitted: boolean; isDone: boolean }
 
@@ -253,6 +265,15 @@ export type Brain = {
   visitor: TokoVisitor | null
   visitorVisibleMs: number
   waitBuddyAt: number
+  roomPlaced: { slot: string; at: number } | null
+  guests: readonly TokoGuest[]
+  away: TokoAway | null
+  roomActs: readonly RoomActShown[]
+  viewing: FriendRoom | null
+  stickers: readonly string[]
+  roomCare: { kind: 'eat' | 'play'; at: number } | null
+  doing: string | null
+  takenGifts: readonly string[]
   isDirty: boolean
   synced: Partial<Record<SharedField, unknown>>
 }
@@ -345,6 +366,15 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   visitor: null,
   visitorVisibleMs: 0,
   waitBuddyAt: 0,
+  roomPlaced: null,
+  guests: [],
+  away: null,
+  roomActs: [],
+  viewing: null,
+  stickers: [],
+  roomCare: null,
+  doing: null,
+  takenGifts: [],
   isDirty: false,
   synced: {},
 })
@@ -595,6 +625,62 @@ async function awardBadges($: $, brain: Brain): Promise<readonly string[]> {
   return [`업적 달성: ${names}! +${reward} 코인`]
 }
 
+export const roomViewOf = (brain: Brain): RoomView => {
+  const viewing = brain.viewing
+  const guests = viewing === null ? brain.guests : viewing.guests
+  return {
+    layout: viewing === null ? layoutOf(brain.wallet) : viewing.layout,
+    placed: viewing === null ? brain.roomPlaced : null,
+    hour: hourOf(brain.now),
+    guests: guests.map(guest => ({ id: guest.id, look: guestLook(guest) })),
+    acts: brain.roomActs,
+    owner: viewing === null ? null : viewing.look,
+    stickers: viewing === null ? brain.stickers : viewing.stickers,
+    trophies: viewing === null ? Object.keys(brain.badges).length : 0,
+    care: viewing === null ? brain.roomCare : null,
+  }
+}
+
+const showPlaced = (brain: Brain, slot: RoomSlot): void => {
+  brain.roomPlaced = { slot, at: brain.scene?.clock ?? 0 }
+}
+
+const settleInRoom = (brain: Brain, id: string): boolean => {
+  const placed = autoPlace(brain.wallet, id)
+  if ('reason' in placed) {
+    return false
+  }
+  brain.wallet = placed.wallet
+  showPlaced(brain, placed.slot)
+  return true
+}
+
+const grantSouvenir = (brain: Brain, item: ShopItem): string => {
+  brain.wallet = { ...brain.wallet, items: [...brain.wallet.items, item.id] }
+  const isPlaced = settleInRoom(brain, item.id)
+  remember(brain, 'souvenir', item.id, 2)
+  return `쉰 만큼 쌓여서 기념품 ${item.name}이(가) 생겼어! ${isPlaced ? '방에 놓아 뒀어' : '창고에 넣어 뒀어'}`
+}
+
+const awardSouvenirs = (brain: Brain): readonly string[] => {
+  const phrases: string[] = []
+  for (const item of newSouvenirs({ ...progressCounts(brain), badges: Object.keys(brain.badges).length }, brain.wallet)) {
+    phrases.push(grantSouvenir(brain, item))
+  }
+  return phrases
+}
+
+export async function demoSouvenir($: $, brain: Brain): Promise<string> {
+  const item = SOUVENIRS.find(souvenir => !brain.wallet.items.includes(souvenir.id))
+  if (item === undefined) {
+    return '기념품을 다 모았어요.'
+  }
+  const phrase = grantSouvenir(brain, item)
+  await announce($, brain, [phrase])
+  await save($, brain)
+  return `${item.name} 기념품을 받았어요.`
+}
+
 async function announce($: $, brain: Brain, phrases: readonly string[]): Promise<void> {
   if (phrases.length === 0) {
     return
@@ -610,7 +696,7 @@ export async function checkProgress($: $, brain: Brain): Promise<void> {
     return
   }
   brain.isProgressDirty = false
-  const phrases = [...(await awardQuests($, brain)), ...(await awardBadges($, brain))]
+  const phrases = [...(await awardQuests($, brain)), ...(await awardBadges($, brain)), ...awardSouvenirs(brain)]
   await update($, progressAtom, () => progressOf(brain))
   await announce($, brain, phrases)
 }
@@ -682,7 +768,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, earningsAtom, () => brain.earnings),
     update($, gameAtom, () => brain.game),
     update($, countdownAtom, () => (brain.countdown === null ? null : { label: brain.countdown.label, endsAt: brain.countdown.endsAt })),
-    update($, plazaAtom, () => ({ isOnline: brain.serverUrl.length > 0 && brain.settings.isPlazaOn, friends: brain.friends, feed: brain.feed })),
+    update($, plazaAtom, () => plazaViewOf(brain, brain.serverUrl.length > 0 && brain.settings.isPlazaOn)),
     update($, lessonsAtom, () => brain.memory.lessons),
     update($, progressAtom, () => progressOf(brain)),
     update($, focusAtom, () => brain.focus),
@@ -716,6 +802,9 @@ export const lookOf = (brain: Brain): Look => ({
   hat: wornOf(brain.wallet, 'hat'),
   neck: wornOf(brain.wallet, 'neck'),
   face: wornOf(brain.wallet, 'face'),
+  back: wornOf(brain.wallet, 'back'),
+  hand: wornOf(brain.wallet, 'hand'),
+  dyes: brain.wallet.dyes,
   hammer: wornOf(brain.wallet, 'hammer') ?? 'toy',
   critter: wornOf(brain.wallet, 'pet'),
 })
@@ -1457,6 +1546,9 @@ const grantGift = (brain: Brain): string => {
   const unowned = GIFT_POOL.filter(id => shopItem(id)?.kind === 'snack' || !brain.wallet.items.includes(id))
   const id = pick(brain.random, unowned.length > 0 ? unowned : ['cookie'])
   brain.wallet = { ...brain.wallet, items: [...brain.wallet.items, id] }
+  if (isRoomItem(shopItem(id))) {
+    settleInRoom(brain, id)
+  }
   remember(brain, 'gift', id)
   count(brain, 'gift')
   return id
@@ -1549,6 +1641,7 @@ export async function feed($: $, brain: Brain): Promise<string> {
   remember(brain, 'fed', taken.snack.id)
   count(brain, 'fed')
   act(brain, direct.feed(), PRIORITY.reaction)
+  brain.roomCare = { kind: 'eat', at: brain.scene?.clock ?? 0 }
   await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'fed', speciesOf(brain)))
   return `${taken.snack.name}을(를) 줬어요.`
 }
@@ -1557,9 +1650,58 @@ export async function play($: $, brain: Brain): Promise<string> {
   brain.needs = restore(brain.needs, { fun: 30, energy: -5, social: 10 })
   remember(brain, 'played')
   count(brain, 'played')
+  brain.roomCare = { kind: 'play', at: brain.scene?.clock ?? 0 }
   act(brain, direct.play(), PRIORITY.reaction)
   await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'played', speciesOf(brain)))
   return '같이 놀았어요.'
+}
+
+const purchaseLine = (item: ShopItem | undefined, id: string, isPlaced: boolean): string => {
+  if (item?.kind === 'hat' || item?.kind === 'neck') {
+    return '어때? 잘 어울려?'
+  }
+  if (item?.kind === 'pet') {
+    return `${item.name}, 잘 부탁해!`
+  }
+  if (isRoomItem(item)) {
+    return isPlaced ? `우와! ${item.name} 방에 놓았어` : `${item.name} 샀다! 빈자리가 없어서 창고에 넣었어`
+  }
+  return `${item?.name ?? id} 샀다!`
+}
+
+export async function placeInRoom($: $, brain: Brain, id: string, slot?: RoomSlot): Promise<string> {
+  const result = placeItem(brain.wallet, id, slot)
+  if ('reason' in result) {
+    await say($, brain, result.reason)
+    return result.reason
+  }
+  const name = shopItem(id)?.name ?? id
+  const before = completedSets(layoutOf(brain.wallet))
+  brain.wallet = result.wallet
+  showPlaced(brain, result.slot)
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  const finished = completedSets(layoutOf(brain.wallet)).find(set => !before.includes(set))
+  await say($, brain, finished === undefined ? `우와! ${name} 여기 딱이야` : `${ROOM_SETS[finished]} 세트 완성! 방 분위기가 확 바뀌었어`)
+  await save($, brain)
+  return `${name}을(를) ${slotLabel(result.slot)}에 놓았어요.`
+}
+
+export async function storeInRoom($: $, brain: Brain, id: string): Promise<string> {
+  const name = shopItem(id)?.name ?? id
+  brain.wallet = storeItem(brain.wallet, id)
+  await save($, brain)
+  return `${name}을(를) 창고에 넣었어요.`
+}
+
+export async function cycleRoom($: $, brain: Brain, slot: RoomSlot): Promise<void> {
+  const { wallet, placed } = cycleSlot(brain.wallet, slot)
+  brain.wallet = wallet
+  if (placed !== null) {
+    showPlaced(brain, slot)
+    act(brain, direct.celebrate(), PRIORITY.reaction)
+    await say($, brain, `우와! ${shopItem(placed)?.name ?? placed}`)
+  }
+  await save($, brain)
 }
 
 export async function purchase($: $, brain: Brain, id: string): Promise<string> {
@@ -1577,9 +1719,10 @@ export async function purchase($: $, brain: Brain, id: string): Promise<string> 
       setLook(brain.scene, lookOf(brain))
     }
   }
+  const isPlaced = isRoomItem(item) && settleInRoom(brain, id)
   remember(brain, 'bought', id)
   act(brain, direct.celebrate(), PRIORITY.reaction)
-  await say($, brain, item?.kind === 'hat' || item?.kind === 'neck' ? '어때? 잘 어울려?' : item?.kind === 'pet' ? `${item.name}, 잘 부탁해!` : `${item?.name ?? id} 샀다!`)
+  await say($, brain, purchaseLine(item, id, isPlaced))
   await save($, brain)
   return `${item?.name ?? id}을(를) 샀어요.`
 }
@@ -1595,11 +1738,13 @@ export async function pullFromGacha($: $, brain: Brain, kind: GachaKind): Promis
   if (brain.scene !== null) {
     setLook(brain.scene, lookOf(brain))
   }
+  const isPlaced = isRoomItem(result.item) && settleInRoom(brain, result.item.id)
   remember(brain, 'gacha', result.item.id)
   act(brain, direct.celebrate(), PRIORITY.reaction)
-  await say($, brain, result.item.kind === 'pet' ? `${result.item.name}, 잘 부탁해!` : `${result.item.name}! 어때? 잘 어울려?`)
+  await say($, brain, result.item.kind === 'pet' ? `${result.item.name}, 잘 부탁해!` : isRoomItem(result.item) ? `${result.item.name}! ${ROOM_SETS[result.item.set ?? 'forest']} 세트 가구야` : `${result.item.name}! 어때? 잘 어울려?`)
   await save($, brain)
-  return `${GACHA[kind].name}: ${result.item.name}이(가) 나왔어요. ${result.item.kind === 'pet' ? '바로 데려왔어요' : '바로 입었어요'}.`
+  const after = result.item.kind === 'pet' ? '바로 데려왔어요' : isRoomItem(result.item) ? (isPlaced ? '방에 놓았어요' : '창고에 넣었어요') : '바로 입었어요'
+  return `${GACHA[kind].name}: ${result.item.name}이(가) 나왔어요. ${after}.`
 }
 
 async function refuse($: $, brain: Brain, reason: string): Promise<string> {
@@ -1624,10 +1769,11 @@ export async function drawPet($: $, brain: Brain): Promise<string> {
   brain.isDirty = true
   if (owned.includes(species)) {
     remember(brain, 'drew-dud', species)
+    brain.wallet = { ...brain.wallet, stars: (brain.wallet.stars ?? 0) + 1 }
     await sync($, brain)
-    await say($, brain, `꽝… 이미 있는 ${SPECIES[species].label}(이)가 나왔어`)
+    await say($, brain, `이미 있는 ${SPECIES[species].label}(이)라 별조각으로 바꿨어! 다섯 개 모으면 원하는 걸 골라`)
     await save($, brain)
-    return `꽝! 이미 있는 ${SPECIES[species].label}이(가) 나왔어요.`
+    return `이미 있는 ${SPECIES[species].label}이(가) 나와서 별조각 1개로 바꿨어요. 지금 ${brain.wallet.stars ?? 0}개예요.`
   }
   const seed = Math.floor(brain.random() * 2 ** 31)
   brain.shelf = brain.pet === null ? brain.shelf : [...brain.shelf, brain.pet]
@@ -2098,7 +2244,7 @@ export async function think($: $, brain: Brain): Promise<void> {
   }
   const now = brain.now
   const hour = hourOf(now)
-  brain.needs = decayNeeds(brain.needs, now, now - Math.max(brain.lastInputAt, brain.lastTypingAt) < 10 * MINUTE)
+  brain.needs = decayNeeds(brain.needs, now, now - Math.max(brain.lastInputAt, brain.lastTypingAt) < 10 * MINUTE, cozinessOf(layoutOf(brain.wallet)))
   brain.mood = moodOf(brain.needs, brain.memory.events, now, hour, brain.budget.bonks)
   if (brain.scene !== null) {
     setLook(brain.scene, lookOf(brain))
@@ -2297,7 +2443,11 @@ const plazaMe = (brain: Brain) => ({
   mood: brain.mood,
   status: plazaStatus(brain),
   sprite: lookSprite(lookOf(brain)),
-  wear: { hat: wornOf(brain.wallet, 'hat'), neck: wornOf(brain.wallet, 'neck'), face: wornOf(brain.wallet, 'face') },
+  wear: { hat: wornOf(brain.wallet, 'hat'), neck: wornOf(brain.wallet, 'neck'), face: wornOf(brain.wallet, 'face'), back: wornOf(brain.wallet, 'back'), hand: wornOf(brain.wallet, 'hand') },
+  doing: doingLine(brain),
+  room: brain.settings.isRoomOpen ? layoutOf(brain.wallet) : {},
+  isRoomOpen: brain.settings.isRoomOpen,
+  roomPicture: brain.scene === null || !brain.settings.isRoomOpen ? null : roomPicture(brain.scene.palette, { layout: layoutOf(brain.wallet), hour: hourOf(brain.now), stickers: brain.stickers, trophies: Object.keys(brain.badges).length }),
 })
 
 export const isPlazaReady = (brain: Brain): boolean =>
@@ -2339,7 +2489,22 @@ async function takeSnapshot($: $, brain: Brain, snapshot: PlazaSnapshot): Promis
   for (const event of fresh) {
     await receivePlaza($, brain, event)
   }
-  await update($, plazaAtom, () => ({ isOnline: true, friends: brain.friends, feed: brain.feed }))
+  if (snapshot.home !== null) {
+    keepHome(brain, snapshot.home)
+    await takeGifts($, brain, snapshot.home.gifts)
+  }
+  await update($, plazaAtom, () => plazaViewOf(brain, true))
+}
+
+const plazaViewOf = (brain: Brain, isOnline: boolean) => ({ isOnline, friends: brain.friends, feed: brain.feed, guests: brain.guests, away: brain.away })
+
+const keepHome = (brain: Brain, home: PlazaHome): void => {
+  brain.guests = home.guests
+  brain.away = home.away
+  brain.stickers = home.stickers
+  if (brain.viewing !== null && brain.away?.host !== brain.viewing.host) {
+    brain.viewing = null
+  }
 }
 
 export function openPlazaStream($: $, brain: Brain): void {
@@ -2402,6 +2567,19 @@ async function readPlazaStream($: $, brain: Brain, url: string): Promise<void> {
 async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void> {
   brain.feed = [...brain.feed, { at: brain.now, text: eventText(event) }].slice(-12)
   if (event.kind === 'join' || event.kind === 'leave') {
+    return
+  }
+  if (event.kind === 'sticker' || event.kind === 'gift') {
+    remember(brain, event.kind, event.from.name, 1)
+    brain.needs = restore(brain.needs, { social: 8 })
+    act(brain, direct.greet(), PRIORITY.reaction)
+    if (!isHushed(brain) && event.kind === 'sticker') {
+      await say($, brain, `${event.from.name}이(가) 다녀갔어! 방에 스티커를 붙이고 갔어`, 'quiet')
+    }
+    return
+  }
+  if (event.kind === 'visit' || event.kind === 'home' || event.kind === 'room-act') {
+    await receiveRoom($, brain, event)
     return
   }
   remember(brain, 'friend-wave', event.from.name, 1)
@@ -2716,6 +2894,319 @@ async function answerPeer($: $, brain: Brain, choice: string, key: string): Prom
   const filled = box.text.trim() === '' ? await $.prompt.fill({ text: command, mode: 'replace' }) : { isFilled: false }
   await say($, brain, filled.isFilled ? '입력창에 넣어 뒀어. 보낼 말만 이어서 써' : `${command}뒤에 보낼 말을 써서 보내`)
 }
+
+type Guestbook = Readonly<Record<string, { name: string; count: number; last: number }>>
+
+const asGuestbook = (value: unknown): Guestbook => (isRecord(value) ? (value as Guestbook) : {})
+
+export const albumText = (value: unknown): string | null => {
+  const visits = Object.values(asGuestbook(value)).sort((a, b) => b.count - a.count || b.last - a.last)
+  return visits.length === 0 ? null : `손님 앨범: ${visits.slice(0, 6).map(visit => `${visit.name} ${visit.count}번`).join(' · ')}`
+}
+
+async function signGuestbook($: $, brain: Brain, event: PlazaEvent): Promise<number> {
+  const book = asGuestbook(await $.store.get(KEY.guestbook))
+  const count = (book[event.from.id]?.count ?? 0) + 1
+  await $.store.set(KEY.guestbook, { ...book, [event.from.id]: { name: event.from.name, count, last: brain.now } })
+  return count
+}
+
+const showRoomAct = (brain: Brain, guest: string, act: RoomAct): void => {
+  brain.roomActs = [...brain.roomActs, { guest, act, at: brain.scene?.clock ?? 0 }].slice(-4)
+}
+
+const visitMemory = (away: TokoAway | null, brain: Brain): string => {
+  const note = away === null || away.notes.length === 0 ? null : pick(brain.random, away.notes)
+  return away === null ? '다녀왔어!' : note === null ? `${away.hostName}네 방 구경 잘 하고 왔어!` : `${away.hostName}네 방에서 ${note.replace(/어$/, '던 게')} 제일 재밌었어!`
+}
+
+async function receiveRoom($: $, brain: Brain, event: PlazaEvent): Promise<void> {
+  const isMine = event.guest === brain.plazaId
+  brain.needs = restore(brain.needs, { social: 10 })
+  if (event.kind === 'visit') {
+    const count = await signGuestbook($, brain, event)
+    remember(brain, 'guest', event.from.name, 1.5)
+    act(brain, direct.greet(), PRIORITY.reaction)
+    await say($, brain, count > 1 ? `${event.from.name} 또 왔구나! 반가워, 방에서 푹 쉬다 가` : `${event.from.name}이(가) 놀러 왔어! 내 방에서 지낸대`, 'quiet')
+    return
+  }
+  if (event.kind === 'home') {
+    if (isMine) {
+      const line = visitMemory(brain.away, brain)
+      remember(brain, 'visit-memory', line, 2)
+      act(brain, direct.celebrate(), PRIORITY.reaction)
+      await say($, brain, line, 'quiet')
+      return
+    }
+    remember(brain, 'guest-left', event.from.name)
+    await say($, brain, `${event.from.name}이(가) 집에 갔어. 또 놀러 와!`, 'quiet')
+    return
+  }
+  if (event.act !== undefined) {
+    showRoomAct(brain, event.guest ?? event.from.id, event.act)
+    const line = isMine ? `${brain.away?.hostName ?? event.from.name}네 방에서 ${event.line}` : `${event.from.name}이(가) ${event.line}`
+    remember(brain, isMine ? 'visit-memory' : 'guest-play', line, 1.5)
+    act(brain, event.act === 'nap' ? direct.nap() : direct.greet(), PRIORITY.reaction)
+    await say($, brain, line, 'quiet')
+  }
+}
+
+async function postPlaza($: $, brain: Brain, path: string, body: Record<string, unknown>): Promise<{ status: number; text: string } | string> {
+  if (!isPlazaReady(brain)) {
+    return brain.serverUrl.length === 0 ? '광장 서버 주소가 설정되지 않았어요.' : '광장이 꺼져 있어요. /toko plaza on'
+  }
+  const url = plazaEndpoint(brain.serverUrl, path)
+  if (url === null) {
+    return '광장 서버 주소 형식이 올바르지 않아요.'
+  }
+  try {
+    const response = await $.http.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ me: plazaMe(brain), ...body }) })
+    return { status: response.status, text: response.text }
+  } catch {
+    return '광장 서버에 닿지 못했어요.'
+  }
+}
+
+const VISIT_REFUSED: Readonly<Record<number, string>> = { 403: '그 방은 지금 손님을 받지 않아요.', 409: '그 방은 손님이 꽉 찼어요.', 404: '그 방문은 이미 끝났어요.' }
+
+const takeHome = (brain: Brain, text: string): void => {
+  const home = parseSnapshot(text, brain.plazaId)?.home
+  if (home !== null && home !== undefined) {
+    keepHome(brain, home)
+  }
+}
+
+export async function visitFriend($: $, brain: Brain, friendId: string): Promise<string> {
+  const friend = brain.friends.find(entry => entry.id === friendId)
+  const result = await postPlaza($, brain, '/v1/visit', { to: friendId })
+  if (typeof result === 'string') {
+    return result
+  }
+  if (result.status !== 200) {
+    return VISIT_REFUSED[result.status] ?? `광장 서버가 거절했어요 (${result.status}).`
+  }
+  takeHome(brain, result.text)
+  remember(brain, 'visit', friend?.name ?? friendId, 1.5)
+  act(brain, direct.greet(), PRIORITY.reaction)
+  await say($, brain, `${friend?.name ?? '친구'}네 놀러 갔다 올게! 띠에는 내가 계속 있을게`)
+  await update($, plazaAtom, () => plazaViewOf(brain, true))
+  return `${friend?.name ?? '친구'}네 방에 놀러 갔어요. 데려오기 전까지 거기서 지내요.`
+}
+
+export async function comeHome($: $, brain: Brain): Promise<string> {
+  const away = brain.away
+  if (away === null) {
+    return '지금은 집에 있어요.'
+  }
+  const result = await postPlaza($, brain, '/v1/visit/end', {})
+  if (typeof result === 'string') {
+    return result
+  }
+  const line = visitMemory(away, brain)
+  takeHome(brain, result.text)
+  brain.away = null
+  brain.viewing = null
+  remember(brain, 'visit-memory', line, 2)
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  await say($, brain, line)
+  await update($, plazaAtom, () => plazaViewOf(brain, true))
+  return `${away.hostName}네에서 데려왔어요.`
+}
+
+export async function sendGuestHome($: $, brain: Brain, guestId: string): Promise<string> {
+  const guest = brain.guests.find(entry => entry.id === guestId)
+  const result = await postPlaza($, brain, '/v1/visit/end', { guest: guestId })
+  if (typeof result === 'string') {
+    return result
+  }
+  if (result.status !== 200) {
+    return VISIT_REFUSED[result.status] ?? `광장 서버가 거절했어요 (${result.status}).`
+  }
+  takeHome(brain, result.text)
+  await say($, brain, `${guest?.name ?? '친구'}, 잘 가! 또 놀러 와`)
+  await update($, plazaAtom, () => plazaViewOf(brain, true))
+  return `${guest?.name ?? '손님'}을(를) 배웅했어요.`
+}
+
+export async function playInRoom($: $, brain: Brain, guestId: string, kind: RoomAct): Promise<string> {
+  const result = await postPlaza($, brain, '/v1/room/act', { guest: guestId, kind })
+  if (typeof result === 'string') {
+    return result
+  }
+  if (result.status !== 200) {
+    return VISIT_REFUSED[result.status] ?? `광장 서버가 거절했어요 (${result.status}).`
+  }
+  const partner = guestId === brain.plazaId ? brain.away?.hostName : brain.guests.find(entry => entry.id === guestId)?.name
+  showRoomAct(brain, guestId, kind)
+  if (guestId === brain.plazaId && brain.away !== null) {
+    brain.away = { ...brain.away, notes: [...brain.away.notes, ROOM_ACT_LABEL[kind]].slice(-8) }
+  }
+  count(brain, 'cheer')
+  act(brain, kind === 'nap' ? direct.nap() : direct.greet(), PRIORITY.reaction)
+  await say($, brain, `${partner ?? '친구'}랑 ${ROOM_ACT_LABEL[kind]}!`)
+  return `${partner ?? '친구'}와(과) 놀았어요: ${ROOM_ACT_LABEL[kind]}`
+}
+
+export async function viewFriendRoom($: $, brain: Brain, host: string | null): Promise<string> {
+  if (host === null) {
+    brain.viewing = null
+    return '내 방으로 돌아왔어요.'
+  }
+  const url = plazaEndpoint(brain.serverUrl, `/v1/room?id=${encodeURIComponent(host)}`)
+  if (url === null || !isPlazaReady(brain)) {
+    return '광장이 꺼져 있어요.'
+  }
+  try {
+    const response = await $.http.fetch(url, { method: 'GET' })
+    const room = response.ok ? parseRoom(response.text) : null
+    if (room === null) {
+      return '그 방은 지금 볼 수 없어요.'
+    }
+    brain.viewing = { host, name: room.owner.name, look: guestLook(room.owner), layout: room.layout, guests: room.guests, stickers: room.stickers, fetchedAt: brain.now }
+    return `${room.owner.name}네 방을 보고 있어요.`
+  } catch {
+    return '광장 서버에 닿지 못했어요.'
+  }
+}
+
+export async function dyeItem($: $, brain: Brain, id: string): Promise<string> {
+  const item = shopItem(id)
+  if (item === undefined || !['hat', 'neck', 'back', 'hand'].includes(item.kind) || !brain.wallet.items.includes(id)) {
+    return '가진 모자 · 목에 거는 것 · 등 · 손 아이템만 물들일 수 있어요.'
+  }
+  if (balance(brain) < SPEND.dye) {
+    return `코인이 ${SPEND.dye - balance(brain)}개 모자라요.`
+  }
+  const dye = (dyeOf(brain.wallet, id) + 1) % DYES.length
+  brain.wallet = { ...brain.wallet, dyes: { ...brain.wallet.dyes, [id]: dye } }
+  brain.earn = { ...brain.earn, spent: brain.earn.spent + SPEND.dye }
+  if (brain.scene !== null) {
+    setLook(brain.scene, lookOf(brain))
+  }
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  await say($, brain, `${item.name}을(를) ${DYES[dye]}으로 물들였어!`)
+  await save($, brain)
+  return `${item.name}: ${DYES[dye]}`
+}
+
+export async function exchangeForStars($: $, brain: Brain, id: string): Promise<string> {
+  const result = exchangeStars(brain.wallet, id)
+  if ('reason' in result) {
+    return result.reason
+  }
+  brain.wallet = result.wallet
+  if (isRoomItem(result.item)) {
+    settleInRoom(brain, id)
+  }
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  await say($, brain, `별조각으로 ${result.item.name}을(를) 골랐어!`)
+  await save($, brain)
+  return `${result.item.name}을(를) 받았어요. 남은 별조각 ${brain.wallet.stars ?? 0}개.`
+}
+
+export async function giftToFriend($: $, brain: Brain, friendId: string, id: string): Promise<string> {
+  const item = shopItem(id)
+  const friend = brain.friends.find(entry => entry.id === friendId)
+  if (!isRoomItem(item) || item.price === 0) {
+    return '상점에서 파는 방 장식만 선물할 수 있어요.'
+  }
+  if (balance(brain) < item.price) {
+    return `코인이 ${item.price - balance(brain)}개 모자라요.`
+  }
+  const result = await postPlaza($, brain, '/v1/gift', { to: friendId, item: id })
+  if (typeof result === 'string') {
+    return result
+  }
+  if (result.status !== 200) {
+    return `광장 서버가 거절했어요 (${result.status}).`
+  }
+  brain.earn = { ...brain.earn, spent: brain.earn.spent + item.price }
+  remember(brain, 'gift-sent', `${friend?.name ?? friendId} ${item.name}`, 1.5)
+  count(brain, 'cheer')
+  act(brain, direct.greet(), PRIORITY.reaction)
+  await say($, brain, `${friend?.name ?? '친구'}한테 ${item.name} 보냈어!`)
+  return `${friend?.name ?? '친구'}에게 ${item.name}을(를) 선물했어요.`
+}
+
+export async function sendSticker($: $, brain: Brain, friendId: string, kind: string): Promise<string> {
+  const result = await postPlaza($, brain, '/v1/room/sticker', { to: friendId, kind })
+  if (typeof result === 'string') {
+    return result
+  }
+  if (result.status === 429) {
+    return '스티커는 하루 세 장까지 붙일 수 있어요.'
+  }
+  if (result.status !== 200) {
+    return VISIT_REFUSED[result.status] ?? `광장 서버가 거절했어요 (${result.status}).`
+  }
+  const friend = brain.friends.find(entry => entry.id === friendId)
+  act(brain, direct.greet(), PRIORITY.reaction)
+  await say($, brain, `${friend?.name ?? '친구'}네 방에 스티커 붙이고 왔어!`)
+  return `${friend?.name ?? '친구'}네 방명록에 스티커를 붙였어요.`
+}
+
+async function takeGifts($: $, brain: Brain, gifts: PlazaHome['gifts']): Promise<void> {
+  const fresh = gifts.filter(gift => !brain.takenGifts.includes(gift.id))
+  if (fresh.length === 0) {
+    return
+  }
+  brain.takenGifts = [...brain.takenGifts, ...fresh.map(gift => gift.id)].slice(-50)
+  for (const gift of fresh) {
+    const item = shopItem(gift.item)
+    if (!isRoomItem(item)) {
+      continue
+    }
+    if (brain.wallet.items.includes(item.id)) {
+      brain.wallet = { ...brain.wallet, stars: (brain.wallet.stars ?? 0) + 1 }
+    } else {
+      brain.wallet = { ...brain.wallet, items: [...brain.wallet.items, item.id], giftedBy: { ...brain.wallet.giftedBy, [item.id]: gift.from } }
+      settleInRoom(brain, item.id)
+    }
+    remember(brain, 'gift-got', `${gift.from} ${item.name}`, 2)
+    act(brain, direct.giftOpen(), PRIORITY.event)
+    await say($, brain, `${gift.from}이(가) ${item.name}을(를) 선물로 보냈어!`, 'quiet')
+  }
+  brain.isDirty = true
+  await postPlaza($, brain, '/v1/gift/take', { ids: fresh.map(gift => gift.id) })
+}
+
+const DOING_BY_TOOL: Readonly<Record<string, string>> = {
+  Read: '코드 읽고',
+  Grep: '코드 찾고',
+  Glob: '파일 찾고',
+  Edit: '코드 고치고',
+  MultiEdit: '코드 고치고',
+  Write: '파일 쓰고',
+  NotebookEdit: '노트북 고치고',
+  Agent: '에이전트에게 맡기고',
+  Task: '에이전트에게 맡기고',
+  WebSearch: '자료 찾고',
+  WebFetch: '자료 읽고',
+}
+
+export const doingOf = (tool: string, command: string | undefined): string => {
+  if (command !== undefined) {
+    return /\bgit\s+commit\b/.test(command) ? '커밋하고' : /\b(test|jest|vitest|pytest|mocha)\b/.test(command) ? '테스트 돌리고' : '명령 돌리고'
+  }
+  return DOING_BY_TOOL[tool] ?? '일하고'
+}
+
+export const noteDoing = (brain: Brain, doing: string | null): void => {
+  brain.doing = doing
+}
+
+const doingLine = (brain: Brain): string | null => {
+  const setting = brain.settings.doing
+  return setting === 'off' ? null : setting === 'auto' ? (brain.doing === null ? null : `${brain.doing} 있는 중...`) : setting
+}
+
+export const guestLook = (guest: Pick<TokoGuest, 'id' | 'species' | 'wear'>): Look => ({
+  bones: { seed: hashText(guest.id), species: guest.species },
+  stage: 'baby',
+  mood: 'calm',
+  hammer: 'toy',
+  ...guest.wear,
+})
 
 export async function sendPlaza($: $, brain: Brain, kind: PlazaAction, to: string | null): Promise<string> {
   if (!isPlazaReady(brain)) {

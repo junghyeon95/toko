@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { bonk } from '../hooks/lib/director'
-import { DAILY_TOKEN_CAP, GACHA, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, gachaPool, pullGacha, turnIncome, wear, wornOf } from '../hooks/lib/economy'
+import { DAILY_TOKEN_CAP, GACHA, SHOP, balanceOf, buy, exchangeStars, capTokenIncome, emptyEarn, gachaPool, pullGacha, turnIncome, wear, wornOf } from '../hooks/lib/economy'
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
@@ -14,8 +14,9 @@ import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
 import { BAND_ROWS, addVisitor, createScene, paint, paintRoom, perform, tick } from '../hooks/lib/scene'
+import { autoPlace, completedSets, cozinessOf, cycleSlot, furnitureText, layoutOf, newSouvenirs, placeItem, storedRoomItems } from '../hooks/lib/room'
 import { mergeShared } from '../hooks/lib/shared'
-import { hex } from '../hooks/lib/sprites'
+import { dyeGrid, hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
 import { SPECIES_ART } from '../hooks/lib/sprites'
 
@@ -90,6 +91,65 @@ test('the shop sells room things once, leaves fashion to the gacha and swaps wor
   expect(wear(wear(withHats, 'beanie'), 'crown').worn).toEqual(['crown'])
 })
 
+test('room decor takes a slot of its own kind, and the old three keep their old spots', async () => {
+  const wallet = { coins: 0, items: ['plant', 'lamp', 'rug', 'cushion', 'frame'], worn: [] as string[] }
+  expect(layoutOf(wallet)).toEqual({ 'floor-1': 'plant', 'floor-4': 'lamp', rug: 'rug' })
+  const cushion = autoPlace(wallet, 'cushion')
+  if ('reason' in cushion) {
+    throw new Error(cushion.reason)
+  }
+  expect(cushion.slot).toBe('floor-2')
+  expect(placeItem(wallet, 'frame', 'rug')).toEqual({ reason: '풍경 액자은(는) 가운데 러그에 안 맞아' })
+  expect(placeItem(wallet, 'fishbowl')).toEqual({ reason: '어항은(는) 아직 없어' })
+  const moved = placeItem(cushion.wallet, 'plant', 'floor-3')
+  if ('reason' in moved) {
+    throw new Error(moved.reason)
+  }
+  expect(layoutOf(moved.wallet)).toEqual({ 'floor-4': 'lamp', rug: 'rug', 'floor-2': 'cushion', 'floor-3': 'plant' })
+  expect(storedRoomItems(moved.wallet).map(item => item.id)).toEqual(['frame'])
+})
+
+test('pressing a room slot cycles through the decor that fits and then leaves it empty', async () => {
+  const wallet = { coins: 0, items: ['rug', 'cloud-rug'], worn: [] as string[], room: {} }
+  const first = cycleSlot(wallet, 'rug')
+  expect(first.placed).toBe('rug')
+  const second = cycleSlot(first.wallet, 'rug')
+  expect(second.placed).toBe('cloud-rug')
+  const cleared = cycleSlot(second.wallet, 'rug')
+  expect(cleared.placed).toBe(null)
+  expect(layoutOf(cleared.wallet)).toEqual({})
+})
+
+test('rest souvenirs come from resting, never from the shop', async () => {
+  const wallet = { coins: 0, items: [] as string[], worn: [] as string[] }
+  expect(newSouvenirs({ water: 29, stretch: 50 }, wallet).map(item => item.id)).toEqual(['yoga-mat'])
+  expect(newSouvenirs({ water: 30 }, { ...wallet, items: ['water-bottle'] })).toEqual([])
+  expect(buy(wallet, 999, 'water-bottle')).toEqual({ reason: '쉬다 보면 생기는 기념품이라 살 수는 없어' })
+})
+
+test('a theme set counts as done only when every piece is placed, and a fuller room feels cozier', async () => {
+  const forest = { 'floor-1': 'mushroom-stool', 'floor-2': 'tree-pot', 'wall-left': 'bird-frame', rug: 'leaf-rug' }
+  expect(completedSets(forest)).toEqual(['forest'])
+  expect(completedSets({ ...forest, rug: 'rug' })).toEqual([])
+  expect([cozinessOf({}), cozinessOf(forest)]).toEqual([1, 0.8])
+  const wallet = { coins: 0, items: Object.values(forest), worn: [] as string[], stars: 2 }
+  expect(furnitureText(wallet)).toContain('숲 4/4 ✦')
+  expect(furnitureText(wallet)).toContain('별조각 2개')
+})
+
+test('five star pieces pick any gacha item, and a dye swaps the item colors', async () => {
+  const wallet = { coins: 0, items: [] as string[], worn: [] as string[], stars: 4 }
+  expect(exchangeStars(wallet, 'angel-wings')).toEqual({ reason: '별조각이 1개 모자라' })
+  expect(exchangeStars({ ...wallet, stars: 5 }, 'cushion')).toEqual({ reason: '별조각으로는 뽑기에서 나오는 아이템만 고를 수 있어' })
+  const picked = exchangeStars({ ...wallet, stars: 6 }, 'rocket')
+  if ('reason' in picked) {
+    throw new Error(picked.reason)
+  }
+  expect([picked.wallet.stars, picked.wallet.items]).toEqual([1, ['rocket']])
+  expect(dyeGrid(['RRr', 'k.y'], 1)).toEqual(['ddi', 'U.u'])
+  expect(dyeGrid(['RRr'], 0)).toEqual(['RRr'])
+})
+
 test('the shop sells pets, and only one comes along at a time', async () => {
   expect(SHOP.filter(item => item.kind === 'pet').map(item => item.id)).toEqual(['chick', 'hamster', 'kitten', 'baby-bunny', 'puppy'])
   const wallet = { coins: 0, items: ['beanie', 'chick', 'kitten'], worn: ['beanie'] }
@@ -99,9 +159,10 @@ test('the shop sells pets, and only one comes along at a time', async () => {
 })
 
 test('each gacha costs 50 coins, gives only what is not owned yet and puts it on', async () => {
-  expect([GACHA.fashion.price, GACHA.pet.price]).toEqual([50, 50])
+  expect([GACHA.fashion.price, GACHA.pet.price, GACHA.furniture.price]).toEqual([50, 50, 50])
   const wallet = { coins: 0, items: ['beanie'], worn: ['beanie'] }
-  expect(gachaPool(wallet, 'fashion').map(item => item.kind).every(kind => kind === 'hat' || kind === 'neck' || kind === 'face')).toBe(true)
+  expect(gachaPool(wallet, 'fashion').map(item => item.kind).every(kind => ['hat', 'neck', 'face', 'back', 'hand'].includes(kind))).toBe(true)
+  expect(gachaPool(wallet, 'furniture').every(item => item.set !== undefined)).toBe(true)
   expect(gachaPool(wallet, 'fashion').some(item => item.id === 'beanie')).toBe(false)
   expect(pullGacha(wallet, 49, 'pet', 0)).toEqual({ reason: '코인이 1개 모자라' })
   const pulled = pullGacha(wallet, 50, 'fashion', 0.99)
@@ -195,10 +256,35 @@ test('a pet from the shop trails behind toko on the ground, and naps when toko n
   expect(colorsIn(napping.canvas, 70 - 12, 70).has(EYE)).toBe(false)
 })
 
+test('the room draws placed decor, lights the lamp at night and sends toko to sleep by it', async () => {
+  const scene = createScene(120, LOOK, () => [{ pose: 'idle', ms: 1000 }])
+  const day = createCanvas(120, 40)
+  paintRoom(scene, day, { layout: { 'floor-1': 'fishbowl', 'wall-right': 'window' }, placed: null, hour: 12, guests: [], acts: [], owner: null, stickers: [], trophies: 0, care: null })
+  expect(colorsIn(day, 0, 16).has(hex('#FF8822'))).toBe(true)
+  expect(colorsIn(day, 100, 120).has(hex('#334499'))).toBe(false)
+  const night = createCanvas(120, 40)
+  paintRoom(scene, night, { layout: { 'floor-4': 'lamp', 'wall-right': 'window' }, placed: null, hour: 23, guests: [], acts: [], owner: null, stickers: [], trophies: 0, care: null })
+  expect(colorsIn(night, 100, 120).has(hex('#334499'))).toBe(true)
+  expect(colorsIn(night, 80, 120).has(EYE)).toBe(true)
+  expect(colorsIn(night, 30, 70).has(EYE)).toBe(false)
+})
+
+test('wallpaper, a finished set, stickers and the sunset window all show in the room', async () => {
+  const scene = createScene(120, LOOK, () => [{ pose: 'idle', ms: 1000 }])
+  const canvas = createCanvas(120, 20)
+  const layout = { wallpaper: 'wall-mint', 'floor-1': 'rocket', 'floor-2': 'moon-lamp', 'wall-right': 'window', 'wall-left': 'planet-poster', rug: 'star-rug' }
+  paintRoom(scene, canvas, { layout, placed: null, hour: 18, guests: [], acts: [], owner: null, stickers: ['heart'], trophies: 0, care: null })
+  expect(colorsIn(canvas, 0, 120).has(hex('#BBDDCC'))).toBe(true)
+  expect(colorsIn(canvas, 100, 120).has(hex('#CC5511'))).toBe(true)
+  expect(colorsIn(canvas, 30, 34).has(hex('#FF6699'))).toBe(true)
+  const top = new Set(Array.from(canvas.pixels.subarray(0, 120)))
+  expect(top.has(hex('#FFDD44'))).toBe(true)
+})
+
 test('the room shows the pet beside toko', async () => {
   const scene = createScene(100, { ...LOOK, critter: 'chick' }, () => [{ pose: 'idle', ms: 1000 }])
   const canvas = createCanvas(100, 18)
-  paintRoom(scene, canvas, [])
+  paintRoom(scene, canvas, { layout: {}, placed: null, hour: 12, guests: [], acts: [], owner: null, stickers: [], trophies: 0, care: null })
   expect(colorsIn(canvas, 50 + 16, 100).has(CHICK)).toBe(true)
 })
 

@@ -3,13 +3,14 @@ import type { Register } from 'claude-code'
 
 import type { TokoMood } from '../types'
 
-import { ensureScene } from './brain'
+import { KEY, albumText, ensureScene, roomViewOf } from './brain'
 import { closestBadges } from './lib/badges'
 import { bossStatus } from './lib/boss'
-import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
+import { GACHA, SHOP, SPEND, shopItem } from './lib/economy'
 import { meterLevel, meterText } from './lib/meter'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
-import { ACTION_LABEL, visitorText } from './lib/plaza'
+import { ROOM_SLOTS, furnitureText, isRoomItem, layoutOf, storedRoomItems } from './lib/room'
+import { ACTION_LABEL, ROOM_ACTS, ROOM_ACT_LABEL, visitorText } from './lib/plaza'
 import { encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, resize } from './lib/scene'
 import { KAOMOJI } from './lib/sprites'
@@ -27,7 +28,14 @@ import {
   chatStarted,
   commandTool,
   commandUsed,
+  comeHomeFromRoom,
   createCtx,
+  cycleRoomSlot,
+  guestBye,
+  guestPlay,
+  stickerFromRoom,
+  viewRoom,
+  visitFromRoom,
   drawFromRoom,
   featureUsed,
   gachaFromRoom,
@@ -90,8 +98,10 @@ const displayWidth = (text: string): number => [...text].reduce((width, char) =>
 const MOOD_LABEL: Readonly<Record<TokoMood, string>> = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
 
 const SHELVES = [
-  ['상점', SHOP.filter(item => item.kind !== 'pet' && !isGachaOnly(item))],
-  ['애완동물', SHOP.filter(item => item.kind === 'pet')],
+  ['상점 · 간식', SHOP.filter(item => item.kind === 'snack')],
+  ['상점 · 캐릭터 치장', SHOP.filter(item => item.kind === 'hammer')],
+  ['상점 · 애완동물', SHOP.filter(item => item.kind === 'pet')],
+  ['상점 · 방 치장', SHOP.filter(item => isRoomItem(item) && item.souvenir === undefined && item.set === undefined)],
 ] as const
 
 const press = (fn: () => Promise<unknown>) => () => {
@@ -346,7 +356,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, shelf, wallet, needs, mood, plaza, lessons, progress, focus, memos, news] = await Promise.all([
+    const [pet, shelf, wallet, needs, mood, plaza, lessons, progress, focus, memos, news, guestbook] = await Promise.all([
       read($, petAtom),
       read($, shelfAtom),
       read($, walletAtom),
@@ -358,7 +368,9 @@ export const register: Register = (on, options) => {
       read($, focusAtom),
       read($, memosAtom),
       read($, newsAtom),
+      $.store.get(KEY.guestbook),
     ])
+    const album = albumText(guestbook)
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(20, e.props.bodyColumns))
@@ -369,13 +381,15 @@ export const register: Register = (on, options) => {
     if (hasPicture && brain.scene !== null) {
       const site = siteFor(ctx.room, e.requestId, columns, ROOM_ROWS)
       ctx.room = site
-      paintRoom(brain.scene, site.canvas, items)
+      paintRoom(brain.scene, site.canvas, roomViewOf(brain))
       site.lastCells = encodeCells(site.canvas)
     } else {
       ctx.room = null
     }
     const { Raster } = $.ui.resolve({ ...e, surface: 'terminal' as const })
-    const owned = SHOP.filter(item => item.kind !== 'snack' && items.includes(item.id))
+    const owned = SHOP.filter(item => item.kind !== 'snack' && !isRoomItem(item) && items.includes(item.id))
+    const layout = layoutOf(brain.wallet)
+    const stored = storedRoomItems(brain.wallet)
     const snacks = items.filter(id => shopItem(id)?.kind === 'snack').length
     return (
       <Box flexDirection="column" gap={1}>
@@ -517,7 +531,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column">
           <Text weight="bold">뽑기</Text>
           <Box flexWrap="wrap" gap={1}>
-            {(['fashion', 'pet'] as const).map(kind => (
+            {(['fashion', 'pet', 'furniture'] as const).map(kind => (
               <Button key={`gacha-${kind}`} variant="primary" onPress={press(() => gachaFromRoom($, ctx, kind))}>
                 {GACHA[kind].name} <Text dimColor>{String(GACHA[kind].price)}</Text>
               </Button>
@@ -551,7 +565,7 @@ export const register: Register = (on, options) => {
         </Box>
         {owned.length > 0 && (
           <Box flexDirection="column">
-            <Text weight="bold">꾸미기</Text>
+            <Text weight="bold">캐릭터 꾸미기</Text>
             <Box flexWrap="wrap" gap={1}>
               {owned.map(item => (
                 <Button key={`wear-${item.id}`} onPress={press(() => wearItem($, ctx, item.id))}>
@@ -561,16 +575,66 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         )}
+        {brain.viewing !== null && (
+          <Box gap={1}>
+            <Text weight="bold">{`${brain.viewing.name}네 방 구경 중`}</Text>
+            <Button key="room-mine" label="내 방으로" onPress={press(() => viewRoom($, ctx, null))} />
+          </Box>
+        )}
+        {(plaza?.guests ?? []).length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">{`손님 ${(plaza?.guests ?? []).length}명`}</Text>
+            {(plaza?.guests ?? []).map(guest => (
+              <Box key={`guest-${guest.id}`} flexWrap="wrap" gap={1}>
+                <Text>
+                  {guest.name} <Text dimColor>{`(${SPECIES[guest.species].label} · ${Math.max(1, Math.round((brain.now - guest.since) / 60_000))}분째)`}</Text>
+                </Text>
+                {ROOM_ACTS.map(act => (
+                  <Button key={`${act}-guest-${guest.id}`} label={ROOM_ACT_LABEL[act]} onPress={press(() => guestPlay($, ctx, guest.id, act))} />
+                ))}
+                <Button key={`bye-${guest.id}`} label="배웅하기" onPress={press(() => guestBye($, ctx, guest.id))} />
+              </Box>
+            ))}
+          </Box>
+        )}
+        {plaza?.away !== null && plaza?.away !== undefined && (
+          <Box flexDirection="column">
+            <Text weight="bold">{`${nameOf(pet) ?? '토코'}의 분신이 ${plaza.away.hostName}네 놀러 가 있어요`}</Text>
+            <Box flexWrap="wrap" gap={1}>
+              <Button key="view-away" label="친구 방 보기" onPress={press(() => viewRoom($, ctx, plaza.away?.host ?? null))} />
+              {ROOM_ACTS.map(act => (
+                <Button key={`${act}-away`} label={ROOM_ACT_LABEL[act]} onPress={press(() => guestPlay($, ctx, brain.plazaId, act))} />
+              ))}
+              <Button key="come-home" label="데려오기" onPress={press(() => comeHomeFromRoom($, ctx))} />
+            </Box>
+            {plaza.away.notes.length > 0 && <Text dimColor>{`거기서 한 일: ${plaza.away.notes.slice(-3).join(' · ')}`}</Text>}
+          </Box>
+        )}
+        <Box flexDirection="column">
+          <Text weight="bold">방 꾸미기</Text>
+          <Box flexWrap="wrap" gap={1}>
+            {ROOM_SLOTS.map(slot => (
+              <Button key={`slot-${slot.id}`} onPress={press(() => cycleRoomSlot($, ctx, slot.id))}>
+                {slot.label} <Text dimColor>{shopItem(layout[slot.id] ?? '')?.name ?? '비어 있음'}</Text>
+              </Button>
+            ))}
+          </Box>
+          <Text dimColor>{stored.length === 0 ? '자리를 누르면 가진 장식이 차례로 바뀌어요' : `창고: ${stored.map(item => item.name).join(' · ')}`}</Text>
+          <Text dimColor>{furnitureText(brain.wallet)}</Text>
+          {album !== null && <Text dimColor>{album}</Text>}
+        </Box>
         <Box flexDirection="column">
           <Text weight="bold">{plaza?.isOnline === true ? `광장 · 친구 ${plaza.friends.length}명` : '광장 · 오프라인'}</Text>
           {(plaza?.friends ?? []).slice(0, 6).map(friend => (
             <Box key={`friend-${friend.id}`} gap={1}>
               <Text>
-                {friend.name} <Text dimColor>({friend.status})</Text>
+                {friend.name} <Text dimColor>({friend.doing ?? friend.status})</Text>
               </Text>
               {(['wave', 'heart', 'snack'] as const).map(action => (
                 <Button key={`${action}-${friend.id}`} label={ACTION_LABEL[action]} onPress={press(() => plazaAct($, ctx, action, friend.id))} />
               ))}
+              {friend.isRoomOpen === true && plaza?.away?.host !== friend.id && <Button key={`visit-${friend.id}`} label="놀러 가기" onPress={press(() => visitFromRoom($, ctx, friend.id))} />}
+              {friend.isRoomOpen === true && <Button key={`sticker-${friend.id}`} label="스티커" onPress={press(() => stickerFromRoom($, ctx, friend.id))} />}
             </Box>
           ))}
           {plaza?.isOnline === true && <Button key="invite" label="다 같이 기지개 부르기" onPress={press(() => plazaAct($, ctx, 'stretch-call', null))} />}

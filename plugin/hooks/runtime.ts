@@ -2,12 +2,12 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, demoBoss, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, comeHome, createBrain, cycleRoom, demoBoss, demoSouvenir, doingOf, dyeItem, exchangeForStars, giftToFriend, noteDoing, sendSticker, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, placeInRoom, playInRoom, purchase, reflect, refreshShared, remember, roomViewOf, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, sendGuestHome, startHatch, stopFocus, storeInRoom, summarizePeer, viewFriendRoom, visitFriend, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { failedCount } from './lib/boss'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
-import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
+import { GACHA, SHOP, SPEND, STAR_PIECES_PER_PICK, shopItem } from './lib/economy'
 import { featureOfCommand, featureOfTool, featureText } from './lib/features'
 import { isCheckPrompt, permissionKey } from './lib/tips'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
@@ -17,9 +17,11 @@ import { RESERVED_AI_CALLS, bubbleLine, chatRules, nameProblem } from './lib/per
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
-import { bonkBoardText, findFriend } from './lib/plaza'
-import type { PlazaAction } from './lib/plaza'
+import { ROOM_ACTS, ROOM_ACT_LABEL, bonkBoardText, findFriend, isRoomAct } from './lib/plaza'
+import type { PlazaAction, RoomAct } from './lib/plaza'
 import { questText } from './lib/quests'
+import type { RoomSlot } from './lib/room'
+import { ROOM_SLOTS, furnitureText, isRoomItem, isRoomSlot, layoutOf, storedRoomItems } from './lib/room'
 import { hashText } from './lib/random'
 import type { Canvas } from './lib/raster'
 import { createCanvas, encodeCells } from './lib/raster'
@@ -109,7 +111,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
         await blitSite($, ctx.band, SCENE_KEY, BAND_ROWS)
       }
       if (ctx.room !== null && ctx.ticks % 3 === 0) {
-        paintRoom(scene, ctx.room.canvas, brain.wallet.items)
+        paintRoom(scene, ctx.room.canvas, roomViewOf(brain))
         await blitSite($, ctx.room, ROOM_KEY, ROOM_ROWS)
       }
     }
@@ -124,6 +126,9 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
       openPlazaStream($, brain)
       await pollPlaza($, brain)
       await tendWaitBuddy($, brain)
+      if (brain.viewing !== null && brain.now - brain.viewing.fetchedAt >= VIEW_REFRESH_MS) {
+        await viewFriendRoom($, brain, brain.viewing.host)
+      }
       await pollPeers($, brain)
       await tendVisitor($, brain, TICK_MS * THINK_EVERY)
       await sync($, brain)
@@ -252,6 +257,7 @@ export async function turnStarted($: $, ctx: Ctx, text: string): Promise<void> {
   await now($, ctx)
   noteTurnText(brain, text)
   brain.isTurnRunning = true
+  noteDoing(brain, '생각하고')
   brain.turnStartedAt = brain.now
   brain.typedDuringTurn = false
   brain.longTurnStage = 0
@@ -263,6 +269,7 @@ export async function turnStarted($: $, ctx: Ctx, text: string): Promise<void> {
 
 export async function turnEnded($: $, ctx: Ctx, durationMs: number, reason: string, usage: TurnUsage | undefined, answer: string): Promise<void> {
   await now($, ctx)
+  noteDoing(ctx.brain, null)
   await onTurnComplete($, ctx.brain, durationMs, reason, usage)
   await replyToPeer($, ctx.brain, answer)
   await noteWorked($, ctx.brain, answer)
@@ -277,6 +284,9 @@ async function thinkLater($: $, ctx: Ctx): Promise<void> {
 
 export async function toolRan($: $, ctx: Ctx, tool: string, command: string | undefined, isError: boolean, text: string, result: unknown, isBackground = false): Promise<void> {
   const brain = ctx.brain
+  if (brain.isTurnRunning) {
+    noteDoing(brain, doingOf(tool, command))
+  }
   const feature = isError ? null : featureOfTool(tool, isBackground)
   if (feature !== null) {
     $.clock.after(1, () => void featureUsed($, ctx, feature))
@@ -374,7 +384,15 @@ export const HELP = [
   '/toko send <이름|번호> <내용> — 탭 이름 일부나 번호로 고른 옆 세션에 보내기 · send 대신 보내 · "/toko 배포한테 로그 봐 줘 보내줘" 처럼 말해도 돼요',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
-  '/toko shop | buy <id> | wear <id> — 상점',
+  '/toko shop | buy <id> | wear <id> — 상점 · 캐릭터 꾸미기',
+  `/toko place <id> [자리] | store <id> | layout — 방 꾸미기 (자리: ${ROOM_SLOTS.map(slot => slot.id).join(' · ')})`,
+  '/toko visit <친구> | home — 친구 방에 놀러 가기 · 데려오기(데려올 때까지 거기서 지내요)',
+  `/toko guest <손님> <${ROOM_ACTS.join('|')}|bye> — 내 방 손님과 놀기 · 배웅하기`,
+  '/toko room-open on | off — 친구 펫이 방에 놀러 오게 하기',
+  `/toko gacha furniture · furniture · exchange <id> — 가구 뽑기(테마 세트) · 가구 도감 · 별조각 ${STAR_PIECES_PER_PICK}개로 고르기`,
+  `/toko dye <id> — 모자 · 목 · 등 · 손 아이템 물들이기(${SPEND.dye}코인)`,
+  '/toko gift <친구> <id> · sticker <친구> <heart|star|flower> — 친구에게 방 장식 선물 · 방명록 스티커(하루 3장)',
+  '/toko doing auto | off | <문구> — 광장 이름표에 지금 하는 일 보여 주기',
   '/toko card — 펫 카드',
   '/toko focus 25 | focus off — 집중 타이머(그동안 말 걸지 않기)',
   '/toko quests — 오늘의 퀘스트',
@@ -390,7 +408,7 @@ export const HELP = [
   `/toko gacha fashion | gacha pet — 패션 아이템 · 애완동물 랜덤 뽑기(각 ${GACHA.fashion.price}코인, 안 가진 것만 나와요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
-  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면, boss: 보스전)',
+  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면, boss: 보스전, souvenir: 휴식 기념품)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
 ].join('\n')
@@ -415,7 +433,7 @@ async function changeSettings($: $, brain: Brain, change: Partial<TokoSettings>,
   return { text: reply }
 }
 
-type ToggleWord = 'ai' | 'notify' | 'peers' | 'meter' | 'mood-sense'
+type ToggleWord = 'ai' | 'notify' | 'peers' | 'meter' | 'mood-sense' | 'room-open'
 
 type Toggle = { key: 'isAiOn' | 'isNotifyOn' | 'isPeersOn' | 'isMeterOn' | 'isMoodSensing'; example: 'on' | 'off'; on: string; off: string }
 
@@ -425,6 +443,7 @@ const TOGGLES: Readonly<Record<ToggleWord, Toggle>> = {
   peers: { key: 'isPeersOn', example: 'off', on: '옆 세션 소식을 전할게요.', off: '옆 세션 소식은 전하지 않을게요.' },
   meter: { key: 'isMeterOn', example: 'off', on: '띠에 컨텍스트·비용·한도를 보여 줄게요.', off: '미터를 껐어요.' },
   'mood-sense': { key: 'isMoodSensing', example: 'on', on: '프롬프트 분위기를 살필게요(원문은 저장하지 않아요).', off: '분위기 살피기를 껐어요.' },
+  'room-open': { key: 'isRoomOpen', example: 'off', on: '친구 펫이 방에 놀러 올 수 있어요.', off: '방 문을 닫았어요. 광장에 방을 보여 주지 않아요.' },
 }
 
 async function toggleSetting($: $, brain: Brain, word: ToggleWord, value: string | undefined): Promise<{ text: string }> {
@@ -458,16 +477,36 @@ export const card = (brain: Brain): string => {
   ].join('\n')
 }
 
+const SOUVENIR_STAT: Readonly<Record<string, string>> = { water: '물 한 모금', stretch: '기지개', 'eye-rest': '먼 곳 보기' }
+
+const souvenirLine = (item: ShopItem): string => (item.souvenir === undefined ? '' : `${SOUVENIR_STAT[item.souvenir.stat] ?? item.souvenir.stat} ${item.souvenir.need}번`)
+
+const layoutText = (brain: Brain): string => {
+  const layout = layoutOf(brain.wallet)
+  const stored = storedRoomItems(brain.wallet)
+  return [
+    '방 꾸미기 (/toko place <id> [자리] · /toko store <id>):',
+    ...ROOM_SLOTS.map(slot => `- ${slot.id} · ${slot.label}: ${shopItem(layout[slot.id] ?? '')?.name ?? '비어 있음'}`),
+    `창고: ${stored.length === 0 ? '비어 있음' : stored.map(item => `${item.id}(${item.name})`).join(' · ')}`,
+  ].join('\n')
+}
+
 const shopLine = (brain: Brain, item: ShopItem): string =>
   `- ${item.id} · ${item.name} · ${item.price}코인${brain.wallet.items.includes(item.id) && item.kind !== 'snack' ? ' (보유)' : ''}`
 
 const shopText = (brain: Brain): string =>
   [
     '상점 (/toko buy <id>):',
-    ...SHOP.filter(item => item.kind !== 'pet' && !isGachaOnly(item)).map(item => shopLine(brain, item)),
+    ...SHOP.filter(item => item.kind === 'snack').map(item => shopLine(brain, item)),
+    '캐릭터 치장 (망치):',
+    ...SHOP.filter(item => item.kind === 'hammer').map(item => shopLine(brain, item)),
     '애완동물:',
     ...SHOP.filter(item => item.kind === 'pet').map(item => shopLine(brain, item)),
-    `뽑기: /toko gacha fashion (모자 · 안경 · 목도리는 뽑기로만, ${GACHA.fashion.price}코인) · /toko gacha pet (애완동물, ${GACHA.pet.price}코인)`,
+    '방 치장 (사면 빈자리에 바로 놓여요):',
+    ...SHOP.filter(item => isRoomItem(item) && item.souvenir === undefined && item.set === undefined).map(item => shopLine(brain, item)),
+    '휴식 기념품 (쉬다 보면 생겨요):',
+    ...SHOP.filter(item => item.souvenir !== undefined).map(item => `- ${item.name} · ${souvenirLine(item)}${brain.wallet.items.includes(item.id) ? ' (보유)' : ''}`),
+    `뽑기: /toko gacha fashion (모자 · 안경 · 목 · 등 · 손은 뽑기로만, ${GACHA.fashion.price}코인) · /toko gacha pet (애완동물, ${GACHA.pet.price}코인) · /toko gacha furniture (테마 세트 가구, ${GACHA.furniture.price}코인)`,
     `코인 ${balance(brain)}`,
   ].join('\n')
 
@@ -628,6 +667,7 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
     case 'peers':
     case 'meter':
     case 'mood-sense':
+    case 'room-open':
       return toggleSetting($, brain, sub, value)
     case 'shop':
       return { text: shopText(brain) }
@@ -639,6 +679,74 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       }
       await toggleWear($, brain, value)
       return { text: `${shopItem(value)?.name} 착용을 바꿨어요.` }
+    case 'layout':
+      return { text: layoutText(brain) }
+    case 'visit': {
+      const friend = findFriend(brain.friends, rest.join(' '))
+      if (friend === undefined) {
+        return { text: '광장에 있는 친구 이름을 알려 주세요. 예: /toko visit 말랑' }
+      }
+      const text = await visitFriend($, brain, friend.id)
+      await sync($, brain)
+      return { text }
+    }
+    case 'home': {
+      const text = await comeHome($, brain)
+      await sync($, brain)
+      return { text }
+    }
+    case 'guest':
+      return { text: await guestCommand($, ctx, rest) }
+    case 'furniture':
+      return { text: furnitureText(brain.wallet) }
+    case 'dye':
+    case 'exchange': {
+      if (value === undefined || shopItem(value) === undefined) {
+        return { text: sub === 'dye' ? '예: /toko dye beanie' : `예: /toko exchange angel-wings (별조각 ${STAR_PIECES_PER_PICK}개)` }
+      }
+      const text = sub === 'dye' ? await dyeItem($, brain, value) : await exchangeForStars($, brain, value)
+      await sync($, brain)
+      return { text }
+    }
+    case 'gift':
+    case 'sticker': {
+      const [name, thing] = rest
+      const friend = name === undefined ? undefined : findFriend(brain.friends, name)
+      if (friend === undefined || thing === undefined) {
+        return { text: sub === 'gift' ? '예: /toko gift 콩떡 cushion' : '예: /toko sticker 콩떡 heart (heart · star · flower)' }
+      }
+      const text = sub === 'gift' ? await giftToFriend($, brain, friend.id, thing) : await sendSticker($, brain, friend.id, thing)
+      await sync($, brain)
+      return { text }
+    }
+    case 'doing': {
+      const words = rest.join(' ').trim()
+      if (words.length === 0) {
+        return { text: '예: /toko doing auto · /toko doing off · /toko doing 회의 준비 중 (20자까지)' }
+      }
+      const doing = words === 'auto' || words === 'off' ? words : [...words].slice(0, 20).join('')
+      return changeSettings($, brain, { doing }, doing === 'off' ? '지금 하는 일을 광장에 보여 주지 않아요.' : doing === 'auto' ? 'Claude가 하는 일을 정해진 낱말로 광장에 보여 줘요.' : `광장 이름표에 "${doing}"을(를) 보여 줘요.`)
+    }
+    case 'place': {
+      if (value === undefined) {
+        return { text: layoutText(brain) }
+      }
+      const slot = rest[1]
+      if (slot !== undefined && !isRoomSlot(slot)) {
+        return { text: `자리는 ${ROOM_SLOTS.map(entry => entry.id).join(' · ')} 가운데 하나예요.` }
+      }
+      const text = await placeInRoom($, brain, value, slot)
+      await sync($, brain)
+      return { text }
+    }
+    case 'store': {
+      if (value === undefined) {
+        return { text: '예: /toko store lamp' }
+      }
+      const text = await storeInRoom($, brain, value)
+      await sync($, brain)
+      return { text }
+    }
     case 'card':
       return { text: card(brain) }
     case 'focus':
@@ -673,9 +781,9 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
     case 'answer':
       return { text: await answerCommand($, ctx, rest.join(' ')) }
     case 'gacha': {
-      const kind = value === 'pet' || value === '애완동물' ? 'pet' : value === 'fashion' || value === '패션' ? 'fashion' : null
+      const kind = value === 'pet' || value === '애완동물' ? 'pet' : value === 'fashion' || value === '패션' ? 'fashion' : value === 'furniture' || value === '가구' ? 'furniture' : null
       if (kind === null) {
-        return { text: '예: /toko gacha fashion · /toko gacha pet' }
+        return { text: '예: /toko gacha fashion · /toko gacha pet · /toko gacha furniture' }
       }
       const text = await pullFromGacha($, brain, kind)
       await sync($, brain)
@@ -702,6 +810,11 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       }
       if (kind === 'boss') {
         const text = await demoBoss($, brain)
+        await sync($, brain)
+        return { text }
+      }
+      if (kind === 'souvenir') {
+        const text = await demoSouvenir($, brain)
         await sync($, brain)
         return { text }
       }
@@ -941,6 +1054,70 @@ export async function drawFromRoom($: $, ctx: Ctx): Promise<void> {
 export async function pickPet($: $, ctx: Ctx, id: string): Promise<void> {
   await now($, ctx)
   await switchPet($, ctx.brain, id)
+}
+
+const VIEW_REFRESH_MS = 20_000
+
+async function guestCommand($: $, ctx: Ctx, words: readonly string[]): Promise<string> {
+  const brain = ctx.brain
+  const [name = '', word] = words
+  const guest = name.length === 0 ? undefined : (brain.guests.find(entry => entry.name === name) ?? brain.guests.find(entry => entry.name.startsWith(name)))
+  if (guest === undefined) {
+    return brain.guests.length === 0 ? '지금 방에 손님이 없어요.' : `손님: ${brain.guests.map(entry => entry.name).join(' · ')}`
+  }
+  if (word === 'bye') {
+    const text = await sendGuestHome($, brain, guest.id)
+    await sync($, brain)
+    return text
+  }
+  if (word === undefined || !isRoomAct(word)) {
+    return `할 수 있는 것: ${ROOM_ACTS.map(act => `${act}(${ROOM_ACT_LABEL[act]})`).join(' · ')} · bye(배웅)`
+  }
+  const text = await playInRoom($, brain, guest.id, word)
+  await sync($, brain)
+  return text
+}
+
+export async function visitFromRoom($: $, ctx: Ctx, friendId: string): Promise<void> {
+  await now($, ctx)
+  await visitFriend($, ctx.brain, friendId)
+  await sync($, ctx.brain)
+}
+
+export async function comeHomeFromRoom($: $, ctx: Ctx): Promise<void> {
+  await now($, ctx)
+  await comeHome($, ctx.brain)
+  await sync($, ctx.brain)
+}
+
+export async function guestPlay($: $, ctx: Ctx, guestId: string, kind: RoomAct): Promise<void> {
+  await now($, ctx)
+  await playInRoom($, ctx.brain, guestId, kind)
+  await sync($, ctx.brain)
+}
+
+export async function stickerFromRoom($: $, ctx: Ctx, friendId: string): Promise<void> {
+  await now($, ctx)
+  await sendSticker($, ctx.brain, friendId, 'heart')
+  await sync($, ctx.brain)
+}
+
+export async function guestBye($: $, ctx: Ctx, guestId: string): Promise<void> {
+  await now($, ctx)
+  await sendGuestHome($, ctx.brain, guestId)
+  await sync($, ctx.brain)
+}
+
+export async function viewRoom($: $, ctx: Ctx, host: string | null): Promise<void> {
+  await now($, ctx)
+  await say($, ctx.brain, await viewFriendRoom($, ctx.brain, host))
+  await sync($, ctx.brain)
+}
+
+export async function cycleRoomSlot($: $, ctx: Ctx, slot: RoomSlot): Promise<void> {
+  await now($, ctx)
+  await cycleRoom($, ctx.brain, slot)
+  await sync($, ctx.brain)
 }
 
 export async function wearItem($: $, ctx: Ctx, id: string): Promise<void> {

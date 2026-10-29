@@ -27,7 +27,15 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .board ol{margin:6px 0 0;padding-left:18px;font-size:11px;line-height:1.6}
 .board b{color:#ffe2c2}
 @keyframes pop{from{scale:.4;opacity:0}}
-@media (max-width:520px){.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.board{top:auto;bottom:14px}.tag i{display:none}}
+.rooms{position:fixed;right:20px;top:20px;display:flex;flex-direction:column;gap:6px;max-width:220px;padding:10px 12px;background:#fffaf0;border:3px solid var(--ink);box-shadow:0 4px 0 rgba(61,51,70,.3);font-size:12px}
+.rooms b{font:14px/1 Galmuri14,Galmuri11,sans-serif}
+.rooms button,#roomView button{font:inherit;color:var(--ink);text-align:left;padding:4px 8px;border:2px solid var(--ink);background:#ffe8c7;cursor:pointer}
+.rooms button:hover,#roomView button:hover{background:#ffd49a}
+#roomView{padding:14px;border:4px solid var(--ink);background:#fffaf0;color:var(--ink);font:12px Galmuri11,sans-serif;max-width:calc(100vw - 40px)}
+#roomView::backdrop{background:rgba(43,34,51,.55)}
+#roomCanvas{display:block;max-width:100%;image-rendering:pixelated;background:#2b2233}
+#roomView p{margin:10px 0}
+@media (max-width:520px){.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.board{top:auto;bottom:14px}.tag i{display:none}.rooms{top:auto;bottom:14px;right:14px}}
 </style>
 </head>
 <body>
@@ -35,6 +43,8 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 <div id="labels" aria-hidden="true"></div>
 <header class="sign"><h1>토코 광장</h1><p id="count">지금 {{count}}마리가 함께 쉬어 가는 중이에요</p><p class="hint">Claude Code에서 토코를 켜 두면 여기로 놀러 와요</p></header>
 <aside class="sign board" id="bonks" hidden><h2>뿅망치 전광판</h2><p>오늘 Clawd가 <b id="bonk-total">0</b>번 맞았어요</p><ol id="bonk-top"></ol></aside>
+<nav id="rooms" class="rooms" aria-label="열린 방" hidden><b>방 구경</b><div id="roomList" style="display:flex;flex-direction:column;gap:4px"></div></nav>
+<dialog id="roomView" aria-labelledby="roomTitle"><canvas id="roomCanvas"></canvas><p id="roomTitle"></p><button id="roomClose" type="button">닫기</button></dialog>
 <p id="empty" {{empty}}>아직 아무도 없어요. 토코를 데리고 놀러 오세요</p>
 <noscript><ul>{{roster}}</ul></noscript>
 <script id="state" type="application/json">{{state}}</script>
@@ -563,7 +573,64 @@ const play = event => {
   if (pet.mode === 'idle' && pet.act === null) pet.route = []
 }
 
+let rooms = []
+let openRoomKey = null
+
+const ROOM_SCALE = 6
+
+const drawRoom = () => {
+  const room = rooms.find(entry => entry.key === openRoomKey)
+  if (room === undefined) {
+    openRoomKey = null
+    if ($('roomView').open) $('roomView').close()
+    return
+  }
+  const picture = spriteOf(room.picture)
+  const tall = room.picture.rows.length
+  const view = $('roomCanvas')
+  view.width = picture.w * ROOM_SCALE
+  view.height = tall * ROOM_SCALE
+  const g = view.getContext('2d')
+  g.imageSmoothingEnabled = false
+  g.fillStyle = '#2b2233'
+  g.fillRect(0, 0, view.width, view.height)
+  g.drawImage(picture.image, 0, 0, view.width, view.height)
+  const centers = [picture.w / 2, picture.w / 2 - 28, picture.w / 2 + 28]
+  ;[room.owner, ...room.guests.map(guest => guest.sprite)].slice(0, 3).forEach((sprite, index) => {
+    const art = spriteOf(sprite)
+    const x = (centers[index] ?? picture.w / 2) - art.w
+    const y = tall - 1 - (art.feet + 1) * 2
+    g.drawImage(art.image, x * ROOM_SCALE, y * ROOM_SCALE, art.w * 2 * ROOM_SCALE, sprite.rows.length * 2 * ROOM_SCALE)
+  })
+  $('roomTitle').textContent = room.guests.length === 0 ? `${room.name}네 방` : `${room.name}네 방 — 놀러 온 손님: ${room.guests.map(guest => guest.name).join(', ')}`
+}
+
+const showRooms = list => {
+  rooms = Array.isArray(list) ? list : []
+  $('rooms').hidden = rooms.length === 0
+  $('roomList').replaceChildren(
+    ...rooms.map(room => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = room.guests.length === 0 ? `${room.name}네 방` : `${room.name}네 방 · 손님 ${room.guests.length}`
+      button.addEventListener('click', () => {
+        openRoomKey = room.key
+        drawRoom()
+        if (!$('roomView').open) $('roomView').showModal()
+      })
+      return button
+    }),
+  )
+  if (openRoomKey !== null) drawRoom()
+}
+
+$('roomClose').addEventListener('click', () => $('roomView').close())
+$('roomView').addEventListener('close', () => {
+  openRoomKey = null
+})
+
 const sync = view => {
+  showRooms(view.rooms)
   const keys = new Set(view.pets.map(data => data.key))
   for (const data of view.pets) {
     const pet = pets.get(data.key)

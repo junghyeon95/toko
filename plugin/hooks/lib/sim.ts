@@ -12,7 +12,7 @@ const DECAY_PER_MINUTE: Readonly<Record<NeedKey, number>> = { energy: 0.25, fun:
 
 const clamp = (value: number): number => Math.max(0, Math.min(100, Math.round(value * 10_000) / 10_000))
 
-export const decayNeeds = (needs: TokoNeeds, now: number, isPresent: boolean): TokoNeeds => {
+export const decayNeeds = (needs: TokoNeeds, now: number, isPresent: boolean, socialScale = 1): TokoNeeds => {
   const minutes = Math.max(0, (now - needs.updatedAt) / MINUTE)
   if (!isPresent || minutes === 0) {
     return { ...needs, updatedAt: now }
@@ -22,7 +22,7 @@ export const decayNeeds = (needs: TokoNeeds, now: number, isPresent: boolean): T
     energy: clamp(needs.energy - DECAY_PER_MINUTE.energy * step),
     fun: clamp(needs.fun - DECAY_PER_MINUTE.fun * step),
     hunger: clamp(needs.hunger - DECAY_PER_MINUTE.hunger * step),
-    social: clamp(needs.social - DECAY_PER_MINUTE.social * step),
+    social: clamp(needs.social - DECAY_PER_MINUTE.social * socialScale * step),
     updatedAt: now,
   }
 }

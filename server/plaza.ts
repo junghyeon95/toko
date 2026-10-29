@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+
 export type Color = 'honey' | 'mint' | 'peach' | 'lavender'
 export type Mood = 'excited' | 'calm' | 'sleepy' | 'worried' | 'sulky'
 export type Status = 'working' | 'resting' | 'idle' | 'away'
@@ -5,18 +8,36 @@ export type Action = 'wave' | 'heart' | 'snack' | 'stretch-call' | 'cheer'
 
 export type Sprite = { palette: readonly string[]; rows: readonly string[] }
 
-export type Wear = { hat?: string; neck?: string; face?: string }
+export type Wear = { hat?: string; neck?: string; face?: string; back?: string; hand?: string }
 
-export type Member = { id: string; tab?: string; name: string; color: Color; species?: string; wear?: Wear; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite }
+export type Member = { id: string; tab?: string; name: string; color: Color; species?: string; wear?: Wear; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite; doing?: string }
+
+export type RoomAct = 'hug' | 'snack' | 'play' | 'nap'
+
+export type Card = { id: string; name: string; color: Color; species?: string; wear?: Wear }
 
 export type PlazaEvent = {
   id: string
   at: number
-  kind: Action | 'join'
-  from: { id: string; name: string; color: Color; species?: string; wear?: Wear }
+  kind: Action | 'join' | 'visit' | 'home' | 'room-act' | 'sticker' | 'gift'
+  from: Card
   to: string | null
   line: string
+  act?: RoomAct
+  guest?: string
 }
+
+export type Layout = Readonly<Record<string, string>>
+
+export type Sticker = { kind: string; from: string; at: number }
+
+export type Room = { owner: Card; layout: Layout; isOpen: boolean; picture?: Sprite; stickers?: readonly Sticker[] }
+
+export type Gift = { id: string; item: string; from: string; at: number }
+
+export type Visit = { guest: Card; host: string; since: number; notes: readonly string[] }
+
+export type Storage = { read: () => string | null; write: (text: string) => void }
 
 export type Generate = (prompt: string) => Promise<string | null>
 
@@ -28,14 +49,30 @@ export type PlazaOptions = {
   actionsPerMinute?: number
   keepAliveMs?: number
   flushMs?: number
+  maxGuests?: number
+  storage?: Storage
 }
 
 const COLORS: ReadonlySet<string> = new Set(['honey', 'mint', 'peach', 'lavender'])
 const MOODS: ReadonlySet<string> = new Set(['excited', 'calm', 'sleepy', 'worried', 'sulky'])
 const STATUSES: ReadonlySet<string> = new Set(['working', 'resting', 'idle', 'away'])
 const ACTIONS: ReadonlySet<string> = new Set(['wave', 'heart', 'snack', 'stretch-call', 'cheer'])
+const ROOM_ACTS: ReadonlySet<string> = new Set(['hug', 'snack', 'play', 'nap'])
+const MAX_LAYOUT = 9
+const MAX_STICKERS = 12
+const STICKERS_PER_DAY = 3
+const MAX_GIFTS = 20
+const STICKER_KINDS: ReadonlySet<string> = new Set(['heart', 'star', 'flower'])
+const MAX_NOTES = 8
+
+export const ROOM_ACT_NOTES: Readonly<Record<RoomAct, string>> = {
+  hug: '꼭 안아 줬어',
+  snack: '간식을 나눠 먹었어',
+  play: '술래잡기를 했어',
+  nap: '같이 낮잠을 잤어',
+}
 const FORBIDDEN = /(바보|멍청|병신|시발|씨발|ㅅㅂ|개새|꺼져|닥쳐|죽어|죽여|미친|한심|쓰레기)/
-const MAX_BODY = 4096
+const MAX_BODY = 16_384
 const SPRITE_KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
 const MAX_SPRITE = 32
 
@@ -104,7 +141,20 @@ export const parseSprite = (value: unknown): Sprite | null => {
   return isPalette && isRows ? { palette: palette.map(color => String(color).toLowerCase()), rows: rows.map(String) } : null
 }
 
-const WEAR_SLOTS = ['hat', 'neck', 'face'] as const
+const WEAR_SLOTS = ['hat', 'neck', 'face', 'back', 'hand'] as const
+
+const MAX_PICTURE_ROWS = 40
+const MAX_PICTURE_COLUMNS = 128
+
+export const parsePicture = (value: unknown): Sprite | null => {
+  const raw = asRecord(value)
+  const palette: unknown[] = Array.isArray(raw?.palette) ? raw.palette : []
+  const rows: unknown[] = Array.isArray(raw?.rows) ? raw.rows : []
+  const keys = SPRITE_KEYS.slice(0, palette.length)
+  const isPalette = palette.length > 0 && palette.length <= SPRITE_KEYS.length && palette.every(color => typeof color === 'string' && /^[0-9a-f]{6}$/i.test(color))
+  const isRows = rows.length > 0 && rows.length <= MAX_PICTURE_ROWS && rows.every(row => typeof row === 'string' && row.length <= MAX_PICTURE_COLUMNS && [...row].every(char => char === '.' || keys.includes(char)))
+  return isPalette && isRows ? { palette: palette.map(color => String(color).toLowerCase()), rows: rows.map(String) } : null
+}
 
 export const parseWear = (value: unknown): Wear => {
   const raw = asRecord(value)
@@ -121,6 +171,7 @@ export const parseMe = (value: unknown, now: number): Member | null => {
   const tab = clean(raw.tab, 16)
   const sprite = parseSprite(raw.sprite)
   const wear = parseWear(raw.wear)
+  const doing = doingOf(raw.doing)
   return {
     id,
     ...(/^[a-z0-9]{1,16}$/i.test(tab) ? { tab } : {}),
@@ -132,10 +183,84 @@ export const parseMe = (value: unknown, now: number): Member | null => {
     status: STATUSES.has(String(raw.status)) ? (raw.status as Status) : 'idle',
     lastSeen: now,
     ...(sprite === null ? {} : { sprite }),
+    ...(doing === null ? {} : { doing }),
   }
 }
 
+export const doingOf = (value: unknown): string | null => {
+  const doing = clean(value, 20)
+  return doing.length === 0 || FORBIDDEN.test(doing) ? null : doing
+}
+
 const friendOf = ({ sprite, ...friend }: Member): Omit<Member, 'sprite'> => friend
+
+export const parseLayout = (value: unknown): Layout | null => {
+  const raw = asRecord(value)
+  if (raw === null) {
+    return null
+  }
+  const entries = Object.entries(raw)
+    .map(([slot, id]) => [clean(slot, 16), clean(id, 24)] as const)
+    .filter(([slot, id]) => /^[a-z0-9-]{1,16}$/.test(slot) && /^[a-z][a-z-]{0,23}$/.test(id))
+  return Object.fromEntries(entries.slice(0, MAX_LAYOUT))
+}
+
+const parseCard = (value: unknown): Card | null => {
+  const raw = asRecord(value)
+  const id = clean(raw?.id, 64)
+  if (raw === null || !/^[a-z0-9-]{4,64}$/i.test(id) || !COLORS.has(String(raw.color))) {
+    return null
+  }
+  const species = clean(raw.species, 16)
+  const wear = parseWear(raw.wear)
+  return {
+    id,
+    name: clean(raw.name, 12) || '친구',
+    color: raw.color as Color,
+    ...(/^[a-z]{2,16}$/.test(species) ? { species } : {}),
+    ...(Object.keys(wear).length === 0 ? {} : { wear }),
+  }
+}
+
+type Saved = { rooms: Room[]; visits: Visit[]; gifts: [string, Gift[]][] }
+
+export const parseSaved = (text: string | null): Saved => {
+  try {
+    const raw = asRecord(JSON.parse(text ?? '{}'))
+    const rooms = (Array.isArray(raw?.rooms) ? raw.rooms : [])
+      .map(entry => {
+        const room = asRecord(entry)
+        const owner = parseCard(room?.owner)
+        const layout = parseLayout(room?.layout)
+        const picture = parsePicture(room?.picture)
+        const stickers: unknown[] = Array.isArray(room?.stickers) ? room.stickers : []
+        const kept = stickers
+          .map(entry => asRecord(entry))
+          .filter((entry): entry is Record<string, unknown> => entry !== null && STICKER_KINDS.has(String(entry.kind)))
+          .map(entry => ({ kind: String(entry.kind), from: clean(entry.from, 12), at: typeof entry.at === 'number' ? entry.at : 0 }))
+          .slice(-MAX_STICKERS)
+        return owner === null || layout === null ? null : { owner, layout, isOpen: room?.isOpen !== false, ...(picture === null ? {} : { picture }), stickers: kept }
+      })
+      .filter((room): room is NonNullable<typeof room> => room !== null)
+    const visits = (Array.isArray(raw?.visits) ? raw.visits : [])
+      .map(entry => {
+        const visit = asRecord(entry)
+        const guest = parseCard(visit?.guest)
+        const host = clean(visit?.host, 64)
+        const notes: unknown[] = Array.isArray(visit?.notes) ? visit.notes : []
+        return guest === null || host.length === 0
+          ? null
+          : { guest, host, since: typeof visit?.since === 'number' ? visit.since : 0, notes: notes.map(note => clean(note, 40)).filter(note => note.length > 0).slice(-MAX_NOTES) }
+      })
+      .filter((visit): visit is NonNullable<typeof visit> => visit !== null)
+    const gifts: [string, Gift[]][] = (Array.isArray(raw?.gifts) ? raw.gifts : [])
+      .filter((entry): entry is [unknown, unknown] => Array.isArray(entry) && entry.length === 2)
+      .map(([to, list]) => [clean(to, 64), (Array.isArray(list) ? list : []).map(gift => asRecord(gift)).filter((gift): gift is Record<string, unknown> => gift !== null).map(gift => ({ id: clean(gift.id, 64), item: clean(gift.item, 24), from: clean(gift.from, 12), at: typeof gift.at === 'number' ? gift.at : 0 }))])
+    return { rooms, visits, gifts }
+  } catch {
+    return { rooms: [], visits: [], gifts: [] }
+  }
+}
 
 const TAB_TTL_MS = 45_000
 
@@ -245,20 +370,26 @@ const hashOf = (text: string): string => {
   return hash.toString(36)
 }
 
+export type RoomView = { key: string; name: string; picture: Sprite; owner: Sprite; guests: { name: string; sprite: Sprite }[] }
+
 export type PlazaView = {
   now: number
   pets: { key: string; name: string; mood: Mood; sprite: Sprite }[]
   events: { key: string; at: number; kind: Action; from: string; to: string | null; line: string }[]
   bonks: BonkBoard
+  rooms: RoomView[]
 }
 
-export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS): PlazaView => ({
+const isAction = (kind: PlazaEvent['kind']): kind is Action => ACTIONS.has(kind)
+
+export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS, rooms: RoomView[] = []): PlazaView => ({
   now,
   bonks,
   pets: members.map(member => ({ key: hashOf(member.id), name: member.name, mood: member.mood, sprite: member.sprite ?? standIn(member.color) })),
   events: events
-    .flatMap(event => (event.kind === 'join' ? [] : [{ key: hashOf(event.id), at: event.at, kind: event.kind, from: hashOf(event.from.id), to: event.to === null ? null : hashOf(event.to), line: event.line }]))
+    .flatMap(event => (isAction(event.kind) ? [{ key: hashOf(event.id), at: event.at, kind: event.kind, from: hashOf(event.from.id), to: event.to === null ? null : hashOf(event.to), line: event.line }] : []))
     .slice(-20),
+  rooms,
 })
 
 const PAGE = await Bun.file(`${import.meta.dir}/page.html`).text()
@@ -315,6 +446,8 @@ export const pickGenerator = (env: Readonly<Record<string, string | undefined>>)
   return { generate: async () => null, source: 'fallback lines' }
 }
 
+const POST_PATHS: ReadonlySet<string> = new Set(['/v1/poll', '/v1/act', '/v1/bonk', '/v1/visit', '/v1/visit/end', '/v1/room/act', '/v1/room/sticker', '/v1/gift', '/v1/gift/take'])
+
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } })
 
@@ -327,6 +460,20 @@ const readBody = async (request: Request): Promise<Record<string, unknown> | nul
     return asRecord(JSON.parse(text))
   } catch {
     return null
+  }
+}
+
+export const fileStorage = (path: string): Storage => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return {
+    read: () => (existsSync(path) ? readFileSync(path, 'utf8') : null),
+    write: text => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, text)
+      }, 500)
+    },
   }
 }
 
@@ -343,6 +490,13 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   const actions = new Map<string, number[]>()
   const changed = new Map<string, number>()
   const listeners = new Set<Listener>()
+  const maxGuests = options.maxGuests ?? 2
+  const storage = options.storage
+  const saved = parseSaved(storage?.read() ?? null)
+  const rooms = new Map<string, Room>(saved.rooms.map(room => [room.owner.id, room]))
+  const visits = new Map<string, Visit>(saved.visits.map(visit => [visit.guest.id, visit]))
+  const gifts = new Map<string, Gift[]>(saved.gifts)
+  const stickerDays = new Map<string, number>()
   let events: PlazaEvent[] = []
   let pending: Promise<void>[] = []
   let counter = 0
@@ -359,7 +513,42 @@ export const createPlaza = (options: PlazaOptions = {}) => {
 
   const ranked = (): Member[] => [...members.values()].sort(byActivity)
 
-  const friendsOf = (id: string, order: readonly Member[] = ranked()): Omit<Member, 'sprite'>[] => order.filter(member => member.id !== id).slice(0, 30).map(friendOf)
+  const friendsOf = (id: string, order: readonly Member[] = ranked()): (Omit<Member, 'sprite'> & { isRoomOpen: boolean })[] =>
+    order
+      .filter(member => member.id !== id)
+      .slice(0, 30)
+      .map(member => ({ ...friendOf(member), isRoomOpen: rooms.get(member.id)?.isOpen === true }))
+
+  const persist = (): void => {
+    storage?.write(JSON.stringify({ rooms: [...rooms.values()], visits: [...visits.values()], gifts: [...gifts.entries()] }))
+  }
+
+  const guestsOf = (host: string) => [...visits.values()].filter(visit => visit.host === host).map(visit => ({ ...visit.guest, since: visit.since }))
+
+  const awayOf = (id: string) => {
+    const visit = visits.get(id)
+    if (visit === undefined) {
+      return null
+    }
+    const host = rooms.get(visit.host)?.owner ?? members.get(visit.host)
+    return { host: visit.host, hostName: host?.name ?? '친구', since: visit.since, notes: visit.notes }
+  }
+
+  const homeOf = (id: string) => ({ guests: guestsOf(id), away: awayOf(id), stickers: (rooms.get(id)?.stickers ?? []).map(sticker => sticker.kind), gifts: gifts.get(id) ?? [] })
+
+  const spriteFor = (card: Card): Sprite => members.get(card.id)?.sprite ?? standIn(card.color)
+
+  const roomsView = (): RoomView[] =>
+    [...rooms.values()]
+      .filter((room): room is Room & { picture: Sprite } => room.isOpen && room.picture !== undefined)
+      .map(room => ({
+        key: hashOf(room.owner.id),
+        name: room.owner.name,
+        picture: room.picture,
+        owner: spriteFor(room.owner),
+        guests: [...visits.values()].filter(stay => stay.host === room.owner.id).map(stay => ({ name: stay.guest.name, sprite: spriteFor(stay.guest) })),
+      }))
+
 
   const eventsFor = (id: string, since: number): PlazaEvent[] =>
     events.filter(event => event.at > since && event.from.id !== id && (event.to === null || event.to === id)).slice(-20)
@@ -372,12 +561,12 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     return { total: counts.reduce((sum, [, count]) => sum + count, 0), top: counts.slice(0, 5).map(([kind, count]) => ({ kind, label: BONK_KINDS[kind] ?? '', count })) }
   }
 
-  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at))
+  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at), roomsView())
 
   const messageFor = (listener: Listener, at: number, order?: readonly Member[]): string =>
     listener.id === null
       ? sseMessage('view', viewAt(at))
-      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id, order), events: eventsFor(listener.id, 0), bonks: bonkBoard(at) })
+      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id, order), events: eventsFor(listener.id, 0), bonks: bonkBoard(at), ...homeOf(listener.id) })
 
   const flush = (): void => {
     clearTimeout(flushTimer)
@@ -427,7 +616,41 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     }
   }
 
+  const keepCards = (me: Member): void => {
+    const card = senderOf(me)
+    const visit = visits.get(me.id)
+    const room = rooms.get(me.id)
+    const isStale = (visit !== undefined && JSON.stringify(visit.guest) !== JSON.stringify(card)) || (room !== undefined && JSON.stringify(room.owner) !== JSON.stringify(card))
+    if (!isStale) {
+      return
+    }
+    if (visit !== undefined) {
+      visits.set(me.id, { ...visit, guest: card })
+    }
+    if (room !== undefined) {
+      rooms.set(me.id, { ...room, owner: card })
+    }
+    persist()
+  }
+
+  const keepRoom = (me: Member, raw: Record<string, unknown> | null): void => {
+    const layout = parseLayout(raw?.room)
+    if (layout === null) {
+      return
+    }
+    const picture = parsePicture(raw?.roomPicture)
+    const before = rooms.get(me.id)
+    const room: Room = { owner: senderOf(me), layout, isOpen: raw?.isRoomOpen !== false, ...(picture === null ? {} : { picture }), stickers: before?.stickers ?? [] }
+    if (JSON.stringify(before) === JSON.stringify(room)) {
+      return
+    }
+    rooms.set(me.id, room)
+    persist()
+    broadcast()
+  }
+
   const join = (me: Member): void => {
+    keepCards(me)
     const before = members.get(me.id)
     const reports = tabs.get(me.id) ?? new Map<string, Member>()
     reports.set(me.tab ?? '', me)
@@ -507,7 +730,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
     join(me)
-    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since), bonks: bonkBoard(at) })
+    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since), bonks: bonkBoard(at), ...homeOf(me.id) })
   }
 
   const bonk = (me: Member, kind: string): Response => {
@@ -522,6 +745,108 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     bonkCounts.set(kind, (bonkCounts.get(kind) ?? 0) + 1)
     broadcast()
     return json(202, { ok: true })
+  }
+
+  const visit = (me: Member, to: string): Response => {
+    const at = me.lastSeen
+    join(me)
+    const room = rooms.get(to)
+    if (to === me.id || room === undefined || !room.isOpen) {
+      return json(403, { error: 'that room is not open for visits' })
+    }
+    if (visits.get(me.id)?.host === to) {
+      return json(200, { ok: true, ...homeOf(me.id) })
+    }
+    if (guestsOf(to).length >= maxGuests) {
+      return json(409, { error: 'the room is full' })
+    }
+    const before = visits.get(me.id)
+    visits.set(me.id, { guest: senderOf(me), host: to, since: at, notes: [] })
+    persist()
+    if (before !== undefined) {
+      record({ id: nextId(), at, kind: 'home', from: senderOf(me), to: before.host, line: `${me.name}이(가) 집에 갔어`, guest: me.id })
+    }
+    record({ id: nextId(), at, kind: 'visit', from: senderOf(me), to, line: `${me.name}이(가) 놀러 왔어`, guest: me.id })
+    return json(200, { ok: true, ...homeOf(me.id) })
+  }
+
+  const leave = (me: Member, guest: string | null): Response => {
+    const at = me.lastSeen
+    join(me)
+    const id = guest ?? me.id
+    const stay = visits.get(id)
+    if (stay === undefined || (guest !== null && stay.host !== me.id)) {
+      return json(404, { error: 'no such visit' })
+    }
+    visits.delete(id)
+    persist()
+    const to = guest === null ? stay.host : guest
+    record({ id: nextId(), at, kind: 'home', from: senderOf(me), to, line: guest === null ? `${me.name}이(가) 집에 갔어` : `${me.name}네 방에서 집으로 돌아왔어`, guest: id })
+    return json(200, { ok: true, ...homeOf(me.id) })
+  }
+
+  const sticker = (me: Member, to: string, kind: string): Response => {
+    const at = me.lastSeen
+    join(me)
+    const room = rooms.get(to)
+    if (to === me.id || room === undefined || !room.isOpen) {
+      return json(403, { error: 'that room is not open for visits' })
+    }
+    const key = `${me.id}:${new Date(at).toISOString().slice(0, 10)}`
+    const used = stickerDays.get(key) ?? 0
+    if (used >= STICKERS_PER_DAY) {
+      return json(429, { error: 'three stickers a day' })
+    }
+    stickerDays.set(key, used + 1)
+    rooms.set(to, { ...room, stickers: [...(room.stickers ?? []), { kind, from: me.name, at }].slice(-MAX_STICKERS) })
+    persist()
+    record({ id: nextId(), at, kind: 'sticker', from: senderOf(me), to, line: `${me.name}이(가) 다녀갔어` })
+    return json(200, { ok: true })
+  }
+
+  const gift = (me: Member, to: string, item: string): Response => {
+    const at = me.lastSeen
+    join(me)
+    if (to === me.id || (!members.has(to) && !rooms.has(to))) {
+      return json(404, { error: 'that friend is not around' })
+    }
+    const pending = gifts.get(to) ?? []
+    if (pending.length >= MAX_GIFTS) {
+      return json(409, { error: 'too many gifts waiting' })
+    }
+    gifts.set(to, [...pending, { id: nextId(), item, from: me.name, at }])
+    persist()
+    record({ id: nextId(), at, kind: 'gift', from: senderOf(me), to, line: `${me.name}이(가) 선물을 보냈어` })
+    return json(200, { ok: true })
+  }
+
+  const takeGifts = (me: Member, ids: readonly string[]): Response => {
+    join(me)
+    const left = (gifts.get(me.id) ?? []).filter(entry => !ids.includes(entry.id))
+    if (left.length === 0) {
+      gifts.delete(me.id)
+    } else {
+      gifts.set(me.id, left)
+    }
+    persist()
+    return json(200, { ok: true })
+  }
+
+  const roomAct = (me: Member, guest: string, kind: RoomAct): Response => {
+    const at = me.lastSeen
+    join(me)
+    if (isRateLimited(me.id, at)) {
+      return json(429, { error: 'too many actions, take a breath' })
+    }
+    const stay = visits.get(guest)
+    if (stay === undefined || (me.id !== stay.host && me.id !== guest)) {
+      return json(404, { error: 'no such visit' })
+    }
+    const note = ROOM_ACT_NOTES[kind]
+    visits.set(guest, { ...stay, notes: [...stay.notes, note].slice(-MAX_NOTES) })
+    persist()
+    record({ id: nextId(), at, kind: 'room-act', from: senderOf(me), to: me.id === stay.host ? guest : stay.host, line: note, act: kind, guest })
+    return json(200, { ok: true })
   }
 
   const act = async (me: Member, kind: Action, toId: string | null): Promise<Response> => {
@@ -572,13 +897,36 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     if (request.method === 'GET' && url.pathname === '/health') {
       return json(200, { ok: true, members: members.size })
     }
-    if (request.method !== 'POST' || (url.pathname !== '/v1/poll' && url.pathname !== '/v1/act' && url.pathname !== '/v1/bonk')) {
+    if (request.method === 'GET' && url.pathname === '/v1/room') {
+      const room = rooms.get(url.searchParams.get('id') ?? '')
+      return room === undefined || !room.isOpen ? json(404, { error: 'not found' }) : json(200, { ...room, stickers: (room.stickers ?? []).map(sticker => sticker.kind), guests: guestsOf(room.owner.id) })
+    }
+    if (request.method !== 'POST' || !POST_PATHS.has(url.pathname)) {
       return json(404, { error: 'not found' })
     }
     const body = await readBody(request)
     const me = parseMe(body?.me, now())
     if (body === null || me === null) {
       return json(400, { error: 'bad request' })
+    }
+    keepRoom(me, asRecord(body.me))
+    if (url.pathname === '/v1/visit') {
+      return typeof body.to === 'string' ? visit(me, body.to) : json(400, { error: 'bad request' })
+    }
+    if (url.pathname === '/v1/visit/end') {
+      return leave(me, typeof body.guest === 'string' ? body.guest : null)
+    }
+    if (url.pathname === '/v1/room/sticker') {
+      return typeof body.to === 'string' && STICKER_KINDS.has(String(body.kind)) ? sticker(me, body.to, String(body.kind)) : json(400, { error: 'bad request' })
+    }
+    if (url.pathname === '/v1/gift') {
+      return typeof body.to === 'string' && /^[a-z][a-z-]{0,23}$/.test(String(body.item)) ? gift(me, body.to, String(body.item)) : json(400, { error: 'bad request' })
+    }
+    if (url.pathname === '/v1/gift/take') {
+      return takeGifts(me, Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [])
+    }
+    if (url.pathname === '/v1/room/act') {
+      return typeof body.guest === 'string' && ROOM_ACTS.has(String(body.kind)) ? roomAct(me, body.guest, body.kind as RoomAct) : json(400, { error: 'bad request' })
     }
     if (url.pathname === '/v1/poll') {
       return poll(me, typeof body.since === 'number' ? body.since : 0)
@@ -601,13 +949,13 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     }
   }
 
-  return { handle, members, events: () => events, settle }
+  return { handle, members, rooms, visits, events: () => events, settle }
 }
 
 if (import.meta.main) {
   const env = process.env
   const { generate, source } = pickGenerator(env)
-  const plaza = createPlaza({ generate })
+  const plaza = createPlaza({ generate, storage: fileStorage(env.TOKO_DATA_FILE ?? `${import.meta.dir}/data/plaza.json`) })
   const server = Bun.serve({ port: Number(env.PORT ?? 8080), hostname: env.HOST ?? '0.0.0.0', idleTimeout: 120, fetch: plaza.handle })
   console.log(`toko plaza listening on http://${server.hostname}:${server.port} (lines: ${source})`)
 }

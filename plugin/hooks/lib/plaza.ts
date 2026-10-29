@@ -1,12 +1,13 @@
-import type { TokoFriend, TokoMood, TokoSpecies, TokoVisitor } from '../../types'
+import type { TokoAway, TokoFriend, TokoGuest, TokoMood, TokoSpecies, TokoVisitor } from '../../types'
 
 import { BONK_KINDS } from './bonks'
 import { SPECIES, isSpecies } from './pet'
 import type { Canvas } from './raster'
-import { DEFAULT } from './raster'
-import type { Look, Wear } from './scene'
-import { portraitOf } from './scene'
-import { GLASSES, HATS, NECKS } from './sprites'
+import { DEFAULT, createCanvas } from './raster'
+import type { Palette } from './sprites'
+import type { DecorView, Look, Wear } from './scene'
+import { dayPhase, paintDecor, portraitOf } from './scene'
+import { BACKS, GLASSES, HANDS, HATS, NECKS } from './sprites'
 
 export const PLAZA_POLL_MS = 20_000
 export const STREAM_STEADY_MS = 30_000
@@ -26,6 +27,19 @@ export const ACTION_LABEL: Readonly<Record<PlazaAction, string>> = {
   'stretch-call': '다 같이 기지개',
   cheer: '응원',
 }
+
+export type RoomAct = 'hug' | 'snack' | 'play' | 'nap'
+
+export const ROOM_ACTS: readonly RoomAct[] = ['hug', 'snack', 'play', 'nap']
+
+export const ROOM_ACT_LABEL: Readonly<Record<RoomAct, string>> = {
+  hug: '안아 주기',
+  snack: '간식 나눠 먹기',
+  play: '술래잡기',
+  nap: '같이 낮잠',
+}
+
+export const isRoomAct = (value: string): value is RoomAct => (ROOM_ACTS as readonly string[]).includes(value)
 
 type WireColor = 'honey' | 'mint' | 'peach' | 'lavender'
 
@@ -78,24 +92,48 @@ export const lookSprite = (look: Look): PlazaSprite | null => {
   return sprite
 }
 
+export const PICTURE_WIDTH = 96
+export const PICTURE_ROWS = 20
+
+const pictures = new Map<string, PlazaSprite | null>()
+
+export const roomPicture = (palette: Palette, view: DecorView): PlazaSprite | null => {
+  const key = JSON.stringify({ ...view, hour: dayPhase(view.hour) })
+  const cached = pictures.get(key)
+  if (cached !== undefined) {
+    return cached
+  }
+  const canvas = createCanvas(PICTURE_WIDTH, PICTURE_ROWS)
+  paintDecor(canvas, palette, view)
+  const picture = spriteOf(canvas)
+  pictures.set(key, picture)
+  return picture
+}
+
 export type PlazaEvent = {
   id: string
   at: number
-  kind: PlazaAction | 'join' | 'leave'
+  kind: PlazaAction | 'join' | 'leave' | 'visit' | 'home' | 'room-act' | 'sticker' | 'gift'
   from: { id: string; name: string; species: TokoSpecies; wear: Wear }
   to: string | null
   line: string
+  act?: RoomAct
+  guest?: string
 }
 
 export type PlazaBonks = { total: number; top: readonly { kind: string; count: number }[] }
 
 export const NO_BONKS: PlazaBonks = { total: 0, top: [] }
 
-export type PlazaSnapshot = { friends: readonly TokoFriend[]; events: readonly PlazaEvent[]; bonks: PlazaBonks; now: number }
+export type PlazaGift = { id: string; item: string; from: string }
+
+export type PlazaHome = { guests: readonly TokoGuest[]; away: TokoAway | null; stickers: readonly string[]; gifts: readonly PlazaGift[] }
+
+export type PlazaSnapshot = { friends: readonly TokoFriend[]; events: readonly PlazaEvent[]; bonks: PlazaBonks; now: number; home: PlazaHome | null }
 
 const COLORS: ReadonlySet<string> = new Set(['honey', 'mint', 'peach', 'lavender'])
 const MOODS: ReadonlySet<string> = new Set(['excited', 'calm', 'sleepy', 'worried', 'sulky'])
-const KINDS: ReadonlySet<string> = new Set([...PLAZA_ACTIONS, 'join', 'leave'])
+const KINDS: ReadonlySet<string> = new Set([...PLAZA_ACTIONS, 'join', 'leave', 'visit', 'home', 'room-act', 'sticker', 'gift'])
 
 const text = (value: unknown, max: number): string => (typeof value === 'string' ? [...value.replace(/\s+/g, ' ').trim()].slice(0, max).join('') : '')
 
@@ -116,15 +154,17 @@ const parseFriend = (value: unknown): TokoFriend | null => {
     mood: MOODS.has(String(raw.mood)) ? (raw.mood as TokoMood) : 'calm',
     status: text(raw.status, 12) || 'idle',
     lastSeen: typeof raw.lastSeen === 'number' ? raw.lastSeen : 0,
+    isRoomOpen: raw.isRoomOpen === true,
+    ...(typeof raw.doing === 'string' && raw.doing.length > 0 ? { doing: text(raw.doing, 20) } : {}),
   }
 }
 
-const WEARABLE: Readonly<Record<keyof Wear, Readonly<Record<string, unknown>>>> = { hat: HATS, neck: NECKS, face: GLASSES }
+const WEARABLE: Readonly<Record<'hat' | 'neck' | 'face' | 'back' | 'hand', Readonly<Record<string, unknown>>>> = { hat: HATS, neck: NECKS, face: GLASSES, back: BACKS, hand: HANDS }
 
 export const wearOf = (value: unknown): Wear => {
   const raw = asRecord(value)
   return Object.fromEntries(
-    (Object.keys(WEARABLE) as (keyof Wear)[]).map(slot => [slot, raw?.[slot]] as const).filter(([slot, id]) => typeof id === 'string' && Object.hasOwn(WEARABLE[slot], id)),
+    (Object.keys(WEARABLE) as (keyof typeof WEARABLE)[]).map(slot => [slot, raw?.[slot]] as const).filter(([slot, id]) => typeof id === 'string' && Object.hasOwn(WEARABLE[slot], id)),
   )
 }
 
@@ -141,6 +181,8 @@ const parseEvent = (value: unknown): PlazaEvent | null => {
     from: { id: text(from.id, 64), name: text(from.name, 12) || '친구', species: speciesOf(from), wear: wearOf(from.wear) },
     to: typeof raw.to === 'string' ? raw.to : null,
     line: text(raw.line, 80),
+    ...(typeof raw.act === 'string' && isRoomAct(raw.act) ? { act: raw.act } : {}),
+    ...(typeof raw.guest === 'string' ? { guest: text(raw.guest, 64) } : {}),
   }
 }
 
@@ -166,6 +208,47 @@ export const bonkBoardText = (bonks: PlazaBonks): string | null =>
         .map((row, index) => `${index + 1}위 ${BONK_KINDS[row.kind]}(${row.count}번)`)
         .join(', ')}`
 
+const parseGuest = (value: unknown): TokoGuest | null => {
+  const raw = asRecord(value)
+  if (raw === null || typeof raw.id !== 'string') {
+    return null
+  }
+  return { id: text(raw.id, 64), name: text(raw.name, 12) || '친구', species: speciesOf(raw), wear: wearOf(raw.wear), since: typeof raw.since === 'number' ? raw.since : 0 }
+}
+
+const parseAway = (value: unknown): TokoAway | null => {
+  const raw = asRecord(value)
+  if (raw === null || typeof raw.host !== 'string') {
+    return null
+  }
+  const notes: unknown[] = Array.isArray(raw.notes) ? raw.notes : []
+  return {
+    host: text(raw.host, 64),
+    hostName: text(raw.hostName, 12) || '친구',
+    since: typeof raw.since === 'number' ? raw.since : 0,
+    notes: notes.map(note => text(note, 40)).filter(note => note.length > 0),
+  }
+}
+
+const STICKER_KINDS: ReadonlySet<string> = new Set(['heart', 'star', 'flower'])
+
+const parseStickers = (value: unknown): readonly string[] => (Array.isArray(value) ? value.filter((kind): kind is string => typeof kind === 'string' && STICKER_KINDS.has(kind)).slice(-12) : [])
+
+const parseGift = (value: unknown): PlazaGift | null => {
+  const raw = asRecord(value)
+  return raw === null || typeof raw.id !== 'string' || typeof raw.item !== 'string' ? null : { id: text(raw.id, 64), item: text(raw.item, 24), from: text(raw.from, 12) || '친구' }
+}
+
+const parseHome = (raw: Record<string, unknown>): PlazaHome | null =>
+  Array.isArray(raw.guests)
+    ? {
+        guests: raw.guests.map(parseGuest).filter(isPresent).slice(0, 4),
+        away: parseAway(raw.away),
+        stickers: parseStickers(raw.stickers),
+        gifts: (Array.isArray(raw.gifts) ? raw.gifts : []).map(parseGift).filter(isPresent).slice(0, 20),
+      }
+    : null
+
 export const parseSnapshot = (body: string, myId: string): PlazaSnapshot | null => {
   try {
     const raw = asRecord(JSON.parse(body))
@@ -174,7 +257,28 @@ export const parseSnapshot = (body: string, myId: string): PlazaSnapshot | null 
     }
     const friends = (Array.isArray(raw.friends) ? raw.friends : []).map(parseFriend).filter(isPresent).filter(friend => friend.id !== myId)
     const events = (Array.isArray(raw.events) ? raw.events : []).map(parseEvent).filter(isPresent).filter(event => event.from.id !== myId)
-    return { friends: friends.slice(0, 30), events: events.slice(-20), bonks: parseBonks(raw.bonks), now: typeof raw.now === 'number' ? raw.now : 0 }
+    return { friends: friends.slice(0, 30), events: events.slice(-20), bonks: parseBonks(raw.bonks), now: typeof raw.now === 'number' ? raw.now : 0, home: parseHome(raw) }
+  } catch {
+    return null
+  }
+}
+
+export type PlazaRoom = { owner: TokoGuest; layout: Readonly<Record<string, string>>; guests: readonly TokoGuest[]; stickers: readonly string[] }
+
+export const parseRoom = (body: string): PlazaRoom | null => {
+  try {
+    const raw = asRecord(JSON.parse(body))
+    const owner = parseGuest(raw?.owner)
+    const layout = asRecord(raw?.layout)
+    if (raw === null || owner === null || layout === null) {
+      return null
+    }
+    return {
+      owner,
+      layout: Object.fromEntries(Object.entries(layout).filter((entry): entry is [string, string] => typeof entry[1] === 'string')),
+      guests: (Array.isArray(raw.guests) ? raw.guests : []).map(parseGuest).filter(isPresent).slice(0, 4),
+      stickers: parseStickers(raw.stickers),
+    }
   } catch {
     return null
   }
@@ -210,6 +314,11 @@ const VERB: Readonly<Record<PlazaEvent['kind'] | 'wait', string>> = {
   cheer: '응원을 보냈어',
   join: '광장에 왔어',
   leave: '광장을 떠났어',
+  visit: '내 방에 놀러 왔어',
+  home: '집에 갔어',
+  'room-act': '방에서 같이 놀았어',
+  sticker: '방명록에 스티커를 붙였어',
+  gift: '선물을 보냈어',
 }
 
 export const eventText = (event: PlazaEvent): string => `${event.from.name}: ${event.line || VERB[event.kind]}`

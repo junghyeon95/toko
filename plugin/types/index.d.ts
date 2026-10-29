@@ -36,7 +36,17 @@ export type TokoMemory = {
   reflectedDay: string
 }
 
-export type TokoWallet = { coins: number; items: readonly string[]; worn: readonly string[] }
+export type TokoRoom = Readonly<Record<string, string>>
+
+export type TokoWallet = {
+  coins: number
+  items: readonly string[]
+  worn: readonly string[]
+  room?: TokoRoom
+  stars?: number
+  dyes?: Readonly<Record<string, number>>
+  giftedBy?: Readonly<Record<string, string>>
+}
 
 export type TokoEarn = { day: string; earned: number; health: number; spent: number }
 
@@ -82,6 +92,8 @@ export type TokoSettings = {
   isPlazaOn: boolean
   isPeersOn: boolean
   isMeterOn: boolean
+  isRoomOpen: boolean
+  doing: string
 }
 
 export type TokoChoice = { key: string; label: string; hotkey: string }
@@ -112,7 +124,13 @@ export type TokoMemo = { id: string; text: string; at: number; shownAt: number }
 
 export type TokoMeter = { contextPercent: number | null; costUsd: number | null; limitLabel: string | null; limitPercent: number | null; resetsAt: string | null }
 
-export type TokoFriend = { id: string; name: string; species: TokoSpecies; mood: TokoMood; status: string; lastSeen: number }
+export type TokoFriend = { id: string; name: string; species: TokoSpecies; mood: TokoMood; status: string; lastSeen: number; isRoomOpen?: boolean; doing?: string }
+
+export type TokoWear = { hat?: string; neck?: string; face?: string; back?: string; hand?: string }
+
+export type TokoGuest = { id: string; name: string; species: TokoSpecies; wear: TokoWear; since: number }
+
+export type TokoAway = { host: string; hostName: string; since: number; notes: readonly string[] }
 
 export type TokoVisitor = { name: string; species: TokoSpecies; kind: string; line: string; at: number }
 
@@ -126,6 +144,8 @@ export type TokoPlazaView = {
   isOnline: boolean
   friends: readonly TokoFriend[]
   feed: readonly { at: number; text: string }[]
+  guests?: readonly TokoGuest[]
+  away?: TokoAway | null
 }
 
 declare module 'claude-code' {

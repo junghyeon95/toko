@@ -446,6 +446,7 @@ export const BUTTERFLY: readonly Grid[] = [
 ]
 export const LEAF: readonly Grid[] = [['nN', 'N.'], ['Nn', '.N']]
 export const CRUMB: Grid = ['g']
+export const COOKIE: Grid = ['.gg.', 'gGgg', '.gg.']
 export const BUBBLE: Grid = ['.u.', 'u.u', '.u.']
 export const FIREFLY: readonly Grid[] = [['f'], ['F']]
 export const SHOOTING_STAR: Grid = ['Y...', '.y..', '..y.', '...a']
@@ -489,6 +490,30 @@ export const HATS: Readonly<Record<string, { grid: Grid; dx: number; dy: number 
 export const NECKS: Readonly<Record<string, { grid: Grid; dx: number; dy: number }>> = {
   scarf: { grid: ['.RRRRRRRRRRRR.', '..RRrr....RRR.', '..........RR..'], dx: 1, dy: 0 },
   bowtie: { grid: ['RR..RR', 'RRrrRR', 'RR..RR'], dx: 5, dy: 0 },
+  'friend-heart': { grid: ['.a....a.', '..a..a..', '...kk...', '...kq...'], dx: 4, dy: -1 },
+}
+
+export const BACKS: Readonly<Record<string, { left: Grid; right: Grid; dy: number }>> = {
+  'angel-wings': { left: ['.ww', 'www', 'wwc', '.cc'], right: ['ww.', 'www', 'cww', 'cc.'], dy: -3 },
+  backpack: { left: ['hh', 'th', 'th', 'hh'], right: [], dy: -1 },
+  cape: { left: ['.R', 'Rr', 'Rr', 'rr'], right: ['R.', 'rR', 'rR', 'rr'], dy: -1 },
+}
+
+export const HANDS: Readonly<Record<string, { grid: Grid; dy: number }>> = {
+  balloon: { grid: ['.RR', 'RRr', '.R.', '..a', '..a', '.a.'], dy: -5 },
+  bouquet: { grid: ['kyk', 'nkn', '.N.'], dy: -1 },
+  mug: { grid: ['www.', 'wdwa', 'www.'], dy: 0 },
+}
+
+export const DYE_SWAPS: readonly Readonly<Record<string, string>>[] = [
+  {},
+  { R: 'd', r: 'i', k: 'U', q: 'u', y: 'u', Y: 'c', V: 'I', v: 'i', i: 'd', I: 'U', n: 'u', N: 'U', w: 'u' },
+  { R: 'n', r: 'N', k: 'n', q: 'f', y: 'f', Y: 'f', V: 'N', v: 'F', i: 'n', I: 'N', d: 'n', w: 'f' },
+]
+
+export const dyeGrid = (grid: Grid, dye: number): Grid => {
+  const swap = DYE_SWAPS[dye] ?? {}
+  return grid.map(row => [...row].map(key => swap[key] ?? key).join(''))
 }
 
 export type Glasses = { lens: Grid; bridge: string }
@@ -531,7 +556,78 @@ export const ROOM_PROPS: Readonly<Record<string, Grid>> = {
   plant: ['.nn.n', 'n.Nnn', '.nNn.', '.ttt.', '.ttt.'],
   lamp: ['.yyy.', 'yYYYy', '.yyy.', '..h..', '..h..', '.hhh.'],
   rug: ['.ssssssssssssssss.', 'sSsSsSsSsSsSsSsSss', '.ssssssssssssssss.'],
+  cushion: ['.kkkkk.', 'kqqqqqk', '.kkkkk.'],
+  fishbowl: ['.ccc.', 'uuuuu', 'ujuuu', 'uuuju', 'UUUUU', '.hhh.'],
+  bookshelf: ['hhhhhh', 'hRdiyh', 'hhhhhh', 'hnVjdh', 'hhhhhh', 'hyRnih', 'hhhhhh'],
+  'cat-tower': ['.sSs...', '.sss...', '..h....', '..h.sSs', '..h.sss', '..h..h.', '..h..h.', 'SSSSSSS'],
+  frame: ['hhhhhh', 'huuuuh', 'hunuNh', 'hNnNnh', 'hhhhhh'],
+  window: ['wwwwww', 'wuuwuw', 'wwwwww', 'wuuwuw', 'wwwwww'],
+  clock: ['.aaa.', 'aEeEa', 'aEeea', 'aEEEa', '.aaa.'],
+  'stripe-rug': ['.iIiIiIiIiIiIiIiI.', 'iIiIiIiIiIiIiIiIiI', '.iIiIiIiIiIiIiIiI.'],
+  'flower-rug': ['.qqqqqqqqqqqqqqqq.', 'qkqyqkqyqkqyqkqyqq', '.qqqqqqqqqqqqqqqq.'],
+  'cloud-rug': ['.cccccccccccccccc.', 'cwcwcwcwcwcwcwcwcc', '.cccccccccccccccc.'],
+  'water-bottle': ['.c.', 'uUu', 'uuu', 'uUu', 'uuu', 'UUU'],
+  'yoga-mat': ['VVVVVVVVVVVVVVVVVV', 'vVvVvVvVvVvVvVvVvV'],
+  telescope: ['....aaa', '...aAa.', '..aAa..', '.aAa...', '...h...', '..h.h..', '.h...h.'],
+  'mushroom-stool': ['.RRRR.', 'RwRRwR', '..ss..', '..ss..'],
+  'tree-pot': ['.nNn.', 'nNnNn', '.nNn.', '..h..', '.ttt.', '.ttt.'],
+  'bird-frame': ['hhhhhh', 'huuuuh', 'hujyuh', 'hunnuh', 'hhhhhh'],
+  'leaf-rug': ['.nnnnnnnnnnnnnnnn.', 'nNnNnNnNnNnNnNnNnn', '.nnnnnnnnnnnnnnnn.'],
+  'coffee-table': ['.w.w..', 'hhhhhh', '.h..h.', '.h..h.'],
+  'cake-stand': ['.qkq.', 'qqqqq', 'EEEEE', '..a..', '.aaa.'],
+  'menu-board': ['hhhhhh', 'hDDDDh', 'hDwwDh', 'hDwDDh', 'hhhhhh'],
+  'checker-rug': ['.RwRwRwRwRwRwRwRw.', 'wRwRwRwRwRwRwRwRwR', '.RwRwRwRwRwRwRwRw.'],
+  rocket: ['..R..', '.wwR.', '.wdw.', '.www.', 'RwwwR', 'R.j.R'],
+  'moon-lamp': ['.YY.', 'YLLY', 'YLY.', '.YY.', '.a..', 'aaa.'],
+  'planet-poster': ['IIIIII', 'IjjIyI', 'jjjjII', 'IjjIIy', 'IIIIII'],
+  'star-rug': ['.IIIIIIIIIIIIIIII.', 'IyIIIyIIIyIIIyIIIy', '.IIIIIIIIIIIIIIII.'],
+  shell: ['..qq.', '.qkqq', 'qkqkq', 'qqqqq'],
+  lifebuoy: ['.RwR.', 'w...w', 'R...R', 'w...w', '.RwR.'],
+  'anchor-frame': ['hhhhhh', 'huauuh', 'huaauh', 'haaaah', 'hhhhhh'],
+  'wave-rug': ['.uuuuuuuuuuuuuuuu.', 'UuUuUuUuUuUuUuUuUu', '.uuuuuuuuuuuuuuuu.'],
+  'encounter-frame': ['GGGGGG', 'GqqcqG', 'G.qaqG', 'GqqcqG', 'GGGGGG'],
+  'trophy-shelf': ['hhhhhhhh', 'h......h', 'h......h', 'hhhhhhhh', 'h......h'],
 }
+
+export type DayPhase = 'morning' | 'day' | 'sunset' | 'night'
+
+export const ROOM_PHASES: Readonly<Record<string, Partial<Record<DayPhase, Grid>>>> = {
+  window: {
+    morning: ['wwwwww', 'wLLwLw', 'wwwwww', 'wuuuuw', 'wwwwww'],
+    sunset: ['wwwwww', 'wjjwjw', 'wwwwww', 'wJjjJw', 'wwwwww'],
+    night: ['wwwwww', 'wIIwIw', 'wwwwww', 'wIyIIw', 'wwwwww'],
+  },
+}
+
+export const ROOM_COLORS: Readonly<Record<string, { base: string; dot: string }>> = {
+  'wall-cream': { base: '#EEDDBB', dot: '#DDCCAA' },
+  'wall-mint': { base: '#BBDDCC', dot: '#AACCBB' },
+  'wall-sky': { base: '#BBCCEE', dot: '#AABBDD' },
+  'wall-pink': { base: '#EECCDD', dot: '#DDBBCC' },
+  'wall-night': { base: '#222244', dot: '#FFEE88' },
+  'wall-wood': { base: '#AA8866', dot: '#997755' },
+  'floor-wood': { base: '#AA7744', dot: '#885533' },
+  'floor-tile': { base: '#DDDDEE', dot: '#AAAABB' },
+  'floor-grass': { base: '#77CC66', dot: '#449944' },
+  'floor-carpet': { base: '#AA4477', dot: '#883355' },
+}
+
+export const SET_BONUS: Readonly<Record<string, Grid>> = {
+  forest: ['n.N.n..n.N..n.N.n..n', '.n...N....n...N...n.'],
+  cafe: ['.c...c...', 'c.c.c.c.c', '.c...c...'],
+  space: ['y.......Y.......y...', '....Y.......y.......'],
+  sea: ['.u...U...u', 'U.u.u.U.u.', '.u...u...U'],
+}
+
+export const STICKERS: Readonly<Record<string, Grid>> = {
+  heart: ['k.k', 'kkk', '.k.'],
+  star: ['.y.', 'yyy', '.y.'],
+  flower: ['.q.', 'qyq', '.q.'],
+}
+
+export const TROPHY: Grid = ['yyy', '.y.', 'GGG']
+
+export const LAMP_GLOW: Grid = ['.Y...Y.', '...Y...', 'Y.....Y']
 
 const CHANNEL = 0x11
 
