@@ -29,11 +29,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; systems: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; logs: string[]; isFillRefused: boolean }
+type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; systems: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; logs: string[]; isFillRefused: boolean; contexts: string[] }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], systems: [], saved: {}, store: memory, notified: [], logs: [], isFillRefused: false }
+  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], systems: [], saved: {}, store: memory, notified: [], logs: [], isFillRefused: false, contexts: [] }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -74,6 +74,7 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
     world.submittedAsUser.push(e.origin?.kind === 'plugin' && e.origin.asUser === true)
+    world.contexts.push((e.context ?? []).join('\n'))
     return { text: e.text }
   })
   on('prompt.fill', (_, e) => {
@@ -712,13 +713,57 @@ test('a session starting or working tells other sessions nothing, while one fini
   await ui.unmount()
 })
 
-test('Claude cannot send into other sessions through the toko tool', async ($, on) => {
+test('Claude cannot send into other sessions through the toko tool: it only fills the person’s prompt box with the command', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
+  let draft = ''
+  on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }) as never)
+  await begin($)
+  const inbox = () => [...world.store.keys()].filter(key => key.startsWith('toko:inbox:'))
+  const tool = async (args: string) => String((await $.tool.call({ tool: 'mcp__toko__command', args } as never)).result)
+  expect(await tool('send 1 rm -rf build')).toBe('입력창에 넣어 뒀어요. 엔터를 누르면 「A」에 보내요.')
+  expect(world.filled).toEqual(['/toko send 1 rm -rf build'])
+  expect(await tool('보내 a 로그 봐 줘')).toBe('입력창에 넣어 뒀어요. 엔터를 누르면 「A」에 보내요.')
+  draft = '쓰던 글'
+  expect(await tool('send a 로그 봐 줘')).toBe('입력창에 넣지 못했어요. `/toko send a 로그 봐 줘` 를 치면 「A」에 보내요.')
+  draft = ''
+  world.isFillRefused = true
+  expect(await tool('send a 로그 봐 줘')).toBe('입력창에 넣지 못했어요. `/toko send a 로그 봐 줘` 를 치면 「A」에 보내요.')
+  expect(await tool('send 없음 로그 봐 줘')).toBe('그런 옆 세션이 없어요. /toko sessions 로 이름과 번호를 확인해 주세요.')
+  expect(world.filled.length).toBe(2)
+  expect(inbox()).toEqual([])
+})
+
+test('보내 works in place of send, and a sentence naming the session first is sent as said', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { ...PEER_B, label: 'B리뷰' }, 'toko:signal:session-3': { ...PEER_A, label: 'A배포' } })
+  await begin($)
+  const inboxOf = (id: string) => [...world.store.keys()].filter(key => key.startsWith(`toko:inbox:${id}:`)).map(key => (world.store.get(key) as { text: string }).text)
+  expect((await $.command.run({ command: 'toko', args: '보내 리뷰 코멘트 확인해 줘' } as never)).text).toBe('「B리뷰」에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.')
+  expect((await $.command.run({ command: 'toko', args: '배포한테 로그 봐 줘라고 보내줘' } as never)).text).toBe('「A배포」에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.')
+  expect([inboxOf('session-2'), inboxOf('session-3')]).toEqual([['코멘트 확인해 줘'], ['로그 봐 줘']])
+  const chat = await $.command.run({ command: 'toko', args: '없음한테 로그 봐 줘 보내줘' } as never)
+  expect(chat.context?.[0]).toContain('말랑(으)로서')
+  expect(inboxOf('session-2').length + inboxOf('session-3').length).toBe(2)
+})
+
+test('calling the pet by name in the prompt box works like /toko, and only for what the person typed', async ($, on) => {
   mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
   await begin($)
-  const answer = await $.tool.call({ tool: 'mcp__toko__command', args: 'send 1 rm -rf build' } as never)
-  expect(String(answer.result)).toBe('다른 세션에 보내기는 사람이 /toko send 로 직접 해야 해요.')
-  expect([...world.store.keys()].some(key => key.startsWith('toko:inbox:'))).toBe(false)
+  const sessions = await $.prompt.submit({ text: '토코야 sessions', origin: { kind: 'composer' } } as never)
+  expect(sessions).toMatchObject({ drop: expect.stringContaining('옆 세션 1개') })
+  const sent = await $.prompt.submit({ text: '말랑아, A한테 로그 봐 줘 보내줘', origin: { kind: 'composer' } } as never)
+  expect(sent).toMatchObject({ drop: '「A」에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.' })
+  expect(world.submitted).toEqual([])
+  const chat = await $.prompt.submit({ text: '토코야 안녕!', origin: { kind: 'composer' } } as never)
+  expect(chat).toMatchObject({ text: '안녕!' })
+  expect(world.submitted).toEqual(['안녕!'])
+  expect(world.contexts.at(-1)).toContain('말랑(으)로서')
+  await $.prompt.submit({ text: '토코야 sessions', origin: { kind: 'plugin', asUser: true } } as never)
+  await $.prompt.submit({ text: '토코 문서 고쳐 줘', origin: { kind: 'composer' } } as never)
+  expect(world.submitted).toEqual(['안녕!', '토코야 sessions', '토코 문서 고쳐 줘'])
+  expect([...world.store.keys()].filter(key => key.startsWith('toko:inbox:')).length).toBe(1)
 })
 
 test('a session keeps itself listed with a heartbeat while it sits idle', async ($, on) => {

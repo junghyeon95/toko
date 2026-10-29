@@ -22,6 +22,7 @@ import {
   attention,
   bonkCommand,
   buyItem,
+  calledWords,
   chatAnswered,
   chatStarted,
   commandTool,
@@ -34,6 +35,7 @@ import {
   focusCommand,
   gameCatch,
   gameMove,
+  heardByName,
   measured,
   memoCommand,
   memoDrop,
@@ -133,7 +135,13 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    await submitted($, ctx, e.text, e.origin.kind === 'composer' && e.command === undefined && e.isMeta !== true)
+    const isPersonTyped = e.origin.kind === 'composer' && e.command === undefined && e.isMeta !== true
+    const words = isPersonTyped ? calledWords(e.text, nameOf(ctx.brain.pet)) : null
+    await submitted($, ctx, e.text, isPersonTyped && words === null)
+    if (words !== null) {
+      const heard = await heardByName($, ctx, words)
+      return 'drop' in heard ? heard : next({ ...e, text: heard.text, context: [...(e.context ?? []), ...heard.context] })
+    }
     if (e.origin.kind === 'composer' && e.attachments?.some(attachment => attachment.type === 'image') === true) {
       $.clock.after(1, () => void featureUsed($, ctx, 'image'))
     }

@@ -110,6 +110,15 @@ export const matchPeers = (peers: readonly Peer[], query: string): readonly Peer
   return peers.filter(({ signal }) => signal.label.toLowerCase().includes(needle))
 }
 
+const SEND_WORDS = /^(\S+?)(?:\s+세션)?(?:한테|에게|에)\s+([\s\S]+?)\s*(?:보내\s*줘|보내|전해\s*줘|전해)[\s.!~]*$/
+
+export const parseSendWords = (words: string): { query: string; text: string } | null => {
+  const match = SEND_WORDS.exec(words.trim())
+  const query = match?.[1]
+  const text = match?.[2]?.replace(/(줘|요|해|다|까|자)\s*이?라고$/, '$1').trim() ?? ''
+  return query === undefined || text === '' ? null : { query, text }
+}
+
 export const missText = (matches: readonly Peer[]): string =>
   matches.length === 0
     ? '그런 옆 세션이 없어요. /toko sessions 로 이름과 번호를 확인해 주세요.'

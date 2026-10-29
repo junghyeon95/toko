@@ -2513,8 +2513,12 @@ export async function todayWork($: $, brain: Brain): Promise<string> {
   return workText(brain.now, sessions, reply)
 }
 
+export async function peerMatches($: $, brain: Brain, query: string): Promise<readonly Peer[]> {
+  return matchPeers(await listPeers($, brain), query)
+}
+
 export async function summarizePeer($: $, brain: Brain, query: string): Promise<string> {
-  const matches = matchPeers(await listPeers($, brain), query)
+  const matches = await peerMatches($, brain, query)
   const peer = matches[0]
   if (matches.length !== 1 || peer === undefined) {
     return missText(matches)
@@ -2540,8 +2544,22 @@ export async function summarizePeer($: $, brain: Brain, query: string): Promise<
 
 const messageId = (brain: Brain): string => `${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`
 
+export async function fillSend($: $, brain: Brain, query: string, text: string): Promise<string> {
+  const matches = await peerMatches($, brain, query)
+  const peer = matches[0]
+  if (matches.length !== 1 || peer === undefined) {
+    return missText(matches)
+  }
+  const command = `/toko send ${query} ${text}`
+  const box = await $.prompt.read()
+  const filled = box.text.trim() === '' ? await $.prompt.fill({ text: command, mode: 'replace' }) : { isFilled: false }
+  return filled.isFilled
+    ? `입력창에 넣어 뒀어요. 엔터를 누르면 ${sessionName(peer.signal)}에 보내요.`
+    : `입력창에 넣지 못했어요. \`${command}\` 를 치면 ${sessionName(peer.signal)}에 보내요.`
+}
+
 export async function sendToPeer($: $, brain: Brain, query: string, text: string): Promise<string> {
-  const matches = matchPeers(await listPeers($, brain), query)
+  const matches = await peerMatches($, brain, query)
   const peer = matches[0]
   if (matches.length !== 1 || peer === undefined) {
     return missText(matches)

@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, demoBoss, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, demoBoss, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { failedCount } from './lib/boss'
@@ -12,7 +12,7 @@ import { featureOfCommand, featureOfTool, featureText } from './lib/features'
 import { isCheckPrompt, permissionKey } from './lib/tips'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
-import { signalLabel } from './lib/peers'
+import { parseSendWords, signalLabel } from './lib/peers'
 import { bubbleLine, chatRules, nameProblem } from './lib/persona'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
@@ -360,6 +360,7 @@ export async function permissionAsked($: $, ctx: Ctx, tool = '', input: unknown 
 
 export const HELP = [
   '/toko <하고 싶은 말> — 토코와 이야기하기 (예: /toko 안녕!, /toko 오늘의 퀘스트는 뭐야?)',
+  '토코야 <말> — 슬래시 없이 불러도 /toko <말> 과 같아요 (펫 이름+아/야도)',
   '/toko — 토코의 방 열기 (상점 · 꾸미기 · 펫 뽑기 · 광장)',
   '/toko mute | unmute — 말 걸기 끄기/켜기',
   '/toko hide | show — 띠 숨기기/보이기',
@@ -370,7 +371,7 @@ export const HELP = [
   '/toko notify on | off — 집중이 끝나면 OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
   '/toko sessions [이름|번호] — 옆 세션 목록 · 탭 이름 일부나 번호를 주면 그 세션 요약',
-  '/toko send <이름|번호> <내용> — 탭 이름 일부나 번호로 고른 옆 세션에 보내기 · 그 세션이 일하는 중이면 끝난 뒤 보내기',
+  '/toko send <이름|번호> <내용> — 탭 이름 일부나 번호로 고른 옆 세션에 보내기 · send 대신 보내 · "/toko 배포한테 로그 봐 줘 보내줘" 처럼 말해도 돼요',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
@@ -516,14 +517,48 @@ export async function openRoom($: $, ctx: Ctx): Promise<string> {
 }
 
 export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<CommandRunResult> {
-  return (await subcommand($, ctx, args)) ?? chatCommand($, ctx, args.trim())
+  return (await subcommand($, ctx, args)) ?? (await naturalSend($, ctx, args.trim())) ?? chatCommand($, ctx, args.trim())
 }
 
-const SEND = /^\s*send\s+(\S+)\s+([\s\S]+)$/
+export type Heard = { drop: string } | { text: string; context: readonly string[] }
+
+export async function heardByName($: $, ctx: Ctx, words: string): Promise<Heard> {
+  const done = (await subcommand($, ctx, words)) ?? (await naturalSend($, ctx, words))
+  if (done !== null) {
+    return { drop: done.text }
+  }
+  const brief = await chatBriefFor($, ctx, words)
+  return brief === null ? { drop: EGG_CHAT } : { text: words, context: [brief] }
+}
+
+const escapeName = (name: string): string => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+export const calledWords = (text: string, name: string | null): string | null => {
+  const names = ['토코', ...(name === null || name === '토코' ? [] : [name])].map(escapeName).join('|')
+  const match = new RegExp(`^\\s*(?:${names})(?:아|야)(?=[\\s,!~.]|$)[\\s,!~.]*([\\s\\S]*)$`).exec(text)
+  return match === null ? null : (match[1] ?? '').trim()
+}
+
+const SEND = /^\s*(?:send|보내|보내줘)\s+(\S+)\s+([\s\S]+)$/
+
+const SEND_WORD = /^\s*(?:send|보내|보내줘)(?:\s|$)/
+
+const SEND_EXAMPLE = '예: /toko send 배포 로그도 같이 봐 줘'
+
+async function naturalSend($: $, ctx: Ctx, words: string): Promise<{ text: string } | null> {
+  const parsed = parseSendWords(words)
+  if (parsed === null || (await peerMatches($, ctx.brain, parsed.query)).length !== 1) {
+    return null
+  }
+  return { text: await sendToPeer($, ctx.brain, parsed.query, parsed.text) }
+}
 
 export async function commandTool($: $, ctx: Ctx, args: string): Promise<string> {
-  if (/^\s*send(\s|$)/.test(args)) {
-    return '다른 세션에 보내기는 사람이 /toko send 로 직접 해야 해요.'
+  if (SEND_WORD.test(args)) {
+    await now($, ctx)
+    const match = SEND.exec(args)
+    const text = match?.[2]?.trim() ?? ''
+    return match === null || text === '' ? SEND_EXAMPLE : fillSend($, ctx.brain, match[1] ?? '', text)
   }
   return (await subcommand($, ctx, args))?.text ?? `그런 명령은 없어요. 쓸 수 있는 명령:\n${HELP}`
 }
@@ -668,10 +703,12 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
     }
     case 'sessions':
       return { text: value === undefined ? await peersText($, brain) : await summarizePeer($, brain, value) }
-    case 'send': {
+    case 'send':
+    case '보내':
+    case '보내줘': {
       const match = SEND.exec(args)
       const text = match?.[2]?.trim() ?? ''
-      return match === null || text === '' ? { text: '예: /toko send 배포 로그도 같이 봐 줘' } : { text: await sendToPeer($, brain, match[1] ?? '', text) }
+      return match === null || text === '' ? { text: SEND_EXAMPLE } : { text: await sendToPeer($, brain, match[1] ?? '', text) }
     }
     case 'feed':
       return { text: await feedCommand($, ctx) }
@@ -701,19 +738,29 @@ const chatBrief = (brain: Brain): string => {
   ].join('\n')
 }
 
-async function chatCommand($: $, ctx: Ctx, words: string): Promise<CommandRunResult> {
+const EGG_CHAT = '아직 알이에요. 깨어나면 이야기해요.'
+
+async function chatBriefFor($: $, ctx: Ctx, words: string): Promise<string | null> {
   const brain = ctx.brain
   if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
-    return { text: '아직 알이에요. 깨어나면 이야기해요.' }
+    return null
   }
   await refreshShared($, brain, true)
   ctx.chat = { text: words, turnId: null }
+  return chatBrief(brain)
+}
+
+async function chatCommand($: $, ctx: Ctx, words: string): Promise<CommandRunResult> {
+  const brief = await chatBriefFor($, ctx, words)
+  if (brief === null) {
+    return { text: EGG_CHAT }
+  }
   $.clock.after(1, () => {
     void $.prompt.submit({ text: words, asUser: true }).catch(() => {
       ctx.chat = null
     })
   })
-  return { context: [chatBrief(brain)] }
+  return { context: [brief] }
 }
 
 export const chatStarted = (ctx: Ctx, text: string, turnId: string): void => {

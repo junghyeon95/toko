@@ -5,7 +5,7 @@ import { DAILY_TOKEN_CAP, GACHA, SHOP, balanceOf, buy, capTokenIncome, emptyEarn
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
-import { freshSignal, lastAiTitle, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
+import { freshSignal, lastAiTitle, parseSendWords, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
 import { BONK_KINDS, guessKind, kindPrompt, parseKind } from '../hooks/lib/bonks'
 import { bonkBoardText, lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf } from '../hooks/lib/plaza'
@@ -520,4 +520,14 @@ test('a transcript excerpt keeps the last four typed prompts and the last answer
   ]
   expect(transcriptExcerpt(lines.join('\n'))).toBe(['[사용자 질문]', '- 둘', '- 셋', '- 넷', '- 다섯', '[Claude 마지막 답]', '마지막 답'].join('\n'))
   expect(transcriptExcerpt('{"type":"summary"}\n')).toBe('')
+})
+
+test('a sentence naming the session first reads as who to send to and what to send', () => {
+  expect([
+    parseSendWords('배포한테 로그 봐 줘라고 보내줘'),
+    parseSendWords('배포 세션에 테스트 돌려 달라고 전해 줘'),
+    parseSendWords('리뷰에게 코멘트 확인해요라고 보내'),
+    parseSendWords('오늘 하루 잘 보내자'),
+    parseSendWords('로그 봐 달라고 배포한테 보내줘'),
+  ]).toEqual([{ query: '배포', text: '로그 봐 줘' }, { query: '배포', text: '테스트 돌려 달라고' }, { query: '리뷰', text: '코멘트 확인해요' }, null, null])
 })
