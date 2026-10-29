@@ -6,12 +6,12 @@ import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perc
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
 import { freshSignal, lastAiTitle, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
-import { lookSprite, parseSnapshot, plazaEndpoint, spriteOf } from '../hooks/lib/plaza'
+import { lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
-import { BAND_ROWS, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
+import { BAND_ROWS, addVisitor, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
 import { mergeShared } from '../hooks/lib/shared'
 import { hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
@@ -115,6 +115,7 @@ const LOOK: Look = { bones: { seed: 7, species: 'cat' }, stage: 'baby', mood: 'c
 const CHICK = hex('#FFEE88')
 const EYE = hex('#221122')
 const FRAME = hex('#334499')
+const CROWN = hex('#FFDD44')
 
 test('glasses sit over both eyes with a bridge between them', async () => {
   const still: Step[] = [{ pose: 'sit', ms: 60_000 }]
@@ -124,6 +125,23 @@ test('glasses sit over both eyes with a bridge between them', async () => {
     const x = Math.round(scene.x)
     expect([face, colorsIn(canvas, x + 2, x + 6).has(FRAME), colorsIn(canvas, x + 6, x + 10).has(FRAME), colorsIn(canvas, x + 10, x + 14).has(FRAME)]).toEqual([face, true, true, true])
   }
+})
+
+test('a visiting friend keeps only the things toko knows how to draw, and shows them', async () => {
+  expect(wearOf({ hat: 'crown', neck: 'cape', face: 'sunglasses', ring: 'gold' })).toEqual({ hat: 'crown', face: 'sunglasses' })
+  expect(wearOf('crown')).toEqual({})
+  const scene = createScene(100, LOOK, () => [{ pose: 'sit', ms: 60_000 }])
+  addVisitor(scene, 'f1', 'fox', 30_000, 5000, 'wave', { hat: 'crown' })
+  for (let at = 0; at < 6000; at += 100) {
+    tick(scene, 100, () => 0.5)
+  }
+  const canvas = createCanvas(100, BAND_ROWS)
+  paint(scene, canvas)
+  const visitor = scene.visitors[0]
+  expect(visitor?.pauseAt !== null && Math.abs((visitor?.x ?? 0) - (visitor?.pauseAt ?? 0)) < 1).toBe(true)
+  const at = Math.round(visitor?.x ?? 0)
+  expect(colorsIn(canvas, at, at + 16).has(CROWN)).toBe(true)
+  expect(colorsIn(canvas, Math.round(scene.x), Math.round(scene.x) + 16).has(CROWN)).toBe(false)
 })
 
 const colorsIn = (canvas: Canvas, fromX: number, toX: number): Set<number> => {

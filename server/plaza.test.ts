@@ -88,6 +88,17 @@ describe('plaza', () => {
     expect([(await view()).status, (await view()).sprite.rows]).toEqual(['away', bare.rows])
   })
 
+  test('a wave carries what the sender wears, and odd values are dropped', async () => {
+    const plaza = createPlaza()
+    const wear = { hat: 'crown', face: 'sunglasses', neck: 'Scarf!', cape: 'red' }
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), wear }, since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 }))
+    await plaza.handle(post('/v1/act', { me: { ...me('aaaa1', '말랑'), wear }, kind: 'wave', to: 'bbbb2' }))
+    await plaza.settle()
+    const forKong = await read(await plaza.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 })))
+    expect(forKong.body.events.at(-1).from.wear).toEqual({ hat: 'crown', face: 'sunglasses' })
+  })
+
   test('too many actions in a minute are refused gently', async () => {
     const plaza = createPlaza({ actionsPerMinute: 2 })
     const act = () => plaza.handle(post('/v1/act', { me: me('aaaa1', '말랑'), kind: 'cheer', to: null }))

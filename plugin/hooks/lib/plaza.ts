@@ -3,8 +3,9 @@ import type { TokoFriend, TokoMood, TokoSpecies, TokoVisitor } from '../../types
 import { SPECIES, isSpecies } from './pet'
 import type { Canvas } from './raster'
 import { DEFAULT } from './raster'
-import type { Look } from './scene'
+import type { Look, Wear } from './scene'
 import { portraitOf } from './scene'
+import { GLASSES, HATS, NECKS } from './sprites'
 
 export const PLAZA_POLL_MS = 20_000
 export const STREAM_STEADY_MS = 30_000
@@ -80,7 +81,7 @@ export type PlazaEvent = {
   id: string
   at: number
   kind: PlazaAction | 'join' | 'leave'
-  from: { id: string; name: string; species: TokoSpecies }
+  from: { id: string; name: string; species: TokoSpecies; wear: Wear }
   to: string | null
   line: string
 }
@@ -113,6 +114,15 @@ const parseFriend = (value: unknown): TokoFriend | null => {
   }
 }
 
+const WEARABLE: Readonly<Record<keyof Wear, Readonly<Record<string, unknown>>>> = { hat: HATS, neck: NECKS, face: GLASSES }
+
+export const wearOf = (value: unknown): Wear => {
+  const raw = asRecord(value)
+  return Object.fromEntries(
+    (Object.keys(WEARABLE) as (keyof Wear)[]).map(slot => [slot, raw?.[slot]] as const).filter(([slot, id]) => typeof id === 'string' && Object.hasOwn(WEARABLE[slot], id)),
+  )
+}
+
 const parseEvent = (value: unknown): PlazaEvent | null => {
   const raw = asRecord(value)
   const from = asRecord(raw?.from)
@@ -123,7 +133,7 @@ const parseEvent = (value: unknown): PlazaEvent | null => {
     id: text(raw.id, 64),
     at: typeof raw.at === 'number' ? raw.at : 0,
     kind: raw.kind as PlazaEvent['kind'],
-    from: { id: text(from.id, 64), name: text(from.name, 12) || '친구', species: speciesOf(from) },
+    from: { id: text(from.id, 64), name: text(from.name, 12) || '친구', species: speciesOf(from), wear: wearOf(from.wear) },
     to: typeof raw.to === 'string' ? raw.to : null,
     line: text(raw.line, 80),
   }

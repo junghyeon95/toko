@@ -2162,6 +2162,7 @@ const plazaMe = (brain: Brain) => ({
   mood: brain.mood,
   status: plazaStatus(brain),
   sprite: lookSprite(lookOf(brain)),
+  wear: { hat: wornOf(brain.wallet, 'hat'), neck: wornOf(brain.wallet, 'neck'), face: wornOf(brain.wallet, 'face') },
 })
 
 export const isPlazaReady = (brain: Brain): boolean =>
@@ -2270,7 +2271,7 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   remember(brain, 'friend-wave', event.from.name, 1)
   brain.needs = restore(brain.needs, { social: 8, hunger: event.kind === 'snack' ? 15 : 0 })
   if (brain.scene !== null && !isBusy(brain.scene) && canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
-    act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.species, visitTiming(brain.scene)), PRIORITY.encounter)
+    act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.species, visitTiming(brain.scene), event.from.wear), PRIORITY.encounter)
   }
   if (!isHushed(brain)) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')

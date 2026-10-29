@@ -97,7 +97,9 @@ export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' |
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
-export type Visitor = { id: string; species: TokoSpecies | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number; pausePose: Pose }
+export type Wear = { hat?: string; neck?: string; face?: string }
+
+export type Visitor = { id: string; species: TokoSpecies | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number; pausePose: Pose; wear: Wear }
 
 export type Look = {
   bones: TokoBones
@@ -218,7 +220,7 @@ export const visitTiming = (scene: Scene): VisitTiming => {
   return { arrivalMs: (Math.abs(path.pauseAt - path.startX) / VISITOR_SPEED) * 1000, faceDir: path.dir === 1 ? -1 : 1 }
 }
 
-export const addVisitor = (scene: Scene, id: string, species: TokoSpecies | 'shadow', lifeMs: number, pauseMs = 0, pausePose: Pose = 'wave'): void => {
+export const addVisitor = (scene: Scene, id: string, species: TokoSpecies | 'shadow', lifeMs: number, pauseMs = 0, pausePose: Pose = 'wave', wear: Wear = {}): void => {
   const path = visitorPath(scene)
   const visitor: Visitor = {
     id,
@@ -230,6 +232,7 @@ export const addVisitor = (scene: Scene, id: string, species: TokoSpecies | 'sha
     pauseAt: pauseMs > 0 ? path.pauseAt : null,
     pauseMs,
     pausePose,
+    wear,
   }
   scene.visitors = [...scene.visitors.filter(other => other.id !== id), visitor].slice(-3)
 }
@@ -431,6 +434,21 @@ const drawFace = (canvas: Canvas, scene: Scene, frame: Frame, x: number, y: numb
   drawMouth(canvas, scene.palette, art, frame.mouth ?? mood.mouth, x, y, scale)
 }
 
+const drawWear = (canvas: Canvas, palette: Palette, art: SpeciesArt, wear: Wear, x: number, y: number, scale: number, isFlipped: boolean): void => {
+  const glasses = wear.face === undefined ? undefined : GLASSES[wear.face]
+  if (glasses !== undefined) {
+    drawGlasses(canvas, palette, art.face, glasses, x, y, scale)
+  }
+  const hat = wear.hat === undefined ? undefined : HATS[wear.hat]
+  if (hat !== undefined) {
+    drawMark(canvas, palette, { ...hat, dy: hat.dy + art.hatDy }, x, y, scale, isFlipped)
+  }
+  const neck = wear.neck === undefined ? undefined : NECKS[wear.neck]
+  if (neck !== undefined) {
+    drawMark(canvas, palette, { ...neck, dy: neck.dy - 3 }, x, y, scale, isFlipped)
+  }
+}
+
 const drawGlasses = (canvas: Canvas, palette: Palette, face: Face, glasses: Glasses, x: number, y: number, scale: number): void => {
   for (const [ex, ey] of [face.leftEye, face.rightEye]) {
     drawGrid(canvas, glasses.lens, x + (ex - 1) * scale, y + (ey - 1) * scale, palette, { scale })
@@ -487,10 +505,10 @@ const drawHammer = (canvas: Canvas, scene: Scene, hammer: Frame['hammer'], x: nu
   }
 }
 
-const drawMark = (canvas: Canvas, scene: Scene, mark: Mark, x: number, y: number, scale: number, isFlipped: boolean): void => {
+const drawMark = (canvas: Canvas, palette: Palette, mark: Mark, x: number, y: number, scale: number, isFlipped: boolean): void => {
   const width = mark.grid.reduce((max, row) => Math.max(max, row.length), 0)
   const dx = isFlipped ? PET_WIDTH - mark.dx - width : mark.dx
-  drawGrid(canvas, mark.grid, x + dx * scale, y + mark.dy * scale, scene.palette, { scale, isFlipped })
+  drawGrid(canvas, mark.grid, x + dx * scale, y + mark.dy * scale, palette, { scale, isFlipped })
 }
 
 type Point = readonly [number, number]
@@ -558,10 +576,10 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   const art = SPECIES_ART[look.bones.species]
   drawAura(canvas, scene, art, px, py, scale)
   if (look.stage === 'adult' && art.adult !== undefined) {
-    drawMark(canvas, scene, art.adult, px, py, scale, isFlipped)
+    drawMark(canvas, scene.palette, art.adult, px, py, scale, isFlipped)
   }
   if ((look.stage === 'child' || look.stage === 'adult') && art.child !== undefined) {
-    drawMark(canvas, scene, art.child, px, py, scale, isFlipped)
+    drawMark(canvas, scene.palette, art.child, px, py, scale, isFlipped)
   }
   drawGrid(canvas, art.body, px, py, scene.palette, { scale })
   if (art.isFloating !== true) {
@@ -569,18 +587,7 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
     drawGrid(canvas, [FEET[frame.feet]], px, feetY + 14 * scale, scene.palette, { scale, isFlipped })
   }
   drawFace(canvas, scene, frame, px, py, scale, scene.clock < scene.blinkUntil)
-  const glasses = look.face === undefined ? undefined : GLASSES[look.face]
-  if (glasses !== undefined) {
-    drawGlasses(canvas, scene.palette, art.face, glasses, px, py, scale)
-  }
-  const hat = look.hat === undefined ? undefined : HATS[look.hat]
-  if (hat !== undefined) {
-    drawGrid(canvas, hat.grid, px + hat.dx * scale, py + (hat.dy + art.hatDy) * scale, scene.palette, { scale })
-  }
-  const neck = look.neck === undefined ? undefined : NECKS[look.neck]
-  if (neck !== undefined) {
-    drawGrid(canvas, neck.grid, px + neck.dx * scale, py + neck.dy * scale - 3 * scale, scene.palette, { scale })
-  }
+  drawWear(canvas, scene.palette, art, look, px, py, scale, false)
   drawArms(canvas, scene.palette, frame.arms, px, py, scale, scene.dir < 0)
   drawHammer(canvas, scene, frame.hammer, px, py, scale)
 }
@@ -663,6 +670,7 @@ const drawVisitor = (canvas: Canvas, scene: Scene, visitor: Visitor): void => {
   drawGrid(canvas, left, visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
   drawGrid(canvas, right, visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
   drawMouth(canvas, palette, art, frame.mouth ?? 'small', visitor.x, y, 1)
+  drawWear(canvas, palette, art, visitor.wear, visitor.x, y, 1, visitor.dir < 0)
   drawArms(canvas, palette, frame.arms, visitor.x, y, 1, visitor.dir < 0)
 }
 

@@ -5,13 +5,15 @@ export type Action = 'wave' | 'heart' | 'snack' | 'stretch-call' | 'cheer'
 
 export type Sprite = { palette: readonly string[]; rows: readonly string[] }
 
-export type Member = { id: string; tab?: string; name: string; color: Color; species?: string; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite }
+export type Wear = { hat?: string; neck?: string; face?: string }
+
+export type Member = { id: string; tab?: string; name: string; color: Color; species?: string; wear?: Wear; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite }
 
 export type PlazaEvent = {
   id: string
   at: number
   kind: Action | 'join'
-  from: { id: string; name: string; color: Color; species?: string }
+  from: { id: string; name: string; color: Color; species?: string; wear?: Wear }
   to: string | null
   line: string
 }
@@ -80,6 +82,13 @@ export const parseSprite = (value: unknown): Sprite | null => {
   return isPalette && isRows ? { palette: palette.map(color => String(color).toLowerCase()), rows: rows.map(String) } : null
 }
 
+const WEAR_SLOTS = ['hat', 'neck', 'face'] as const
+
+export const parseWear = (value: unknown): Wear => {
+  const raw = asRecord(value)
+  return Object.fromEntries(WEAR_SLOTS.map(slot => [slot, clean(raw?.[slot], 24)] as const).filter(([, id]) => /^[a-z][a-z-]{0,23}$/.test(id)))
+}
+
 export const parseMe = (value: unknown, now: number): Member | null => {
   const raw = asRecord(value)
   const id = clean(raw?.id, 64)
@@ -89,12 +98,14 @@ export const parseMe = (value: unknown, now: number): Member | null => {
   const species = clean(raw.species, 16)
   const tab = clean(raw.tab, 16)
   const sprite = parseSprite(raw.sprite)
+  const wear = parseWear(raw.wear)
   return {
     id,
     ...(/^[a-z0-9]{1,16}$/i.test(tab) ? { tab } : {}),
     name: clean(raw.name, 12) || '친구',
     color: raw.color as Color,
     ...(/^[a-z]{2,16}$/.test(species) ? { species } : {}),
+    ...(Object.keys(wear).length === 0 ? {} : { wear }),
     mood: MOODS.has(String(raw.mood)) ? (raw.mood as Mood) : 'calm',
     status: STATUSES.has(String(raw.status)) ? (raw.status as Status) : 'idle',
     lastSeen: now,
@@ -125,7 +136,7 @@ export const mergeTabs = ([first, ...rest]: readonly [Member, ...Member[]]): Mem
   return { ...member, lastSeen: Math.max(first.lastSeen, ...rest.map(report => report.lastSeen)) }
 }
 
-const senderOf = (me: Member): PlazaEvent['from'] => ({ id: me.id, name: me.name, color: me.color, ...(me.species === undefined ? {} : { species: me.species }) })
+const senderOf = (me: Member): PlazaEvent['from'] => ({ id: me.id, name: me.name, color: me.color, ...(me.species === undefined ? {} : { species: me.species }), ...(me.wear === undefined ? {} : { wear: me.wear }) })
 
 export const actionPrompt = (from: Member, to: Member | null, kind: Action): string =>
   [

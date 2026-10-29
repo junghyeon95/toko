@@ -2,7 +2,7 @@ import type { TokoSpecies } from '../../types'
 
 import type { Random } from './random'
 import { pickWeighted } from './random'
-import type { Scene, Step, VisitTiming } from './scene'
+import type { Scene, Step, VisitTiming, Wear } from './scene'
 import { PET_WIDTH, addVisitor, centerX, placeProp, removeProp, rightX, spawn } from './scene'
 import type { EncounterKind, IdleAction } from './sim'
 
@@ -282,8 +282,8 @@ export const shimmer = (): Step[] => [
 
 const VISIT_WAVE_MS = 2500
 
-export const friendVisit = (friendId: string, species: TokoSpecies, timing: VisitTiming): Step[] => [
-  { pose: 'look', ms: timing.arrivalMs, dir: timing.faceDir, enter: s => addVisitor(s, friendId, species, timing.arrivalMs * 2 + VISIT_WAVE_MS + 2000, VISIT_WAVE_MS) },
+export const friendVisit = (friendId: string, species: TokoSpecies, timing: VisitTiming, wear: Wear): Step[] => [
+  { pose: 'look', ms: timing.arrivalMs, dir: timing.faceDir, enter: s => addVisitor(s, friendId, species, timing.arrivalMs * 2 + VISIT_WAVE_MS + 2000, VISIT_WAVE_MS, 'wave', wear) },
   { pose: 'wave', ms: VISIT_WAVE_MS },
   { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 7, 0, 0, -3, 1400) },
   { pose: 'idle', ms: 1500 },
