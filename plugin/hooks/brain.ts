@@ -250,6 +250,7 @@ export type Brain = {
   worked: WorkedSession | null
   visitor: TokoVisitor | null
   visitorVisibleMs: number
+  waitBuddyAt: number
   isDirty: boolean
   synced: Partial<Record<SharedField, unknown>>
 }
@@ -341,6 +342,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   worked: null,
   visitor: null,
   visitorVisibleMs: 0,
+  waitBuddyAt: 0,
   isDirty: false,
   synced: {},
 })
@@ -1770,6 +1772,10 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
   brain.isTurnRunning = false
   brain.lastTurnEndAt = brain.now
   brain.longTurnStage = 0
+  if (brain.visitor?.kind === 'wait') {
+    brain.visitor = null
+    await update($, visitorAtom, () => null)
+  }
   if (brain.countdown?.then === 'quiet') {
     brain.countdown = null
     await update($, countdownAtom, () => null)
@@ -2374,6 +2380,30 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
     await say($, brain, eventText(event).slice(0, 60), 'quiet')
   }
   brain.visitor = visitorOf(event, brain.now)
+  brain.visitorVisibleMs = 0
+  await update($, visitorAtom, () => brain.visitor)
+}
+
+export const WAIT_BUDDY_AFTER_MS = 30_000
+export const WAIT_BUDDY_COOLDOWN_MS = 10 * MINUTE
+
+export async function tendWaitBuddy($: $, brain: Brain): Promise<void> {
+  const isDue =
+    brain.isTurnRunning && brain.now - brain.turnStartedAt >= WAIT_BUDDY_AFTER_MS && brain.waitBuddyAt < brain.turnStartedAt && brain.now - brain.waitBuddyAt >= WAIT_BUDDY_COOLDOWN_MS
+  if (!isDue || brain.visitor !== null || !isPlazaReady(brain)) {
+    return
+  }
+  const waiting = brain.friends.filter(friend => friend.status === 'working' && brain.now - friend.lastSeen < FRIEND_TTL_MS)
+  const friend = waiting[Math.floor(brain.random() * waiting.length)]
+  if (friend === undefined) {
+    return
+  }
+  brain.waitBuddyAt = brain.now
+  brain.needs = restore(brain.needs, { social: 5 })
+  if (brain.scene !== null && !isBusy(brain.scene) && canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
+    act(brain, direct.friendVisit(friend.id, friend.species, visitTiming(brain.scene), {}), PRIORITY.encounter)
+  }
+  brain.visitor = { name: friend.name, species: friend.species, kind: 'wait', line: '', at: brain.now }
   brain.visitorVisibleMs = 0
   await update($, visitorAtom, () => brain.visitor)
 }

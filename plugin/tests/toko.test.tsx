@@ -774,6 +774,39 @@ test('a friend’s wave rides the spinner while a turn runs, then steps aside', 
   await later.unmount()
 })
 
+test('when a turn runs a while, a friend who is also waiting on Claude drops by, and goes home when the turn ends', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })
+  drawEngine(on)
+  let status = 'idle'
+  on('http.fetch', () => {
+    const body = JSON.stringify({ now: START, friends: [{ id: 'f1', name: '콩떡', color: 'peach', species: 'fox', mood: 'calm', status, lastSeen: START + 10 * 60_000 }], events: [] })
+    return { value: { status: 200, ok: true, headers: {}, text: body } }
+  })
+  const props = { word: 'Baking', message: null, suffix: '…', mode: 'responding' }
+  const spinnerShows = async (text: RegExp) => {
+    const spinner = await $.ui.mount({ plugin: 'toko', component: 'Spinner', requestId: 'agent', surface: 'terminal', props } as never)
+    const found = await spinner.find({ type: 'Text', text })
+    await spinner.unmount()
+    return found !== undefined
+  }
+  await begin($)
+  await clock.advance(25_000)
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  await clock.advance(40_000)
+  expect(await spinnerShows(/콩떡/)).toBe(false)
+  await $.turn.complete({ answer: 'ok', durationMs: 40_000, isAborted: false, turnId: 't1', reason: 'answer', usage: USAGE })
+  status = 'working'
+  await clock.advance(25_000)
+  await $.turn.start({ text: 'go', turnId: 't2' } as never)
+  await clock.advance(10_000)
+  expect(await spinnerShows(/콩떡/)).toBe(false)
+  await clock.advance(25_000)
+  expect(await spinnerShows(/콩떡\(여우\).*Claude 기다리는 중이래/)).toBe(true)
+  await $.turn.complete({ answer: 'ok', durationMs: 35_000, isAborted: false, turnId: 't2', reason: 'answer', usage: USAGE })
+  expect(await spinnerShows(/콩떡/)).toBe(false)
+})
+
 test('/toko draw spends coins, shelves the current pet and hatches a new egg', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 250, items: [], worn: [] } })

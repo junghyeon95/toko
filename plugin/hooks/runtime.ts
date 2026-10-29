@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, demoBoss, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, demoBoss, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { failedCount } from './lib/boss'
@@ -123,6 +123,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
       await think($, brain)
       openPlazaStream($, brain)
       await pollPlaza($, brain)
+      await tendWaitBuddy($, brain)
       await pollPeers($, brain)
       await tendVisitor($, brain, TICK_MS * THINK_EVERY)
       await sync($, brain)

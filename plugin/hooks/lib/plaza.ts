@@ -201,7 +201,8 @@ export const splitEvents = (text: string): { data: string[]; rest: string } => {
 
 export const isForMe = (event: PlazaEvent, myId: string): boolean => event.to === null || event.to === myId
 
-const VERB: Readonly<Record<PlazaEvent['kind'], string>> = {
+const VERB: Readonly<Record<PlazaEvent['kind'] | 'wait', string>> = {
+  wait: 'Claude 기다리는 중이래. 같이 기다리자',
   wave: '손을 흔들었어',
   heart: '하트를 보냈어',
   snack: '간식을 나눠 줬어',
@@ -219,7 +220,7 @@ export const VISITOR_STALE_MS = 30 * 60_000
 export const visitorOf = (event: PlazaEvent, at: number): TokoVisitor => ({ name: event.from.name, species: event.from.species, kind: event.kind, line: event.line, at })
 
 export const visitorText = (visitor: TokoVisitor): string => {
-  const verb = VERB[visitor.kind as PlazaEvent['kind']] ?? VERB.wave
+  const verb = VERB[visitor.kind as keyof typeof VERB] ?? VERB.wave
   return `${visitor.name}(${SPECIES[visitor.species].label}) (•ᴗ•)ﾉ ${verb}${visitor.line.length > 0 ? ` — ${visitor.line}` : ''}`
 }
 
