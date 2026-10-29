@@ -442,18 +442,18 @@ export const NECKS: Readonly<Record<string, { grid: Grid; dx: number; dy: number
 
 export const CRITTERS: Readonly<Record<string, { stand: Grid; step: Grid; fur: string }>> = {
   chick: {
-    stand: ['..oo...', '.oyyo..', 'oyyyeyG', 'oggyyyo', 'ogyyyyo', '.oooo..', '.G..G..'],
-    step: ['..oo...', '.oyyo..', 'oyyyeyG', 'oggyyyo', 'ogyyyyo', '.oooo..', 'G....G.'],
-    fur: 'y',
+    stand: ['...o...', '..oLo..', '.oLLLo.', 'oLeLeLo', 'oLLGLLo', 'gLLLLLg', '.oLLLo.', '..ooo..', '.G...G.'],
+    step: ['...o...', '..oLo..', '.oLLLo.', 'oLeLeLo', 'oLLGLLo', 'gLLLLLg', '.oLLLo.', '..ooo..', '..G.G..'],
+    fur: 'L',
   },
   hamster: {
-    stand: ['....Gq..', '.oooGGoo', 'oGGGGGeo', 'oGGGGGsk', 'osssssso', '.oooooo.', '.k...k..'],
-    step: ['....Gq..', '.oooGGoo', 'oGGGGGeo', 'oGGGGGsk', 'osssssso', '.oooooo.', 'k.....k.'],
+    stand: ['.q....q.', '.oGGGGo.', 'oGeGGeGo', 'osskksso', 'osssssso', '.oooooo.', '..k..k..'],
+    step: ['.q....q.', '.oGGGGo.', 'oGeGGeGo', 'osskksso', 'osssssso', '.oooooo.', '.k....k.'],
     fur: 'G',
   },
   kitten: {
-    stand: ['....a..a', 'a...oAAo', 'a.ooAAeo', '.aAAAAAk', '.oAaAaAo', '..oooooo', '..a...a.'],
-    step: ['....a..a', 'a...oAAo', 'a.ooAAeo', '.aAAAAAk', '.oAaAaAo', '..oooooo', '.a.....a'],
+    stand: ['oo...oo.', 'oqoooqo.', 'oAaAaAo.', 'oAeAeAo.', 'oAckcAoa', '.oAAAo.a', '..ooo.a.', '.a...a..'],
+    step: ['oo...oo.', 'oqoooqo.', 'oAaAaAo.', 'oAeAeAo.', 'oAckcAoa', '.oAAAo.a', '..ooo.a.', '..a.a...'],
     fur: 'A',
   },
 }
@@ -483,6 +483,7 @@ const SHARED: Readonly<Record<string, string>> = {
   h: '#AA7744',
   Y: '#FFFFAA',
   y: '#FFDD44',
+  L: '#FFEE88',
   k: '#FF6699',
   g: '#FFCC22',
   G: '#CC8811',

@@ -65,7 +65,7 @@ test('the shop sells pets, and only one comes along at a time', async () => {
 })
 
 const LOOK: Look = { bones: { seed: 7, species: 'cat' }, stage: 'baby', mood: 'calm', hammer: 'toy' }
-const CHICK = hex('#FFDD44')
+const CHICK = hex('#FFEE88')
 const EYE = hex('#221122')
 
 const colorsIn = (canvas: Canvas, fromX: number, toX: number): Set<number> => {
