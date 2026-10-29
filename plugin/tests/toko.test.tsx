@@ -1023,6 +1023,33 @@ test('/toko today writes the day as work done and work going on, from every sess
   )
 })
 
+const WORKED_A = { day: '2026-10-29', label: 'A', since: START - 3_600_000, turns: [{ prompt: '배포 봐 줘', answer: '롤아웃 OK' }] }
+
+test('/toko today keeps the small model after the pet has used its own share', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:budget': { day: '2026-10-29', aiCalls: 25 }, 'toko:worked:a': WORKED_A }, '한 일\n- 배포 확인했어요')
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 배포 확인했어요')
+})
+
+test('/toko today falls back to each session’s last question once the whole day’s limit is used', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:budget': { day: '2026-10-29', aiCalls: 30 }, 'toko:worked:a': WORKED_A }, '한 일\n- 배포 확인했어요')
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n(작은 모델을 쓸 수 없어서 세션별 마지막 질문만 보여요)')
+})
+
+test('looking at sessions, sending to one and writing up the day are counted', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
+  await begin($)
+  for (const args of ['sessions', 'sessions a', 'send a 로그 봐 줘', 'send 없음 로그 봐 줘', 'today']) {
+    await $.command.run({ command: 'toko', args } as never)
+  }
+  await $.session.end({ reason: 'other', sessionId: 'session-1', resume: {} } as never)
+  expect((world.saved['toko:tally:session-1'] as { counts: Record<string, number> }).counts).toMatchObject({ sessions: 2, send: 1, today: 1 })
+})
+
 test('/toko today says nothing is recorded yet on a fresh day', async ($, on) => {
   mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET })

@@ -60,7 +60,7 @@ import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
-import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
+import { DAILY_AI_CALLS, OFFER_FALLBACK, RESERVED_AI_CALLS, REACTION_FALLBACK, fallbackLine } from './lib/persona'
 import { FRIEND_TTL_MS, NO_BONKS, PLAZA_POLL_MS, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, plazaStreamUrl, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
 import type { PlazaAction, PlazaBonks, PlazaEvent, PlazaSnapshot, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
@@ -742,8 +742,8 @@ const presenceOf = (brain: Brain) => ({
   lastTurnEndAt: brain.lastTurnEndAt,
 })
 
-async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs = 4000, system?: string): Promise<string | null> {
-  if (!brain.settings.isAiOn || brain.budget.aiCalls >= DAILY_AI_CALLS || brain.pet?.soul === null || brain.pet === null) {
+async function askWithin($: $, brain: Brain, limit: number, prompt: string, maxTokens: number, timeoutMs = 4000, system?: string): Promise<string | null> {
+  if (!brain.settings.isAiOn || brain.budget.aiCalls >= limit || brain.pet?.soul === null || brain.pet === null) {
     return null
   }
   brain.budget = { ...brain.budget, aiCalls: brain.budget.aiCalls + 1 }
@@ -754,6 +754,14 @@ async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeou
   } catch {
     return null
   }
+}
+
+async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs?: number, system?: string): Promise<string | null> {
+  return askWithin($, brain, DAILY_AI_CALLS - RESERVED_AI_CALLS, prompt, maxTokens, timeoutMs, system)
+}
+
+async function askForUser($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs?: number, system?: string): Promise<string | null> {
+  return askWithin($, brain, DAILY_AI_CALLS, prompt, maxTokens, timeoutMs, system)
 }
 
 export async function reactLine($: $, brain: Brain, key: string): Promise<void> {
@@ -1257,7 +1265,7 @@ export async function prepareNews($: $, brain: Brain, isForced = false): Promise
     if (additions.length === 0) {
       return '이번 업데이트에는 새로 생긴 기능이 없어요.'
     }
-    const reply = await ask($, brain, newsPrompt(additions), 300, 15_000, newsSystem)
+    const reply = isForced ? await askForUser($, brain, newsPrompt(additions), 300, 15_000, newsSystem) : await ask($, brain, newsPrompt(additions), 300, 15_000, newsSystem)
     const pick = reply === null ? null : parseNews(reply, additions)
     if (pick === null) {
       await $.store.set(KEY.news, stored)
@@ -1682,7 +1690,7 @@ async function judgeRepeat($: $, brain: Brain, reason: string): Promise<boolean>
   if (past.length === 0) {
     return false
   }
-  const reply = await ask($, brain, repeatPrompt(text, past), 40, 4000, repeatSystem)
+  const reply = await askForUser($, brain, repeatPrompt(text, past), 40, 4000, repeatSystem)
   const isRepeat = (reply === null ? null : parseRepeat(reply)) ?? isSimilarReason(text, past)
   if (isRepeat) {
     count(brain, 'bonk-repeat')
@@ -1742,7 +1750,7 @@ async function finishBonk($: $, brain: Brain, choice: string): Promise<void> {
     return
   }
   if (choice === 'tell') {
-    const reply = await ask($, brain, persona.correctionPrompt(reason), 120)
+    const reply = await askForUser($, brain, persona.correctionPrompt(reason), 120)
     const line = (reply === null ? null : persona.parseLine(reply)) ?? persona.fallbackCorrection(reason)
     const filled = await $.prompt.fill({ text: line, mode: 'replace' })
     await say($, brain, filled.isFilled ? '다음 프롬프트에 넣어 뒀어. 다듬어서 보내' : line)
@@ -2468,6 +2476,7 @@ async function listPeers($: $, brain: Brain): Promise<readonly Peer[]> {
 }
 
 export async function peersText($: $, brain: Brain): Promise<string> {
+  count(brain, 'sessions')
   return sessionsText(await listPeers($, brain), brain.now)
 }
 
@@ -2499,7 +2508,8 @@ export async function todayWork($: $, brain: Brain): Promise<string> {
     .filter(isWorked)
     .filter(session => session.day === today(brain) && session.turns.length > 0)
     .sort((a, b) => a.since - b.since)
-  const reply = sessions.length === 0 ? null : await ask($, brain, persona.workDayPrompt(sessions), 900, 20000, persona.peerSummarySystem)
+  const reply = sessions.length === 0 ? null : await askForUser($, brain, persona.workDayPrompt(sessions), 900, 20000, persona.peerSummarySystem)
+  count(brain, 'today')
   return workText(brain.now, sessions, reply)
 }
 
@@ -2509,6 +2519,7 @@ export async function summarizePeer($: $, brain: Brain, query: string): Promise<
   if (matches.length !== 1 || peer === undefined) {
     return missText(matches)
   }
+  count(brain, 'sessions')
   const header = sessionLine(peer.signal, brain.now)
   const path = peer.signal.path ?? ''
   if (path === '') {
@@ -2518,7 +2529,7 @@ export async function summarizePeer($: $, brain: Brain, query: string): Promise<
   if (excerpt === '') {
     return `${header}\n요약할 대화가 아직 없어요.`
   }
-  const reply = await ask($, brain, persona.peerSummaryPrompt(peer.signal.label, peer.signal.kind, excerpt), 400, 8000, persona.peerSummarySystem)
+  const reply = await askForUser($, brain, persona.peerSummaryPrompt(peer.signal.label, peer.signal.kind, excerpt), 400, 8000, persona.peerSummarySystem)
   const lines = (reply ?? '')
     .split('\n')
     .map(line => line.trim())
@@ -2537,6 +2548,7 @@ export async function sendToPeer($: $, brain: Brain, query: string, text: string
   }
   const sessionId = peer.key.slice(KEY.signalPrefix.length)
   await $.store.set(`${inboxKeyPrefix(sessionId)}${messageId(brain)}`, { text, from: brain.signal?.label ?? '', at: brain.now, replyTo: brain.sessionId })
+  count(brain, 'send')
   return `${sessionName(peer.signal)}에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.`
 }
 

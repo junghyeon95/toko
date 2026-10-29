@@ -1,6 +1,6 @@
 import type { TokoCounts, TokoStats, TokoTally } from '../../types'
 
-export const STATS_DAYS = 7
+export const STATS_DAYS = 30
 export const MAX_NOTES = 12
 
 export type StatKey =
@@ -32,6 +32,9 @@ export type StatKey =
   | 'memo'
   | 'bonk'
   | 'bonk-repeat'
+  | 'sessions'
+  | 'send'
+  | 'today'
 
 export const emptyTally = (day: string): TokoTally => ({ day, counts: {}, notes: [], costUsd: 0 })
 

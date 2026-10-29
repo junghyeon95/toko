@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import { MEMORY_ASK, isSimilarReason } from '../hooks/lib/bonks'
 import { failedCount, hpBar, meetBoss } from '../hooks/lib/boss'
 import { gachaPool, isInSeason, pullGacha } from '../hooks/lib/economy'
-import { CHANGELOG_URL, compareVersions, freshAdditions, parseChangelog } from '../hooks/lib/news'
+import { CHANGELOG_URL, compareVersions, freshAdditions, newsPrompt, parseChangelog } from '../hooks/lib/news'
 
 const PET = {
   id: 'pet-7',
@@ -183,6 +183,22 @@ test('after a Claude Code update the pet picks one new feature, explains it in t
   expect(world.filled).toEqual(['/auto-mode-setup'])
   expect([newsOf(world).seen, newsOf(world).shownAt > 0, newsOf(world).picks.length]).toEqual([VERSION, true, 1])
   expect((await $.command.run({ command: 'toko', args: 'news' } as never)).text).toContain('2.1.304 /auto-mode-setup: 프로젝트와 최근 세션을 읽고')
+})
+
+test('once the pet has used its own share of the small model, an update waits, but /toko event update still asks the model', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': { seen: '2.1.303', pick: null, shownAt: 0, notBefore: 0, picks: [] }, 'toko:budget': { day: '2026-10-29', aiCalls: 25 } })
+  await begin($)
+  await clock.advance(34_000)
+  expect(world.models.some(text => text.includes('새로 생긴 기능 목록'))).toBe(false)
+  await $.command.run({ command: 'toko', args: 'event update' } as never)
+  await clock.advance(2000)
+  expect(world.models.some(text => text.includes('새로 생긴 기능 목록'))).toBe(true)
+})
+
+test('the pick asks for something useful to anyone working in Claude Code, not only to coders', () => {
+  const prompt = newsPrompt([{ version: '2.1.304', text: 'Added `/x`' }])
+  expect([prompt.includes('Claude Code로 일하는 사람 누구에게나'), prompt.includes('코딩하는 개발자')]).toEqual([true, false])
 })
 
 test('a version already introduced is not fetched again, and another terminal’s intro is not shown twice', OFFLINE, async ($, on) => {
@@ -393,6 +409,14 @@ test('a /bonk for the same kind of mistake as before asks Claude to keep it in a
   expect((world.saved['toko:bonks'] as { reason: string }[]).map(entry => entry.reason)).toEqual(['테스트 지우지 말랬잖아', '또 테스트를 지웠네'])
   await end($)
   expect((world.saved['toko:tally:session-1'] as { counts: Record<string, number> }).counts).toMatchObject({ bonk: 1, 'bonk-repeat': 1 })
+})
+
+test('a repeat /bonk is still judged by the small model after the pet has used its own share', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:bonks': OLD_BONK, 'toko:budget': { day: '2026-10-29', aiCalls: 25 } })
+  await begin($)
+  await bonk($, clock, '또 테스트를 지웠네')
+  expect(world.models.some(text => text.includes('새 불만'))).toBe(true)
 })
 
 test('a first or a different complaint is fixed and forgiven without touching memory', OFFLINE, async ($, on) => {

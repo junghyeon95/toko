@@ -19,13 +19,13 @@ test('a tally folds into the record by day and into the lifetime total', async (
   expect(stats.days[0]?.notes).toEqual(['PR #3 merged'])
 })
 
-test('today adds what the record holds to every live session, and keeps a week at most', async () => {
+test('today adds what the record holds to every live session, and keeps thirty days at most', async () => {
   let stats = emptyStats()
-  for (let day = 1; day <= 9; day += 1) {
-    stats = foldTally(stats, bump(emptyTally(`2026-10-0${day}`), 'turn'))
+  for (let day = 1; day <= 31; day += 1) {
+    stats = foldTally(stats, bump(emptyTally(`2026-10-${String(day).padStart(2, '0')}`), 'turn'))
   }
-  expect(stats.days.length).toBe(7)
-  expect(stats.total.turn).toBe(9)
+  expect([stats.days.length, stats.days[0]?.day]).toEqual([30, '2026-10-02'])
+  expect(stats.total.turn).toBe(31)
   const mine = { ...bump(emptyTally('2026-10-09'), 'commit'), costUsd: 1.5 }
   const other = { ...bump(emptyTally('2026-10-09'), 'commit'), costUsd: 0.25 }
   const todays = todayOf(stats, [mine, other], '2026-10-09')
@@ -129,7 +129,7 @@ test('the day sums up in a few lines, skipping what did not happen and keeping e
   const afternoon = new Date(2026, 9, 29, 14, 0).getTime()
   const tally = {
     day: '2026-10-29',
-    counts: { commit: 5, push: 2, merge: 1, 'test-pass': 7, 'test-fail': 3, added: 420, removed: 133, turn: 34, break: 4, focus: 2, bonk: 3, 'bonk-repeat': 1 },
+    counts: { commit: 5, push: 2, merge: 1, 'test-pass': 7, 'test-fail': 3, added: 420, removed: 133, turn: 34, break: 4, focus: 2, bonk: 3, 'bonk-repeat': 1, sessions: 2, send: 1, today: 1 },
     notes: ['PR #12 created', 'PR #15 created', 'PR #12 merged'],
     costUsd: 4.123,
   }
@@ -142,6 +142,7 @@ test('the day sums up in a few lines, skipping what did not happen and keeping e
     '- Claude 턴 34번 · 비용 $4.12',
     '- 휴식 4번 · 집중 2번',
     '- 뿅망치 3번 · 같은 잘못 1번',
+    '- 세션 보기 2번 · 세션에 보내기 1번 · 오늘 정리 1번',
     '- 남은 메모 1개',
   ])
   expect(todayText(emptyTally('2026-10-29'), afternoon, 0)).toBe('10월 29일 (목) 토코 기록\n- 아직 남은 기록이 없어요')

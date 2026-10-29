@@ -9,6 +9,8 @@ import type { Candidate } from './sim'
 export const MAX_LINE = 60
 export const DAILY_AI_CALLS = 30
 
+export const RESERVED_AI_CALLS = 5
+
 const FORBIDDEN = /(바보|멍청|병신|시발|씨발|ㅅㅂ|개새|꺼져|닥쳐|죽어|죽여|죽일|미친|한심|쓰레기|패버|때려죽)/
 
 export const VOICE_RULES = [
