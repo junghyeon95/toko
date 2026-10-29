@@ -501,8 +501,8 @@ export const GLASSES: Readonly<Record<string, Glasses>> = {
 
 export const CRITTERS: Readonly<Record<string, { stand: Grid; step: Grid; fur: string }>> = {
   chick: {
-    stand: ['...oo...', '..oLLo..', '.oLLLLo.', 'oLeLLeLo', 'oLLGGLLo', 'gLLLLLLg', '.oLLLLo.', '..oooo..', '.G....G.'],
-    step: ['...oo...', '..oLLo..', '.oLLLLo.', 'oLeLLeLo', 'oLLGGLLo', 'gLLLLLLg', '.oLLLLo.', '..oooo..', '..G..G..'],
+    stand: ['..oLLo..', '.oLLLLo.', 'oLeLLeLo', 'oLLGGLLo', 'gLLLLLLg', '.oLLLLo.', '..oooo..', '.G....G.'],
+    step: ['..oLLo..', '.oLLLLo.', 'oLeLLeLo', 'oLLGGLLo', 'gLLLLLLg', '.oLLLLo.', '..oooo..', '..G..G..'],
     fur: 'L',
   },
   hamster: {
