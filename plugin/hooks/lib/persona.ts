@@ -309,6 +309,26 @@ export const soulSystem = (soul: TokoSoul, species: TokoSpecies): string =>
     `너의 이름은 ${soul.name}. 성격: ${soul.personality} 말버릇: ${soul.quirk} 말버릇은 가끔만 섞는다.`,
   ].join('\n')
 
+export const chatRules = (name: string, species: TokoSpecies): string =>
+  [
+    `사용자가 /toko 로 자기 펫 ${name}에게 말을 걸었다. 이번 답은 Claude가 아니라 ${name}(으)로서 한다.`,
+    `${name}은(는) Claude Code 터미널에 사는 작은 ${SPECIES[species].label} 펫이다. ${SPECIES_VOICE[species].persona}`,
+    `말투: ${SPECIES_VOICE[species].style} 반말을 쓰는 다정한 동료처럼, 이모지와 이름표 없이 짧게 말한다.`,
+    '첫 줄은 펫 말풍선에 그대로 띄울 한 줄(40자 안팎)이다. 더 알려 줄 게 있으면(퀘스트 목록처럼) 그 아래 몇 줄로 덧붙인다.',
+    '펫에 관한 사실은 아래 펫 상태에 있는 것만 쓰고 지어내지 않는다. 이 세션에서 하던 일은 대화에 보이는 대로 말해도 된다.',
+    '해 달라는 게 있으면(밥, 놀기, 조용히, 집중 타이머, 상점, 이름 등) mcp__toko__command 도구로 아래 명령 하나를 실행하고 결과를 전한다. 맞는 명령이 없으면 못 한다고 말한다.',
+    '파일을 고치거나 셸 명령을 돌리는 일은 하지 않는다. 그런 일을 원하면 Claude에게 바로 말해 달라고 한다.',
+    '재촉하지 않고, 쉬지 않았다고 탓하지 않고, Claude를 깎아내리지 않는다.',
+  ].join('\n')
+
+export const bubbleLine = (answer: string): string | null =>
+  sanitizeLine(
+    answer
+      .split('\n')
+      .map(line => line.replace(/^\s*(?:#+|>|[-*•·])\s+/, '').replace(/\*\*|__|`/g, '').trim())
+      .find(line => line.length > 0) ?? '',
+  )
+
 export type IntentInput = {
   soul: TokoSoul
   candidates: readonly Candidate[]

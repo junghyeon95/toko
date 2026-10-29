@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -10,7 +10,7 @@ import { SHOP, SPEND, shopItem } from './lib/economy'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { signalLabel } from './lib/peers'
-import { nameProblem } from './lib/persona'
+import { bubbleLine, chatRules, nameProblem } from './lib/persona'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
@@ -38,6 +38,8 @@ export const ROOM_KEY = 'toko-room-scene'
 
 export type Site = { requestId: string; columns: number; canvas: Canvas; lastCells: string; denies: number }
 
+export type Chat = { text: string; turnId: string | null }
+
 export type Ctx = {
   brain: Brain
   band: Site | null
@@ -45,6 +47,7 @@ export type Ctx = {
   ticks: number
   loop: { cancel: () => void } | null
   isTicking: boolean
+  chat: Chat | null
 }
 
 export const createCtx = (serverUrl: string): Ctx => ({
@@ -54,6 +57,7 @@ export const createCtx = (serverUrl: string): Ctx => ({
   ticks: 0,
   loop: null,
   isTicking: false,
+  chat: null,
 })
 
 export async function now($: $, ctx: Ctx): Promise<number> {
@@ -122,7 +126,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
 }
 
 export async function registerSurfaces($: $): Promise<void> {
-  await $.command.register({ name: 'toko', description: 'Open Toko’s room, or change how Toko behaves (/toko help)', argumentHint: '[help|mute|hide|quiet|break|ai|shop|card|plaza|peers|…]' })
+  await $.command.register({ name: 'toko', description: 'Talk to Toko (/toko 안녕!), open Toko’s room, or change how Toko behaves (/toko help)', argumentHint: '[하고 싶은 말|help|mute|quests|focus|shop|…]' })
   await $.command.register({ name: 'bonk', description: 'Ask Toko to bonk Claude with a squeaky hammer', argumentHint: '<reason>', immediate: true })
   await $.command.register({ name: 'feed', description: 'Give Toko a snack' })
   await $.command.register({ name: 'play', description: 'Play with Toko for a moment' })
@@ -137,6 +141,11 @@ export async function registerSurfaces($: $): Promise<void> {
     description: "Apologize to the user's Toko pet after it bonked you. Call once, right after a message that says Toko bonked you.",
     inputSchema: { type: 'object', properties: { words: { type: 'string', description: 'A short apology in the user’s language' } } },
     isDeferred: false,
+  })
+  await $.tool.register({
+    name: 'command',
+    description: "Run one of the user's Toko pet commands for them, as `/toko <args>` would: `feed`, `play`, `mute`, `focus 25`, `quests`, `buy cookie`. Use only when the user asks their pet Toko to do something.",
+    inputSchema: { type: 'object', properties: { args: { type: 'string', description: 'What follows /toko, e.g. "focus 25"' } }, required: ['args'] },
   })
 }
 
@@ -302,6 +311,7 @@ export async function permissionAsked($: $, ctx: Ctx): Promise<void> {
 }
 
 export const HELP = [
+  '/toko <하고 싶은 말> — 토코와 이야기하기 (예: /toko 안녕!, /toko 오늘의 퀘스트는 뭐야?)',
   '/toko — 토코의 방 열기 (상점 · 꾸미기 · 펫 뽑기 · 광장)',
   '/toko mute | unmute — 말 걸기 끄기/켜기',
   '/toko hide | show — 띠 숨기기/보이기',
@@ -431,7 +441,15 @@ export async function openRoom($: $, ctx: Ctx): Promise<string> {
   return opened.isPlaced ? '토코의 방을 열었어요.' : `방을 열 자리가 없어요: ${opened.reason}`
 }
 
-export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text: string }> {
+export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text?: string; context?: readonly string[] }> {
+  return (await subcommand($, ctx, args)) ?? chatCommand($, ctx, args.trim())
+}
+
+export async function petCommand($: $, ctx: Ctx, args: string): Promise<string> {
+  return (await subcommand($, ctx, args))?.text ?? `그런 명령은 없어요. 쓸 수 있는 명령:\n${HELP}`
+}
+
+async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string } | null> {
   await now($, ctx)
   const brain = ctx.brain
   const [sub, ...rest] = args
@@ -558,8 +576,62 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       await openOffer($, brain, kind, offerLine(brain, kind))
       return { text: `${kind} 이벤트를 띄웠어요.` }
     }
+    case 'feed':
+      return { text: await feedCommand($, ctx) }
+    case 'play':
+      return { text: await playCommand($, ctx) }
     default:
-      return { text: HELP }
+      return null
+  }
+}
+
+const chatBrief = (brain: Brain): string => {
+  const needs = brain.needs
+  const focus = brain.focus
+  return [
+    chatRules(nameOf(brain.pet) ?? '토코', brain.pet?.bones.species ?? 'cat'),
+    '',
+    '[펫 상태]',
+    card(brain),
+    `기분: ${brain.mood} · 욕구(0~100, 낮을수록 부족): 기운 ${Math.round(needs.energy)}, 재미 ${Math.round(needs.fun)}, 포만감 ${Math.round(needs.hunger)}, 교감 ${Math.round(needs.social)}`,
+    focus === null || focus.endsAt <= brain.now ? '집중 타이머: 꺼짐' : `집중 타이머: ${Math.ceil((focus.endsAt - brain.now) / MINUTE)}분 남음`,
+    questText(progressOf(brain).quests),
+    todayText(todayTally(brain), brain.now, brain.memos.length),
+    '',
+    '[명령]',
+    HELP,
+  ].join('\n')
+}
+
+async function chatCommand($: $, ctx: Ctx, words: string): Promise<{ text?: string; context?: readonly string[] }> {
+  const brain = ctx.brain
+  if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
+    return { text: '아직 알이에요. 깨어나면 이야기해요.' }
+  }
+  await refreshShared($, brain, true)
+  ctx.chat = { text: words, turnId: null }
+  $.clock.after(1, () => {
+    void $.prompt.submit({ text: words, asUser: true }).catch(() => {
+      ctx.chat = null
+    })
+  })
+  return { context: [chatBrief(brain)] }
+}
+
+export const chatStarted = (ctx: Ctx, text: string, turnId: string): void => {
+  if (ctx.chat !== null && ctx.chat.turnId === null && text === ctx.chat.text) {
+    ctx.chat = { ...ctx.chat, turnId }
+  }
+}
+
+export async function chatAnswered($: $, ctx: Ctx, turnId: string, answer: string): Promise<void> {
+  if (ctx.chat === null || ctx.chat.turnId !== turnId) {
+    return
+  }
+  ctx.chat = null
+  const line = bubbleLine(answer)
+  if (line !== null) {
+    await chatted($, ctx.brain, line)
   }
 }
 

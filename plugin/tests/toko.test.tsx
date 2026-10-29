@@ -291,6 +291,55 @@ test('/toko mute keeps the pet quiet, and settings survive in the store', async 
   expect(help.text).toContain('/bonk')
 })
 
+test('/toko with free words lets Claude answer as the pet, its state riding as hidden context', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  drawEngine(on)
+  await begin($)
+  const result = await $.command.run({ command: 'toko', args: '오늘의 퀘스트는 뭐야?' } as never)
+  expect(result.text).toBeUndefined()
+  expect(result.context?.[0]).toContain('말랑(으)로서')
+  expect(result.context?.[0]).toContain('말투:')
+  expect(result.context?.[0]).toContain('오늘의 퀘스트 0/3')
+  expect(result.context?.[0]).toContain('mcp__toko__command')
+  await clock.advance(100)
+  expect(world.submitted).toEqual(['오늘의 퀘스트는 뭐야?'])
+  await $.turn.start({ text: '오늘의 퀘스트는 뭐야?', turnId: 'chat-1' } as never)
+  await $.turn.complete({
+    answer: '**오늘은 셋이야, 하나씩 같이 하자**\n- 기지개 켜기 0/1',
+    durationMs: 3000,
+    isAborted: false,
+    turnId: 'chat-1',
+    reason: 'answer',
+    usage: { input_tokens: 2000, output_tokens: 80, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude' },
+  } as never)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /오늘은 셋이야, 하나씩 같이 하자/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an egg cannot chat yet, so nothing reaches Claude', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, {})
+  await begin($)
+  const result = await $.command.run({ command: 'toko', args: '안녕!' } as never)
+  expect(result.text).toContain('아직 알')
+  expect(world.submitted).toEqual([])
+})
+
+test('/toko keeps its fixed words on the spot, and Claude runs them through the command tool', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'quests' } as never)).text).toContain('오늘의 퀘스트')
+  const muted = await $.tool.call({ tool: 'mcp__toko__command', args: 'mute' } as never)
+  expect(String(muted.result)).toContain('조용히')
+  expect((world.saved['toko:settings'] as { isMuted: boolean }).isMuted).toBe(true)
+  const unknown = await $.tool.call({ tool: 'mcp__toko__command', args: '하늘을 날아 봐' } as never)
+  expect(String(unknown.result)).toContain('그런 명령은 없어요')
+  expect(world.submitted).toEqual([])
+})
+
 test('feeding without snacks buys a cookie when coins allow', async ($, on) => {
   mock.clock(on, { now: START })
   const store: Record<string, unknown> = { 'toko:pet': PET, 'toko:wallet': { coins: 7, items: [], worn: [] } }

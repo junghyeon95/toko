@@ -21,6 +21,8 @@ import {
   attention,
   bonkCommand,
   buyItem,
+  chatAnswered,
+  chatStarted,
   choose,
   createCtx,
   drawFromRoom,
@@ -33,6 +35,7 @@ import {
   memoDrop,
   memoFill,
   permissionAsked,
+  petCommand,
   petStatus,
   pickPet,
   playCommand,
@@ -128,6 +131,7 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      chatStarted(ctx, e.text, e.turnId)
       await turnStarted($, ctx)
     }
     return next(e)
@@ -137,6 +141,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (e.agentId === undefined) {
       await turnEnded($, ctx, e.durationMs, e.reason, e.usage)
+      await chatAnswered($, ctx, e.turnId, e.reason === 'answer' ? e.answer : '')
     }
     return result
   })
@@ -153,6 +158,8 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'mcp__toko__pet_status' }, async $ => ({ result: await petStatus($, ctx) })).catch(() => ({ result: 'Toko is napping right now.' }))
 
   on('tool.call', { tool: 'mcp__toko__apologize' }, async $ => ({ result: await apologized($, ctx) })).catch(() => ({ result: 'Toko heard the apology.' }))
+
+  on('tool.call', { tool: 'mcp__toko__command' }, async ($, e) => ({ result: await petCommand($, ctx, String((e as { args?: unknown }).args ?? '')) })).catch(() => ({ result: 'Toko could not do that right now.' }))
 
   on('session.measure', async ($, e, next) => {
     await measured($, ctx, e.context.percent, e.rateLimits, e.cost?.usd)

@@ -1341,6 +1341,14 @@ export async function apologize($: $, brain: Brain): Promise<string> {
   return `${nameOf(brain.pet) ?? '토코'}(이)가 사과를 받아 줬어요. 하트를 띄웠어요.`
 }
 
+export async function chatted($: $, brain: Brain, line: string): Promise<void> {
+  brain.needs = restore(brain.needs, { social: 5 })
+  remember(brain, 'chat')
+  act(brain, direct.greet(), PRIORITY.reaction)
+  await say($, brain, line)
+  await sync($, brain)
+}
+
 export async function onTurnComplete($: $, brain: Brain, durationMs: number, reason: string, usage: TurnUsage | undefined): Promise<void> {
   const wasTyping = brain.typedDuringTurn
   brain.isTurnRunning = false
