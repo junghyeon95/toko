@@ -2,20 +2,27 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { answerOffer, apologize, askName, balance, catchInGame, createBrain, drawPet, ensureScene, feed, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPeers, pollPlaza, purchase, reflect, remember, resetDayIfNeeded, save, say, sendPlaza, signalPeers, startBonk, startHatch, switchPet, sync, tendVisitor, think, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
+import { badgeText } from './lib/badges'
+import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
 import { SHOP, SPEND, shopItem } from './lib/economy'
-import { readGitEvents, readTestOutcome } from './lib/perceive'
+import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { signalLabel } from './lib/peers'
 import { nameProblem } from './lib/persona'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
+import { memoText } from './lib/memo'
+import type { Limit } from './lib/meter'
 import { findFriend } from './lib/plaza'
 import type { PlazaAction } from './lib/plaza'
+import { questText } from './lib/quests'
 import { hashText } from './lib/random'
 import type { Canvas } from './lib/raster'
 import { createCanvas, encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, tick } from './lib/scene'
+import { MINUTE } from './lib/time'
+import { todayText } from './lib/today'
 import type { ShopItem, TurnUsage } from './lib/economy'
 
 type $ = EngineInterface
@@ -99,6 +106,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
     if (ctx.ticks % THINK_EVERY === 0) {
       await now($, ctx)
       await resetDayIfNeeded($, brain)
+      await refreshShared($, brain)
       await think($, brain)
       await pollPlaza($, brain)
       await pollPeers($, brain)
@@ -118,6 +126,7 @@ export async function registerSurfaces($: $): Promise<void> {
   await $.command.register({ name: 'bonk', description: 'Ask Toko to bonk Claude with a squeaky hammer', argumentHint: '<reason>', immediate: true })
   await $.command.register({ name: 'feed', description: 'Give Toko a snack' })
   await $.command.register({ name: 'play', description: 'Play with Toko for a moment' })
+  await $.command.register({ name: 'memo', description: 'Park a stray thought with Toko; it comes back after the turn', argumentHint: '<내용>', immediate: true })
   await $.tool.register({
     name: 'pet_status',
     description: "Read the user's Toko companion pet: its name, mood, needs and coins. Use only when the user asks about their pet.",
@@ -146,6 +155,11 @@ export async function start($: $, ctx: Ctx): Promise<void> {
   const brain = ctx.brain
   await now($, ctx)
   brain.sessionId = await $.session.id()
+  brain.costBase = await $.session
+    .usage()
+    .then(usage => usage.cost?.usd ?? 0)
+    .catch(() => 0)
+  brain.lastCostUsd = brain.costBase
   await readEnvironment($, brain)
   await load($, brain)
   await reflect($, brain)
@@ -225,6 +239,10 @@ export async function toolRan($: $, ctx: Ctx, tool: string, command: string | un
   if (tool === 'Agent' || tool === 'Task') {
     onSubagents(brain, 1)
   }
+  const edited = isError ? null : readEditLines(tool, result)
+  if (edited !== null) {
+    onEdit(brain, edited.added, edited.removed)
+  }
   if (command === undefined) {
     return
   }
@@ -261,9 +279,9 @@ export async function apologized($: $, ctx: Ctx): Promise<string> {
   return apologize($, ctx.brain)
 }
 
-export async function measured($: $, ctx: Ctx, contextPercent: number | undefined, limits: readonly { percentUsed: number }[]): Promise<void> {
+export async function measured($: $, ctx: Ctx, contextPercent: number | undefined, limits: readonly Limit[], costUsd: number | undefined): Promise<void> {
   await now($, ctx)
-  await onMeasure($, ctx.brain, contextPercent, limits.reduce((max, limit) => Math.max(max, limit.percentUsed), 0))
+  await onMeasure($, ctx.brain, contextPercent, limits, costUsd)
 }
 
 export async function attention($: $, ctx: Ctx): Promise<void> {
@@ -286,14 +304,21 @@ export const HELP = [
   '/toko ai on | off — 작은 모델 쓰기',
   '/toko notify on | off — OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
+  '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
   '/toko card — 펫 카드',
+  '/toko focus 25 | focus off — 집중 타이머(그동안 말 걸지 않기)',
+  '/toko quests — 오늘의 퀘스트',
+  '/toko badges — 업적',
+  '/toko dex — 인카운터 도감',
+  '/toko memo [내용 | clear] — 생각 주차장 메모 (/memo <내용> 도 같음)',
+  '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   `/toko draw — 펫 뽑기(${SPEND.draw}코인, 알부터 키워요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
-  '/toko event <종류> — 이벤트 바로 보기(시연용)',
+  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
 ].join('\n')
@@ -318,6 +343,13 @@ async function changeSettings($: $, brain: Brain, change: Partial<TokoSettings>,
   return { text: reply }
 }
 
+const badgeLine = (brain: Brain): string => {
+  const badges = progressOf(brain).badges
+  const unlocked = badges.filter(badge => badge.at !== null).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+  const latest = unlocked.at(-1)
+  return `업적 ${unlocked.length}/${badges.length}${latest === undefined ? '' : ` · 최근: ${latest.name}`}`
+}
+
 export const card = (brain: Brain): string => {
   const pet = brain.pet
   const soul = pet?.soul
@@ -331,6 +363,7 @@ export const card = (brain: Brain): string => {
     `말버릇: ${soul.quirk}`,
     `성향: 활발 ${traits.energetic} · 수다 ${traits.chatty} · 걱정 ${traits.worried} · 장난 ${traits.playful}`,
     `함께한 날 ${pet.growth.daysTogether}일 · 받아들인 휴식 ${pet.growth.breaksAccepted}번 · 코인 ${balance(brain)}`,
+    badgeLine(brain),
     ...(brain.memory.lessons.length > 0 ? [`배운 것: ${brain.memory.lessons.at(-1)}`] : []),
   ].join('\n')
 }
@@ -446,6 +479,12 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       const toggle = onOff(value)
       return toggle === null ? { text: '예: /toko peers off' } : changeSettings($, brain, { isPeersOn: toggle }, toggle ? '옆 세션 소식을 전할게요.' : '옆 세션 소식은 전하지 않을게요.')
     }
+    case 'meter': {
+      const toggle = onOff(value)
+      return toggle === null
+        ? { text: '예: /toko meter off' }
+        : changeSettings($, brain, { isMeterOn: toggle }, toggle ? '띠에 컨텍스트·비용·한도를 보여 줄게요.' : '미터를 껐어요.')
+    }
     case 'mood-sense': {
       const toggle = onOff(value)
       return toggle === null
@@ -464,6 +503,18 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: `${shopItem(value)?.name} 착용을 바꿨어요.` }
     case 'card':
       return { text: card(brain) }
+    case 'focus':
+      return { text: await focusCommand($, ctx, value) }
+    case 'quests':
+      return { text: questText(progressOf(brain).quests) }
+    case 'badges':
+      return { text: badgeText(progressOf(brain).badges) }
+    case 'dex':
+      return { text: dexText(progressOf(brain).dex) }
+    case 'memo':
+      return { text: await memoCommand($, ctx, rest.join(' ')) }
+    case 'today':
+      return { text: await todayCommand($, ctx) }
     case 'name': {
       if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
         return { text: '아직 알이에요. 깨어나면 이름을 지어 주세요.' }
@@ -492,12 +543,71 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return plazaCommand($, brain, rest)
     case 'event': {
       const kind = value ?? 'stretch'
+      if (isEncounterKind(kind)) {
+        await runEncounter($, brain, kind, rest[1] === 'shiny')
+        await sync($, brain)
+        return { text: `${DEX_NAMES[kind]} 장면을 띄웠어요.` }
+      }
       await openOffer($, brain, kind, offerLine(brain, kind))
       return { text: `${kind} 이벤트를 띄웠어요.` }
     }
     default:
       return { text: HELP }
   }
+}
+
+export async function todayCommand($: $, ctx: Ctx): Promise<string> {
+  await now($, ctx)
+  const brain = ctx.brain
+  await refreshShared($, brain, true)
+  const summary = todayText(todayTally(brain), brain.now, brain.memos.length)
+  const copied = await $.ui.copy({ text: summary }).catch(() => ({ isCopied: false as const, reason: 'refused' as const }))
+  return `${summary}\n\n${copied.isCopied ? '클립보드에 복사했어요.' : `클립보드에 복사하지 못했어요(${copied.reason}). 위 글을 그대로 쓰세요.`}`
+}
+
+export async function memoCommand($: $, ctx: Ctx, args: string): Promise<string> {
+  await now($, ctx)
+  const brain = ctx.brain
+  const text = args.trim()
+  if (text.length === 0) {
+    return memoText(brain.memos)
+  }
+  if (text === 'clear') {
+    await forgetMemo($, brain, null)
+    return '메모를 모두 지웠어요.'
+  }
+  await parkMemo($, brain, text)
+  return `메모를 맡아 뒀어요(${brain.memos.length}개). 턴이 끝나면 꺼내 드릴게요.`
+}
+
+export async function memoFill($: $, ctx: Ctx, id: string): Promise<void> {
+  await now($, ctx)
+  await fillMemo($, ctx.brain, id)
+}
+
+export async function memoDrop($: $, ctx: Ctx, id: string): Promise<void> {
+  await forgetMemo($, ctx.brain, id)
+}
+
+export async function focusCommand($: $, ctx: Ctx, value: string | undefined): Promise<string> {
+  await now($, ctx)
+  const brain = ctx.brain
+  if (value === 'off' || value === 'stop') {
+    if (brain.focus === null) {
+      return '집중 중이 아니에요.'
+    }
+    await stopFocus($, brain)
+    return '집중을 멈췄어요. 코인은 끝까지 했을 때만 받아요.'
+  }
+  if (value === undefined && brain.focus !== null) {
+    return `집중 중이에요. ${Math.max(1, Math.ceil((brain.focus.endsAt - brain.now) / MINUTE))}분 남았어요. 멈추려면 /toko focus off`
+  }
+  const minutes = value === undefined ? FOCUS_MINUTES : Number(value)
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 120) {
+    return '5~120 사이 분으로 알려 주세요. 예: /toko focus 25'
+  }
+  await startFocus($, brain, minutes)
+  return `${minutes}분 동안 조용히 있을게요. 끝나면 쉬자고 할게요.`
 }
 
 export async function bonkCommand($: $, ctx: Ctx, args: string): Promise<{ text: string; context?: readonly string[] }> {

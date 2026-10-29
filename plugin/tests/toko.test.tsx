@@ -548,3 +548,16 @@ test('the room pane offers a draw and a button for each shelved pet', async ($, 
   expect(await ui.find({ type: 'Text', text: /콩떡 · 여우/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('a focus timer keeps other sessions’ news to itself too', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  await $.command.run({ command: 'toko', args: 'focus 5' } as never)
+  world.store.set('toko:signal:session-2', { kind: 'waiting', at: START + 1000, label: '배포 확인' })
+  await clock.advance(3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /집중/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /배포 확인/ })).toBeUndefined()
+  await ui.unmount()
+})

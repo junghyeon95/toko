@@ -4,30 +4,45 @@ import type { EngineInterface } from 'claude-code'
 import type {
   TokoBudget,
   TokoChoice,
+  TokoCounts,
   TokoEarn,
   TokoEarning,
+  TokoFocus,
   TokoFriend,
   TokoVisitor,
   TokoGame,
+  TokoMemo,
   TokoMemory,
+  TokoMeter,
   TokoMood,
   TokoNeeds,
   TokoOffer,
   TokoPet,
+  TokoProgress,
   TokoSettings,
   TokoSoul,
+  TokoStats,
+  TokoTally,
   TokoWallet,
 } from '../types'
 
 
+import { asUnlocked, badgeViews, newBadges } from './lib/badges'
+import type { Unlocked } from './lib/badges'
+import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordSighting, sightingLine } from './lib/dex'
+import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
 import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earnedTokenToday, emptyEarn, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
 import type { TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
+import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
+import { meterOf } from './lib/meter'
+import type { Limit } from './lib/meter'
 import { freshSignal, isSignal, signalText } from './lib/peers'
 import type { PeerSignal } from './lib/peers'
+import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
@@ -37,8 +52,12 @@ import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
 import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook } from './lib/scene'
-import type { Candidate, OfferKind } from './lib/sim'
+import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
+import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
+import type { QuestsPaid } from './lib/quests'
 import { BREAK_KINDS, ENCOUNTER_LINES, candidatesOf, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
+import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from './lib/stats'
+import type { StatKey } from './lib/stats'
 import { HOUR, MINUTE, clockText, dayKey, hourOf } from './lib/time'
 
 const petAtom = atom({ plugin: 'toko', key: 'pet' } as const, null)
@@ -53,8 +72,12 @@ const ouchAtom = atom({ plugin: 'toko', key: 'ouch' } as const, false)
 const earningsAtom = atom({ plugin: 'toko', key: 'earnings' } as const, [])
 const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
+const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
+const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
+const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 
 type $ = EngineInterface
@@ -71,7 +94,15 @@ export const KEY = {
   marks: 'toko:marks',
   earnPrefix: 'toko:earn:',
   signalPrefix: 'toko:signal:',
+  stats: 'toko:stats',
+  tallyPrefix: 'toko:tally:',
+  badges: 'toko:badges',
+  quests: 'toko:quests',
+  dex: 'toko:dex',
+  memos: 'toko:memos',
 } as const
+
+export const SHARED_REFRESH_MS = 60_000
 
 export const DEFAULT_SETTINGS: TokoSettings = {
   isMuted: false,
@@ -84,6 +115,7 @@ export const DEFAULT_SETTINGS: TokoSettings = {
   isMoodSensing: false,
   isPlazaOn: true,
   isPeersOn: true,
+  isMeterOn: true,
 }
 
 const emptyMemory = (): TokoMemory => ({
@@ -115,6 +147,16 @@ export type Brain = {
   sessionId: string
   earn: TokoEarn
   otherEarns: readonly TokoEarn[]
+  tally: TokoTally
+  otherTallies: readonly TokoTally[]
+  stats: TokoStats
+  isProgressDirty: boolean
+  lastSharedAt: number
+  badges: Unlocked
+  questsPaid: QuestsPaid
+  dex: Dex
+  memos: readonly TokoMemo[]
+  memoOfferId: string | null
   mood: TokoMood
   isLoaded: boolean
   isTurnRunning: boolean
@@ -129,11 +171,16 @@ export type Brain = {
   lastEncounterAt: number
   lastPassAfterFailAt: number | null
   rateLimitPercent: number
+  meter: TokoMeter | null
+  costBase: number
+  lastCostUsd: number
   isFullShown: boolean
   isThinking: boolean
   isHatching: boolean
   offer: TokoOffer | null
   countdown: Countdown | null
+  focus: TokoFocus | null
+  focusDoneMinutes: number | null
   bonk: Bonk | null
   game: TokoGame | null
   gameSpawnAt: number
@@ -168,6 +215,16 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   sessionId: 'local',
   earn: emptyEarn(''),
   otherEarns: [],
+  tally: emptyTally(''),
+  otherTallies: [],
+  stats: emptyStats(),
+  isProgressDirty: false,
+  lastSharedAt: 0,
+  badges: {},
+  questsPaid: { day: '', ids: [] },
+  dex: {},
+  memos: [],
+  memoOfferId: null,
   mood: 'calm',
   isLoaded: false,
   isTurnRunning: false,
@@ -182,11 +239,16 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   lastEncounterAt: 0,
   lastPassAfterFailAt: null,
   rateLimitPercent: 0,
+  meter: null,
+  costBase: 0,
+  lastCostUsd: 0,
   isFullShown: false,
   isThinking: false,
   isHatching: false,
   offer: null,
   countdown: null,
+  focus: null,
+  focusDoneMinutes: null,
   bonk: null,
   game: null,
   gameSpawnAt: 0,
@@ -220,7 +282,7 @@ export const today = (brain: Brain): string => dayKey(brain.now)
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, keys] = await Promise.all([
+  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.shelf),
     $.store.get(KEY.needs),
@@ -230,6 +292,11 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.settings),
     $.store.get(KEY.marks),
     $.store.get(KEY.plazaId),
+    $.store.get(KEY.stats),
+    $.store.get(KEY.badges),
+    $.store.get(KEY.quests),
+    $.store.get(KEY.dex),
+    $.store.get(KEY.memos),
     $.store.keys(),
   ])
   brain.pet = isPet(pet) ? upgradePet({ ...pet, growth: advanceDay(pet.growth, day) }) : null
@@ -247,6 +314,16 @@ export async function load($: $, brain: Brain): Promise<void> {
   await dropStaleSignals($, keys.filter(key => key.startsWith(KEY.signalPrefix)), day)
   brain.peersSeenAt = now
   brain.earn = emptyEarn(day)
+  const tallyKeys = keys.filter(key => key.startsWith(KEY.tallyPrefix))
+  const tallies = await Promise.all(tallyKeys.map(async key => ({ key, value: await $.store.get(key) })))
+  await settleTallies($, brain, stats, tallies, day)
+  brain.tally = emptyTally(day)
+  brain.lastSharedAt = now
+  brain.badges = asUnlocked(badges)
+  brain.questsPaid = asPaid(questsPaid, day)
+  brain.dex = asDex(dex)
+  brain.memos = asMemos(memos)
+  brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
   brain.mood = moodOf(brain.needs, brain.memory.events, now, hourOf(now), brain.budget.bonks)
@@ -275,6 +352,141 @@ async function dropStaleSignals($: $, keys: readonly string[], day: string): Pro
   }
 }
 
+const tallyKey = (brain: Brain): string => `${KEY.tallyPrefix}${brain.sessionId}`
+
+async function settleTallies($: $, brain: Brain, stored: unknown, entries: readonly { key: string; value: unknown }[], day: string): Promise<void> {
+  const parsed = entries.map(entry => ({ key: entry.key, tally: asTally(entry.value) }))
+  const stale = parsed.filter(entry => entry.tally === null || entry.tally.day !== day || entry.key === tallyKey(brain))
+  brain.stats = stale.reduce((stats, entry) => (entry.tally === null ? stats : foldTally(stats, entry.tally)), asStats(stored))
+  brain.otherTallies = parsed.filter(entry => !stale.includes(entry)).flatMap(entry => (entry.tally === null ? [] : [entry.tally]))
+  for (const entry of stale) {
+    await $.store.delete(entry.key)
+  }
+  if (stale.length > 0) {
+    await $.store.set(KEY.stats, brain.stats)
+  }
+}
+
+async function rollTally($: $, brain: Brain, day: string): Promise<void> {
+  const stored = asTally(await $.store.get(tallyKey(brain)))
+  if (stored !== null && stored.day === brain.tally.day) {
+    brain.stats = foldTally(asStats(await $.store.get(KEY.stats)), brain.tally)
+    await $.store.set(KEY.stats, brain.stats)
+  }
+  brain.tally = emptyTally(day)
+  brain.otherTallies = []
+  brain.costBase = brain.lastCostUsd
+  await $.store.set(tallyKey(brain), brain.tally)
+}
+
+export async function refreshShared($: $, brain: Brain, isForced = false): Promise<void> {
+  if (!isForced && brain.now - brain.lastSharedAt < SHARED_REFRESH_MS) {
+    return
+  }
+  brain.lastSharedAt = brain.now
+  const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.tallyPrefix) && key !== tallyKey(brain))
+  const tallies = await Promise.all(keys.map(async key => asTally(await $.store.get(key))))
+  brain.otherTallies = tallies.flatMap(tally => (tally !== null && tally.day === today(brain) ? [tally] : []))
+  brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
+  brain.dex = mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex)
+  brain.memos = asMemos(await $.store.get(KEY.memos))
+  await update($, memosAtom, () => brain.memos)
+  const paid = asPaid(await $.store.get(KEY.quests), today(brain)).ids
+  brain.questsPaid = { day: today(brain), ids: [...new Set([...paid, ...(brain.questsPaid.day === today(brain) ? brain.questsPaid.ids : [])])] }
+  brain.isProgressDirty = true
+}
+
+export const count = (brain: Brain, key: StatKey, amount = 1): void => {
+  brain.tally = bump(brain.tally, key, amount)
+  brain.isDirty = true
+  brain.isProgressDirty = true
+}
+
+const jot = (brain: Brain, text: string): void => {
+  brain.tally = addNote(brain.tally, text)
+  brain.isDirty = true
+}
+
+export const progressCounts = (brain: Brain): TokoCounts => ({ ...totalOf(brain.stats, [...brain.otherTallies, brain.tally]), dex: kindsSeen(brain.dex) })
+
+export const todayTally = (brain: Brain): TokoTally => todayOf(brain.stats, [...brain.otherTallies, brain.tally], today(brain))
+
+export const questsOf = (brain: Brain) => questsFor(today(brain), brain.pet?.bones.seed ?? 0, isPlazaReady(brain))
+
+export const progressOf = (brain: Brain): TokoProgress => ({
+  badges: badgeViews(progressCounts(brain), brain.badges),
+  quests: questViews(questsOf(brain), todayTally(brain).counts),
+  dex: dexViews(brain.dex),
+})
+
+async function awardQuests($: $, brain: Brain): Promise<readonly string[]> {
+  const day = today(brain)
+  const views = progressOf(brain).quests
+  const paid = brain.questsPaid.day === day ? brain.questsPaid.ids : []
+  if (questsDue(views, paid).length === 0) {
+    return []
+  }
+  const stored = asPaid(await $.store.get(KEY.quests), day).ids
+  const known = [...new Set([...stored, ...paid])]
+  const fresh = questsDue(views, known)
+  brain.questsPaid = { day, ids: [...known, ...fresh] }
+  await $.store.set(KEY.quests, brain.questsPaid)
+  const done = views.filter(view => fresh.includes(view.id))
+  const isAllDone = fresh.includes(ALL_DONE)
+  if (done.length === 0 && !isAllDone) {
+    return []
+  }
+  healthReward(brain, done.length * QUEST_REWARD + (isAllDone ? QUEST_BONUS : 0))
+  remember(brain, 'quest', done.map(view => view.id).join(', '), 1)
+  const phrases = done.length === 0 ? [] : [`퀘스트 완료: ${done.map(view => view.label).join(', ')} +${done.length * QUEST_REWARD} 코인`]
+  if (!isAllDone) {
+    return phrases
+  }
+  count(brain, 'quest-day')
+  const gift = grantGift(brain)
+  act(brain, direct.giftOpen(), PRIORITY.event)
+  return [...phrases, `오늘 퀘스트 다 했어! +${QUEST_BONUS} 코인, 선물로 ${shopItem(gift)?.name ?? gift}`]
+}
+
+async function awardBadges($: $, brain: Brain): Promise<readonly string[]> {
+  const earned = newBadges(progressCounts(brain), brain.badges)
+  if (earned.length === 0) {
+    return []
+  }
+  const stored = asUnlocked(await $.store.get(KEY.badges))
+  const fresh = earned.filter(badge => stored[badge.id] === undefined)
+  brain.badges = { ...stored, ...brain.badges, ...Object.fromEntries(fresh.map(badge => [badge.id, brain.now])) }
+  await $.store.set(KEY.badges, brain.badges)
+  if (fresh.length === 0) {
+    return []
+  }
+  const reward = fresh.reduce((sum, badge) => sum + badge.reward, 0)
+  const names = fresh.map(badge => badge.name).join(', ')
+  healthReward(brain, reward)
+  remember(brain, 'badge', names, 2)
+  return [`업적 달성: ${names}! +${reward} 코인`]
+}
+
+async function announce($: $, brain: Brain, phrases: readonly string[]): Promise<void> {
+  if (phrases.length === 0) {
+    return
+  }
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  if (!isHushed(brain)) {
+    await say($, brain, phrases.join(' · '), 'quiet')
+  }
+}
+
+export async function checkProgress($: $, brain: Brain): Promise<void> {
+  if (!brain.isProgressDirty) {
+    return
+  }
+  brain.isProgressDirty = false
+  const phrases = [...(await awardQuests($, brain)), ...(await awardBadges($, brain))]
+  await update($, progressAtom, () => progressOf(brain))
+  await announce($, brain, phrases)
+}
+
 export async function save($: $, brain: Brain): Promise<void> {
   if (!brain.isLoaded) {
     return
@@ -290,6 +502,7 @@ export async function save($: $, brain: Brain): Promise<void> {
     $.store.set(KEY.marks, brain.marks),
     $.store.set(KEY.plazaId, brain.plazaId),
     $.store.set(`${KEY.earnPrefix}${brain.sessionId}`, brain.earn),
+    $.store.set(tallyKey(brain), brain.tally),
   ])
   brain.isDirty = false
 }
@@ -310,6 +523,10 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, countdownAtom, () => (brain.countdown === null ? null : { label: brain.countdown.label, endsAt: brain.countdown.endsAt })),
     update($, plazaAtom, () => ({ isOnline: brain.serverUrl.length > 0 && brain.settings.isPlazaOn, friends: brain.friends, feed: brain.feed })),
     update($, lessonsAtom, () => brain.memory.lessons),
+    update($, progressAtom, () => progressOf(brain)),
+    update($, focusAtom, () => brain.focus),
+    update($, meterAtom, () => brain.meter),
+    update($, memosAtom, () => brain.memos),
   ])
 }
 
@@ -353,8 +570,12 @@ const act = (brain: Brain, steps: readonly Step[], priority: number): void => {
   }
 }
 
+export const isFocusing = (brain: Brain): boolean => brain.focus !== null && brain.now < brain.focus.endsAt
+
+const isHushed = (brain: Brain): boolean => isQuietNow(brain.settings, hourOf(brain.now)) || isFocusing(brain)
+
 export const canTalk = (brain: Brain): boolean =>
-  canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now)) && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4
+  canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now)) && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4 && !isFocusing(brain)
 
 const presenceOf = (brain: Brain) => ({
   now: brain.now,
@@ -386,7 +607,7 @@ export async function reactLine($: $, brain: Brain, key: string): Promise<void> 
 }
 
 async function quietLine($: $, brain: Brain, key: string): Promise<void> {
-  if (!isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!isHushed(brain)) {
     await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, key), 'quiet')
   }
 }
@@ -496,6 +717,13 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
       { key: 'auto', label: '네가 지어', hotkey: '2' },
     ]
   }
+  if (kind === 'memo') {
+    return [
+      { key: 'accept', label: '입력창에 넣기', hotkey: '1' },
+      { key: 'later', label: '나중에', hotkey: '2' },
+      { key: 'drop', label: '지우기', hotkey: '3' },
+    ]
+  }
   return CHOICES
 }
 
@@ -572,6 +800,10 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
     await answerName($, brain, choice)
     return
   }
+  if (offer.kind === 'memo') {
+    await answerMemo($, brain, choice)
+    return
+  }
   const answer: Answer = choice === 'accept' ? 'accept' : choice === 'stop' ? 'stop' : choice === 'ignored' ? 'ignored' : 'later'
   brain.memory = learnAnswer(brain.memory, offer.kind, answer, hourOf(brain.now))
   brain.isDirty = true
@@ -605,8 +837,9 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
   switch (kind) {
     case 'stretch':
     case 'plaza-stretch':
-      act(brain, kind === 'stretch' ? direct.stretch() : direct.groupStretch(brain.friends.map(friend => friend.species)), PRIORITY.event)
-      await startCountdown($, brain, { kind, label: '같이 기지개', endsAt: now + 30_000, reward: kind === 'stretch' ? HEALTH_REWARD.breakAccepted : HEALTH_REWARD.plazaStretch, then: 'praise' })
+    case 'focus-break':
+      act(brain, kind === 'plaza-stretch' ? direct.groupStretch(brain.friends.map(friend => friend.species)) : direct.stretch(), PRIORITY.event)
+      await startCountdown($, brain, { kind, label: '같이 기지개', endsAt: now + 30_000, reward: kind === 'plaza-stretch' ? HEALTH_REWARD.plazaStretch : HEALTH_REWARD.breakAccepted, then: 'praise' })
       await say($, brain, '쭉— 팔을 머리 위로. 30초만 같이 펴자')
       if (kind === 'plaza-stretch') {
         await sendPlaza($, brain, 'stretch-call', null)
@@ -624,6 +857,8 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
       brain.marks = { ...brain.marks, lastWaterAt: now }
       healthReward(brain, HEALTH_REWARD.eyeRestDone)
       remember(brain, 'break-done', 'water')
+      count(brain, 'break')
+      count(brain, 'water')
       await say($, brain, '홀짝. 시원하다!')
       return
     case 'nap':
@@ -645,10 +880,11 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
     case 'wrapup': {
       const reply = await ask($, brain, persona.linePrompt('퇴근 시각이 지났다. 오늘 한 일과 남은 일을 세 줄 이내로 정리한다. 줄은 " / "로 나눈다.', workMemoryFacts(brain)), 200)
       const summary = (reply === null ? null : persona.extractJson(reply)?.line) ?? ruleWrapup(brain)
-      $.ui.log(`${nameOf(brain.pet) ?? '토코'}의 오늘 정리 — ${String(summary)}`)
+      $.ui.log(`${nameOf(brain.pet) ?? '토코'}의 오늘 정리 — ${String(summary)}${brain.memos.length > 0 ? ` (남은 메모 ${brain.memos.length}개: /toko memo)` : ''}`)
       brain.marks = { ...brain.marks, wrappedDay: today(brain) }
       healthReward(brain, HEALTH_REWARD.finishedOnTime)
       remember(brain, 'break-done', 'wrapup')
+      count(brain, 'wrapup')
       await say($, brain, '오늘 정리해서 기록에 남겨 뒀어. 고생했어')
       return
     }
@@ -678,6 +914,101 @@ export async function breathe($: $, brain: Brain, rounds: number): Promise<void>
   await say($, brain, '들이쉬고… 2, 3, 4. 내쉬고… 2, 3, 4, 5, 6')
 }
 
+const BREAK_STAT: Readonly<Record<string, StatKey>> = { stretch: 'stretch', 'plaza-stretch': 'stretch', 'focus-break': 'stretch', 'eye-rest': 'eye-rest' }
+
+async function changeMemos($: $, brain: Brain, change: (memos: readonly TokoMemo[]) => readonly TokoMemo[]): Promise<void> {
+  brain.memos = change(asMemos(await $.store.get(KEY.memos)))
+  await $.store.set(KEY.memos, brain.memos)
+  await update($, memosAtom, () => brain.memos)
+}
+
+export async function parkMemo($: $, brain: Brain, text: string): Promise<void> {
+  await changeMemos($, brain, memos => addMemo(memos, `m${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`, text, brain.now))
+  remember(brain, 'memo')
+  count(brain, 'memo')
+  act(brain, direct.perk(), PRIORITY.reaction)
+  if (!isHushed(brain)) {
+    await say($, brain, brain.isTurnRunning ? '맡아 둘게. 턴 끝나면 꺼내 줄게' : '맡아 둘게', 'quiet')
+  }
+}
+
+export async function fillMemo($: $, brain: Brain, id: string): Promise<boolean> {
+  const memo = brain.memos.find(entry => entry.id === id)
+  if (memo === undefined) {
+    return false
+  }
+  const box = await $.prompt.read().catch(() => null)
+  const filled = await $.prompt.fill({ text: box !== null && box.text.trim().length > 0 ? ` ${memo.text}` : memo.text, mode: 'append' })
+  if (!filled.isFilled) {
+    return false
+  }
+  await changeMemos($, brain, memos => dropMemo(memos, id))
+  return true
+}
+
+export async function forgetMemo($: $, brain: Brain, id: string | null): Promise<void> {
+  await changeMemos($, brain, memos => (id === null ? [] : dropMemo(memos, id)))
+}
+
+async function answerMemo($: $, brain: Brain, choice: string): Promise<void> {
+  const id = brain.memoOfferId
+  brain.memoOfferId = null
+  if (id === null) {
+    return
+  }
+  if (choice === 'accept') {
+    const isFilled = await fillMemo($, brain, id)
+    if (!isFilled) {
+      await changeMemos($, brain, memos => deferMemo(memos, id, brain.now))
+    }
+    await say($, brain, isFilled ? '입력창에 넣어 뒀어. 다듬어서 보내' : '입력창에 못 넣었어. 방에서 다시 꺼낼 수 있어')
+    return
+  }
+  if (choice === 'drop') {
+    await forgetMemo($, brain, id)
+    await say($, brain, '지웠어')
+    return
+  }
+  await changeMemos($, brain, memos => deferMemo(memos, id, brain.now))
+  if (choice === 'later') {
+    await say($, brain, '30분 뒤에 다시 꺼낼게')
+  }
+}
+
+export const FOCUS_MINUTES = 25
+
+export async function startFocus($: $, brain: Brain, minutes: number): Promise<void> {
+  if (brain.offer !== null && brain.offer.kind !== 'name' && brain.offer.kind !== 'bonk-end') {
+    await answerOffer($, brain, 'ignored')
+  }
+  brain.focus = { endsAt: brain.now + minutes * MINUTE, minutes }
+  brain.focusDoneMinutes = null
+  remember(brain, 'focus', String(minutes))
+  act(brain, [{ pose: 'sit', ms: 2500 }], PRIORITY.reaction)
+  await hush($)
+  await update($, focusAtom, () => brain.focus)
+}
+
+export async function stopFocus($: $, brain: Brain): Promise<void> {
+  brain.focus = null
+  await update($, focusAtom, () => null)
+}
+
+async function finishFocus($: $, brain: Brain): Promise<void> {
+  const focus = brain.focus
+  if (focus === null || brain.now < focus.endsAt) {
+    return
+  }
+  brain.focus = null
+  brain.focusDoneMinutes = focus.minutes
+  healthReward(brain, HEALTH_REWARD.focusDone)
+  count(brain, 'focus')
+  remember(brain, 'focus-done', String(focus.minutes), 1.5)
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  await update($, focusAtom, () => null)
+  await notifyOnce($, brain, `${focus.minutes}분 집중 끝! 잠깐 쉬어 가요`)
+}
+
 export async function finishCountdown($: $, brain: Brain): Promise<void> {
   const countdown = brain.countdown
   if (countdown === null || brain.now < countdown.endsAt) {
@@ -691,6 +1022,11 @@ export async function finishCountdown($: $, brain: Brain): Promise<void> {
   }
   healthReward(brain, countdown.reward)
   remember(brain, 'break-done', countdown.kind)
+  count(brain, countdown.kind === 'breathe' ? 'breathe' : 'break')
+  const stat = BREAK_STAT[countdown.kind]
+  if (stat !== undefined) {
+    count(brain, stat)
+  }
   brain.workingSince = brain.now
   brain.needs = restore(brain.needs, { energy: 25 })
   if (brain.pet !== null && countdown.kind !== 'breathe') {
@@ -722,12 +1058,18 @@ async function growIfReady($: $, brain: Brain): Promise<void> {
 
 const GIFT_POOL = ['cookie', 'cookie', 'rice-cake', 'watermelon', 'beanie', 'ribbon', 'plant']
 
-export async function openGift($: $, brain: Brain): Promise<void> {
+const grantGift = (brain: Brain): string => {
   const unowned = GIFT_POOL.filter(id => shopItem(id)?.kind === 'snack' || !brain.wallet.items.includes(id))
   const id = pick(brain.random, unowned.length > 0 ? unowned : ['cookie'])
   brain.wallet = { ...brain.wallet, items: [...brain.wallet.items, id] }
-  brain.budget = { ...brain.budget, gifts: brain.budget.gifts + 1 }
   remember(brain, 'gift', id)
+  count(brain, 'gift')
+  return id
+}
+
+export async function openGift($: $, brain: Brain): Promise<void> {
+  const id = grantGift(brain)
+  brain.budget = { ...brain.budget, gifts: brain.budget.gifts + 1 }
   act(brain, direct.giftOpen(), PRIORITY.event)
   await say($, brain, `${shopItem(id)?.name ?? id}! 소지품에 넣어 둘게`)
 }
@@ -776,6 +1118,7 @@ async function stepGame($: $, brain: Brain): Promise<void> {
     brain.game = null
     healthReward(brain, reward)
     remember(brain, 'played', `bugs ${game.caught}`)
+    count(brain, 'bug', game.caught)
     brain.needs = restore(brain.needs, { fun: 35 })
     if (scene !== null) {
       scene.props = scene.props.filter(prop => prop.kind !== 'bug')
@@ -809,6 +1152,7 @@ export async function feed($: $, brain: Brain): Promise<string> {
   brain.wallet = taken.wallet
   brain.needs = restore(brain.needs, { hunger: taken.snack.restores ?? 25, social: 5 })
   remember(brain, 'fed', taken.snack.id)
+  count(brain, 'fed')
   act(brain, direct.feed(), PRIORITY.reaction)
   await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'fed'))
   return `${taken.snack.name}을(를) 줬어요.`
@@ -817,6 +1161,7 @@ export async function feed($: $, brain: Brain): Promise<string> {
 export async function play($: $, brain: Brain): Promise<string> {
   brain.needs = restore(brain.needs, { fun: 30, energy: -5, social: 10 })
   remember(brain, 'played')
+  count(brain, 'played')
   act(brain, direct.play(), PRIORITY.reaction)
   await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'played'))
   return '같이 놀았어요.'
@@ -1008,6 +1353,7 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
   brain.earn = { ...brain.earn, earned: brain.earn.earned + income }
   brain.earnings = [...brain.earnings, { durationMs, coins: income, at: brain.now }].slice(-20)
   remember(brain, 'turn', `${Math.round(durationMs / 1000)}s`, 0.5)
+  count(brain, 'turn')
   if (income > 0) {
     act(brain, direct.earnCoins(income), PRIORITY.reaction)
   }
@@ -1034,9 +1380,16 @@ export async function notifyOnce($: $, brain: Brain, text: string): Promise<void
   }
 }
 
+export const COMEBACK_FAILURES = 3
+
 export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass', key: string, summary: string): Promise<void> {
   const hadFailure = brain.memory.events.some(event => event.kind === 'test-fail' && event.detail.startsWith(key))
+  const failures = failureStreak(brain.memory.events, key)
   remember(brain, kind, kind === 'test-fail' ? `${key} :: ${summary}` : key)
+  count(brain, kind)
+  if (kind === 'test-pass' && failures >= COMEBACK_FAILURES) {
+    count(brain, 'comeback')
+  }
   if (kind === 'test-fail') {
     act(brain, direct.worry(), PRIORITY.reaction)
     return
@@ -1049,8 +1402,15 @@ export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass'
   await quietLine($, brain, 'testPass')
 }
 
-export async function onGit($: $, brain: Brain, kind: string, detail: string): Promise<void> {
+export async function onGit($: $, brain: Brain, kind: 'commit' | 'push' | 'pr', detail: string): Promise<void> {
   remember(brain, kind, detail, 1.5)
+  count(brain, kind)
+  if (kind === 'pr') {
+    jot(brain, `PR ${detail}`)
+    if (detail.endsWith(' merged')) {
+      count(brain, 'merge')
+    }
+  }
   act(brain, direct.flag(), PRIORITY.reaction)
   if (kind === 'commit' && brain.marks.firstCommitDay !== today(brain)) {
     brain.marks = { ...brain.marks, firstCommitDay: today(brain) }
@@ -1061,12 +1421,24 @@ export async function onGit($: $, brain: Brain, kind: string, detail: string): P
   await quietLine($, brain, 'commit')
 }
 
-export const onSubagents = (brain: Brain, count: number): void => {
-  act(brain, direct.subagentShadows(count), PRIORITY.reaction)
+export const onSubagents = (brain: Brain, shadows: number): void => {
+  act(brain, direct.subagentShadows(shadows), PRIORITY.reaction)
 }
 
-export async function onMeasure($: $, brain: Brain, contextPercent: number | undefined, rateLimitPercent: number): Promise<void> {
-  brain.rateLimitPercent = rateLimitPercent
+export const onEdit = (brain: Brain, added: number, removed: number): void => {
+  count(brain, 'added', added)
+  count(brain, 'removed', removed)
+}
+
+export async function onMeasure($: $, brain: Brain, contextPercent: number | undefined, limits: readonly Limit[], costUsd: number | undefined): Promise<void> {
+  brain.rateLimitPercent = limits.reduce((max, limit) => Math.max(max, limit.percentUsed), 0)
+  brain.meter = meterOf(contextPercent, costUsd, limits)
+  await update($, meterAtom, () => brain.meter)
+  if (costUsd !== undefined) {
+    brain.lastCostUsd = costUsd
+    brain.tally = { ...brain.tally, costUsd: Math.max(0, costUsd - brain.costBase) }
+    brain.isDirty = true
+  }
   if (contextPercent !== undefined && contextPercent >= 85 && !brain.isFullShown) {
     brain.isFullShown = true
     act(brain, direct.full(), PRIORITY.reaction)
@@ -1179,10 +1551,12 @@ export async function think($: $, brain: Brain): Promise<void> {
     await answerOffer($, brain, 'ignored')
   }
   await finishCountdown($, brain)
+  await finishFocus($, brain)
   await stepGame($, brain)
   await watchLongTurn($, brain)
   await maybeEncounter($, brain)
-  if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || brain.bonk !== null) {
+  await checkProgress($, brain)
+  if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || brain.bonk !== null || isFocusing(brain)) {
     return
   }
   const presence = presenceOf(brain)
@@ -1191,6 +1565,18 @@ export async function think($: $, brain: Brain): Promise<void> {
   }
   if (isAwaitingName(brain.pet)) {
     await askName($, brain)
+    return
+  }
+  if (brain.focusDoneMinutes !== null) {
+    const minutes = brain.focusDoneMinutes
+    brain.focusDoneMinutes = null
+    await openOffer($, brain, 'focus-break', `${minutes}분 집중 끝! +${HEALTH_REWARD.focusDone} 코인. 기지개 켜고 올래?`)
+    return
+  }
+  const memo = dueMemo(brain.memos, now, brain.lastTurnEndAt)
+  if (memo !== undefined) {
+    brain.memoOfferId = memo.id
+    await openOffer($, brain, 'memo', `아까 맡긴 메모: ${clipMemo(memo.text, 40)}`)
     return
   }
   const candidates = gateCandidates(candidatesOf(contextOf(brain)), brain.budget, brain.settings, now)
@@ -1215,7 +1601,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
   const elapsed = brain.now - brain.turnStartedAt
   if (elapsed >= MINUTE && brain.longTurnStage === 0) {
     brain.longTurnStage = 1
-    if (canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion) && brain.countdown === null && brain.bonk === null) {
+    if (canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion) && brain.countdown === null && brain.bonk === null && !isFocusing(brain)) {
       act(brain, direct.eyeRest(20_000), PRIORITY.encounter)
       await startCountdown($, brain, { kind: 'quiet-eye', label: '기다리는 동안 먼 곳 보기', endsAt: brain.now + 20_000, reward: 0, then: 'quiet' })
     }
@@ -1228,7 +1614,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
 
 async function maybeEncounter($: $, brain: Brain): Promise<void> {
   const scene = brain.scene
-  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || brain.bonk !== null) {
+  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || brain.bonk !== null || isFocusing(brain)) {
     return
   }
   if (!canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
@@ -1252,9 +1638,38 @@ async function maybeEncounter($: $, brain: Brain): Promise<void> {
   if (kind === null) {
     return
   }
+  await runEncounter($, brain, kind, brain.random() < SHINY_CHANCE)
+}
+
+async function noteSighting($: $, brain: Brain, kind: EncounterKind, isShiny: boolean): Promise<Sighting> {
+  const sighting = recordSighting(mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex), kind, isShiny, brain.now)
+  brain.dex = sighting.dex
+  await $.store.set(KEY.dex, brain.dex)
+  return sighting
+}
+
+export async function runEncounter($: $, brain: Brain, kind: EncounterKind, isShiny: boolean): Promise<void> {
   brain.lastEncounterAt = brain.now
   remember(brain, 'encounter', kind, 0.3)
-  act(brain, direct.encounter(scene, kind, brain.random), PRIORITY.encounter)
+  count(brain, 'encounter')
+  if (isShiny) {
+    count(brain, 'shiny')
+  }
+  if (brain.scene !== null) {
+    act(brain, [...(isShiny ? direct.shimmer() : []), ...direct.encounter(brain.scene, kind, brain.random)], PRIORITY.encounter)
+  }
+  const sighting = await noteSighting($, brain, kind, isShiny)
+  const reward = (sighting.isNew ? DEX_REWARD.first : 0) + (sighting.isNewShiny ? DEX_REWARD.shiny : 0)
+  if (reward > 0) {
+    healthReward(brain, reward)
+  }
+  if (isHushed(brain)) {
+    return
+  }
+  if (reward > 0) {
+    await say($, brain, sightingLine(kind, sighting, kindsSeen(brain.dex), reward), 'quiet')
+    return
+  }
   if ((brain.pet?.soul?.traits.chatty ?? 0) >= 0.5 || kind === 'bubbles' || kind === 'firefly') {
     await say($, brain, pick(brain.random, ENCOUNTER_LINES[kind]), 'quiet')
   }
@@ -1319,7 +1734,7 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   if (brain.scene !== null && !isBusy(brain.scene) && canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
     act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.species), PRIORITY.encounter)
   }
-  if (!isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!isHushed(brain)) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')
   }
   brain.visitor = visitorOf(event, brain.now)
@@ -1359,7 +1774,7 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
     return
   }
   brain.peersSeenAt = signal.at
-  if (!brain.settings.isPeersOn || isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!brain.settings.isPeersOn || isHushed(brain)) {
     return
   }
   await say($, brain, signalText(signal))
@@ -1379,6 +1794,9 @@ export async function sendPlaza($: $, brain: Brain, kind: PlazaAction, to: strin
       return `광장 서버가 거절했어요 (${response.status}).`
     }
     remember(brain, 'plaza-sent', kind)
+    if (kind !== 'stretch-call') {
+      count(brain, 'cheer')
+    }
     act(brain, kind === 'stretch-call' ? direct.stretch() : direct.greet(), PRIORITY.reaction)
     return '광장에 보냈어요.'
   } catch {
@@ -1423,6 +1841,7 @@ export async function resetDayIfNeeded($: $, brain: Brain): Promise<void> {
   brain.wallet = { ...brain.wallet, coins: brain.wallet.coins + earnBalance(brain.earn) }
   brain.otherEarns = []
   brain.earn = emptyEarn(day)
+  await rollTally($, brain, day)
   if (brain.pet !== null) {
     brain.pet = { ...brain.pet, growth: advanceDay(brain.pet.growth, day) }
   }

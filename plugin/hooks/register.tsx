@@ -4,7 +4,9 @@ import type { Register } from 'claude-code'
 import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
+import { closestBadges } from './lib/badges'
 import { SHOP, SPEND, shopItem } from './lib/economy'
+import { meterLevel, meterText } from './lib/meter'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
 import { ACTION_LABEL, visitorText } from './lib/plaza'
 import { encodeCells } from './lib/raster'
@@ -23,9 +25,13 @@ import {
   createCtx,
   drawFromRoom,
   feedCommand,
+  focusCommand,
   gameCatch,
   gameMove,
   measured,
+  memoCommand,
+  memoDrop,
+  memoFill,
   permissionAsked,
   petStatus,
   pickPet,
@@ -36,6 +42,7 @@ import {
   start,
   stop,
   submitted,
+  todayCommand,
   tokoCommand,
   toolRan,
   turnEnded,
@@ -58,6 +65,10 @@ const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
+const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
+const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
+const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
 const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
@@ -75,6 +86,8 @@ const SHELVES = [
 const press = (fn: () => Promise<unknown>) => () => {
   void fn()
 }
+
+const left = (seconds: number): string => (seconds >= 60 ? `${Math.ceil(seconds / 60)}분 남음` : `${seconds}초 남음`)
 
 const bar = (value: number): string => `${'█'.repeat(Math.round(value / 10))}${'░'.repeat(10 - Math.round(value / 10))}`
 
@@ -131,7 +144,7 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'mcp__toko__apologize' }, async $ => ({ result: await apologized($, ctx) })).catch(() => ({ result: 'Toko heard the apology.' }))
 
   on('session.measure', async ($, e, next) => {
-    await measured($, ctx, e.context.percent, e.rateLimits)
+    await measured($, ctx, e.context.percent, e.rateLimits, e.cost?.usd)
     return next(e)
   })
 
@@ -155,13 +168,24 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'play' }, async $ => ({ text: await playCommand($, ctx) }))
 
+  on('command.run', { command: 'memo' }, async ($, e) => ({ text: await memoCommand($, ctx, e.args) }))
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const [settings, offer, pet] = await Promise.all([read($, settingsAtom), read($, offerAtom), read($, petAtom)])
     if (e.props.hasSurvey || pet === null || (settings?.isHidden === true && offer === null)) {
       ctx.band = null
       return next(e)
     }
-    const [mood, bubble, wallet, countdown, game] = await Promise.all([read($, moodAtom), read($, bubbleAtom), read($, walletAtom), read($, countdownAtom), read($, gameAtom)])
+    const [mood, bubble, wallet, countdown, game, progress, focus, meter] = await Promise.all([
+      read($, moodAtom),
+      read($, bubbleAtom),
+      read($, walletAtom),
+      read($, countdownAtom),
+      read($, gameAtom),
+      read($, progressAtom),
+      read($, focusAtom),
+      read($, meterAtom),
+    ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(1, e.props.bodyColumns))
@@ -171,6 +195,8 @@ export const register: Register = (on, options) => {
       `${nameOf(pet) ?? (pet.soul === null ? '알' : UNNAMED)} ${KAOMOJI[mood]}`,
       pet.growth.stage === 'egg' ? '부화 중' : MOOD_LABEL[mood],
       `코인 ${wallet?.coins ?? 0}`,
+      ...(progress === null || pet.soul === null ? [] : [`퀘스트 ${progress.quests.filter(quest => quest.isDone).length}/${progress.quests.length}`]),
+      ...(focus === null ? [] : [`집중 ${left(seconds(focus.endsAt))}`]),
       ...(countdown === null ? [] : [`${countdown.label} ${seconds(countdown.endsAt)}초`]),
       ...(game === null ? [] : [`벌레 ${game.caught}마리 · ${seconds(game.endsAt)}초`]),
     ].join(' · ')
@@ -196,6 +222,18 @@ export const register: Register = (on, options) => {
               <Button key="play" label="놀기" hotkey="p" onPress={press(() => playCommand($, ctx))} />,
               <Button key="room" label="방" hotkey="r" onPress={press(() => roomOpenedFromBand($, ctx))} />,
             ]
+    const gauge = settings?.isMeterOn === false || meter === null ? '' : meterText(meter)
+    const level = meter === null ? 'normal' : meterLevel(meter)
+    const controls = (
+      <Box justifyContent="space-between">
+        <Box gap={1}>{buttons}</Box>
+        {gauge.length > 0 && (
+          <Text color={level === 'alert' ? 'red' : level === 'warn' ? 'yellow' : undefined} dimColor={level === 'normal'} wrap="truncate-end">
+            {gauge}
+          </Text>
+        )}
+      </Box>
+    )
     if (isLine) {
       ctx.band = null
       return (
@@ -204,7 +242,7 @@ export const register: Register = (on, options) => {
             {status}
             <Text dimColor>{bubble === null ? '' : ` “${bubble.text}”`}</Text>
           </Text>
-          <Box gap={1}>{buttons}</Box>
+          {controls}
         </Box>
       )
     }
@@ -226,7 +264,7 @@ export const register: Register = (on, options) => {
           {`${' '.repeat(indent)}${said}`}
         </Text>
         <Raster key={SCENE_KEY} columns={columns} rows={BAND_ROWS} cells={band.lastCells} />
-        <Box gap={1}>{buttons}</Box>
+        {controls}
       </Box>
     )
   })
@@ -256,15 +294,27 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const [settings, pet, mood, wallet] = await Promise.all([read($, settingsAtom), read($, petAtom), read($, moodAtom), read($, walletAtom)])
+    const [settings, pet, mood, wallet, meter] = await Promise.all([read($, settingsAtom), read($, petAtom), read($, moodAtom), read($, walletAtom), read($, meterAtom)])
     if (pet === null || pet.soul === null || (settings?.isHidden !== true && !ctx.brain.isLineMode)) {
       return next(e)
     }
-    return next({ ...e, props: { ...e.props, tail: `${nameOf(pet) ?? UNNAMED} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c` } })
+    const context = settings?.isMeterOn === false || meter?.contextPercent === null || meter?.contextPercent === undefined ? '' : ` · ${Math.round(meter.contextPercent)}%`
+    return next({ ...e, props: { ...e.props, tail: `${nameOf(pet) ?? UNNAMED} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c${context}` } })
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, shelf, wallet, needs, mood, plaza, lessons] = await Promise.all([read($, petAtom), read($, shelfAtom), read($, walletAtom), read($, needsAtom), read($, moodAtom), read($, plazaAtom), read($, lessonsAtom)])
+    const [pet, shelf, wallet, needs, mood, plaza, lessons, progress, focus, memos] = await Promise.all([
+      read($, petAtom),
+      read($, shelfAtom),
+      read($, walletAtom),
+      read($, needsAtom),
+      read($, moodAtom),
+      read($, plazaAtom),
+      read($, lessonsAtom),
+      read($, progressAtom),
+      read($, focusAtom),
+      read($, memosAtom),
+    ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(20, e.props.bodyColumns))
@@ -303,6 +353,81 @@ export const register: Register = (on, options) => {
           </Text>
           {lessons.length > 0 && <Text dimColor>배운 것: {lessons.at(-1)}</Text>}
         </Box>
+        <Box flexDirection="column">
+          <Text weight="bold">집중</Text>
+          {focus === null ? (
+            <Box gap={1}>
+              <Button key="focus-start" label="25분 집중" onPress={press(() => focusCommand($, ctx, undefined))} />
+              <Text dimColor>그동안 토코가 말을 걸지 않아요</Text>
+            </Box>
+          ) : (
+            <Box gap={1}>
+              <Text>집중 중 · {left(Math.max(0, Math.ceil((focus.endsAt - brain.now) / 1000)))}</Text>
+              <Button key="focus-stop" label="그만하기" onPress={press(() => focusCommand($, ctx, 'off'))} />
+            </Box>
+          )}
+        </Box>
+        <Box flexDirection="column">
+          <Text weight="bold">오늘 기록</Text>
+          <Box gap={1}>
+            <Button key="today-copy" label="오늘 기록 복사" onPress={press(() => todayCommand($, ctx))} />
+            <Text dimColor>커밋·PR·테스트·휴식·비용을 몇 줄로 정리해 클립보드에 넣어요</Text>
+          </Box>
+        </Box>
+        {memos.length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">메모 {memos.length}개</Text>
+            {memos.slice(-5).map(memo => (
+              <Box key={`memo-${memo.id}`} gap={1}>
+                <Button key={`memo-fill-${memo.id}`} label="넣기" onPress={press(() => memoFill($, ctx, memo.id))} />
+                <Button key={`memo-drop-${memo.id}`} label="지우기" onPress={press(() => memoDrop($, ctx, memo.id))} />
+                <Text wrap="truncate-end">{memo.text}</Text>
+              </Box>
+            ))}
+          </Box>
+        )}
+        {progress !== null && progress.quests.length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              오늘의 퀘스트 {progress.quests.filter(quest => quest.isDone).length}/{progress.quests.length}
+            </Text>
+            {progress.quests.map(quest => (
+              <Text key={`quest-${quest.id}`} dimColor={quest.isDone}>
+                {`${quest.isDone ? '✓' : '·'} ${quest.label} ${quest.progress}/${quest.goal}`}
+              </Text>
+            ))}
+          </Box>
+        )}
+        {progress !== null && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              업적 {progress.badges.filter(badge => badge.at !== null).length}/{progress.badges.length}
+            </Text>
+            {progress.badges.some(badge => badge.at !== null) && (
+              <Text>
+                {progress.badges
+                  .filter(badge => badge.at !== null)
+                  .map(badge => `✓ ${badge.name}`)
+                  .join(' · ')}
+              </Text>
+            )}
+            <Text dimColor>
+              다음: {closestBadges(progress.badges)
+                .map(badge => `${badge.name} ${badge.progress}/${badge.goal}`)
+                .join(' · ')}
+            </Text>
+          </Box>
+        )}
+        {progress !== null && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              도감 {progress.dex.filter(entry => entry.seen > 0).length}/{progress.dex.length} · 반짝 {progress.dex.filter(entry => entry.shiny > 0).length}
+            </Text>
+            <Text dimColor={progress.dex.every(entry => entry.seen === 0)}>
+              {progress.dex.map(entry => (entry.seen === 0 ? '???' : `${entry.name}${entry.shiny > 0 ? ' ✦' : ''}`)).join(' · ')}
+            </Text>
+          </Box>
+        )}
         {SHELVES.map(([title, shelf]) => (
           <Box key={`shelf-${title}`} flexDirection="column">
             <Text weight="bold">{title}</Text>

@@ -33,7 +33,7 @@ export const restore = (needs: TokoNeeds, change: Partial<Record<NeedKey, number
   updatedAt: needs.updatedAt,
 })
 
-const HAPPY_KINDS = new Set(['test-pass', 'commit', 'push', 'pr', 'gift', 'apologize', 'fed', 'played', 'break-done', 'friend-wave'])
+const HAPPY_KINDS = new Set(['test-pass', 'commit', 'push', 'pr', 'gift', 'apologize', 'fed', 'played', 'break-done', 'friend-wave', 'badge'])
 
 const isRecentFailure = (event: TokoMemoryEvent, now: number): boolean =>
   event.kind === 'test-fail' && now - event.at <= 10 * MINUTE
@@ -68,10 +68,11 @@ export type OfferKind =
   | 'chat'
   | 'calm-down'
   | 'plaza-stretch'
+  | 'focus-break'
 
-export const OFFER_KINDS: readonly OfferKind[] = ['stretch', 'eye-rest', 'water', 'nap', 'briefing', 'unstick', 'wrapup', 'gift', 'bugs', 'chat', 'calm-down', 'plaza-stretch']
+export const OFFER_KINDS: readonly OfferKind[] = ['stretch', 'eye-rest', 'water', 'nap', 'briefing', 'unstick', 'wrapup', 'gift', 'bugs', 'chat', 'calm-down', 'plaza-stretch', 'focus-break']
 
-export const BREAK_KINDS: ReadonlySet<string> = new Set(['stretch', 'eye-rest', 'water', 'nap', 'unstick', 'calm-down', 'plaza-stretch'])
+export const BREAK_KINDS: ReadonlySet<string> = new Set(['stretch', 'eye-rest', 'water', 'nap', 'unstick', 'calm-down', 'plaza-stretch', 'focus-break'])
 
 export type SimContext = {
   now: number
