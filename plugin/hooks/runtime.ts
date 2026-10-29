@@ -324,7 +324,7 @@ export const HELP = [
   '/toko notify on | off — 집중이 끝나면 OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
   '/toko sessions [번호] — 옆 세션 목록 · 번호를 주면 그 세션 요약',
-  '/toko send <번호> <내용> | send! <번호> <내용> — 옆 세션 입력창에 넣기 · 그 세션이 쉬고 있으면 바로 보내기',
+  '/toko send <번호> <내용> — 옆 세션에 보내기 · 그 세션이 일하는 중이면 끝난 뒤 보내기',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
@@ -467,10 +467,10 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<Command
   return (await subcommand($, ctx, args)) ?? chatCommand($, ctx, args.trim())
 }
 
-const SEND = /^\s*send(!?)\s+(\d+)\s+([\s\S]+)$/
+const SEND = /^\s*send\s+(\d+)\s+([\s\S]+)$/
 
 export async function commandTool($: $, ctx: Ctx, args: string): Promise<string> {
-  if (/^\s*send!?(\s|$)/.test(args)) {
+  if (/^\s*send(\s|$)/.test(args)) {
     return '다른 세션에 보내기는 사람이 /toko send 로 직접 해야 해요.'
   }
   return (await subcommand($, ctx, args))?.text ?? `그런 명령은 없어요. 쓸 수 있는 명령:\n${HELP}`
@@ -587,11 +587,10 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
     }
     case 'sessions':
       return { text: value === undefined ? await peersText($, brain) : await summarizePeer($, brain, Number(value)) }
-    case 'send':
-    case 'send!': {
+    case 'send': {
       const match = SEND.exec(args)
-      const text = match?.[3]?.trim() ?? ''
-      return match === null || text === '' ? { text: '예: /toko send 2 로그도 같이 봐 줘' } : { text: await sendToPeer($, brain, Number(match[2]), text, match[1] === '!') }
+      const text = match?.[2]?.trim() ?? ''
+      return match === null || text === '' ? { text: '예: /toko send 2 로그도 같이 봐 줘' } : { text: await sendToPeer($, brain, Number(match[1]), text) }
     }
     case 'feed':
       return { text: await feedCommand($, ctx) }

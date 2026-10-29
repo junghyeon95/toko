@@ -1843,41 +1843,37 @@ export async function summarizePeer($: $, brain: Brain, index: number): Promise<
   return lines.length === 0 ? `${header}\n요약은 못 했어요(작은 모델을 쓸 수 없어요).` : [header, ...lines].join('\n')
 }
 
-export async function sendToPeer($: $, brain: Brain, index: number, text: string, isSubmit: boolean): Promise<string> {
+export async function sendToPeer($: $, brain: Brain, index: number, text: string): Promise<string> {
   const peer = (await listPeers($, brain))[index - 1]
   if (peer === undefined) {
     return NO_PEER
   }
   const sessionId = peer.key.slice(KEY.signalPrefix.length)
   const id = `${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`
-  await $.store.set(`${inboxKeyPrefix(sessionId)}${id}`, { text, isSubmit, from: brain.signal?.label ?? '', at: brain.now })
-  const name = sessionName(peer.signal)
-  return isSubmit ? `${name}에 보냈어요. 그 세션이 쉬고 있으면 바로 보내고, 아니면 입력창에 넣어요.` : `${name} 입력창에 넣어 달라고 전했어요.`
+  await $.store.set(`${inboxKeyPrefix(sessionId)}${id}`, { text, from: brain.signal?.label ?? '', at: brain.now })
+  return `${sessionName(peer.signal)}에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.`
 }
 
 async function deliverInbox($: $, brain: Brain): Promise<void> {
+  if (brain.isTurnRunning) {
+    return
+  }
   const keys = (await $.store.keys()).filter(key => key.startsWith(inboxKeyPrefix(brain.sessionId)))
   const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
   const next = entries.flatMap(entry => (isMessage(entry.value) ? [{ key: entry.key, message: entry.value }] : [])).sort((a, b) => a.message.at - b.message.at)[0]
   if (next === undefined) {
     return
   }
-  const { text, isSubmit, from } = next.message
   const box = await $.prompt.read()
-  const isSent = isSubmit && !brain.isTurnRunning && box.text.trim() === ''
-  if (isSent) {
-    await $.store.delete(next.key)
-    void $.prompt.submit({ text, asUser: true }).catch(() => $.store.set(next.key, next.message))
-  } else {
-    const filled = await $.prompt.fill({ text: box.text.trim() === '' ? text : ` ${text}`, mode: 'append' })
-    if (!filled.isFilled) {
-      return
-    }
-    await $.store.delete(next.key)
+  if (box.text.trim() !== '') {
+    return
   }
+  const { text, from } = next.message
+  await $.store.delete(next.key)
+  void $.prompt.submit({ text, asUser: true }).catch(() => $.store.set(next.key, next.message))
   act(brain, direct.greet(), PRIORITY.reaction)
   if (!isHushed(brain)) {
-    const parts = inboxParts(from, isSent, speciesOf(brain))
+    const parts = inboxParts(from, speciesOf(brain))
     await say($, brain, parts.map(part => part.text).join(''), 'say', parts)
   }
 }

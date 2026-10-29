@@ -14,7 +14,7 @@ export type PeerSignal = {
   turnStartedAt?: number
 }
 
-export type PeerMessage = { text: string; isSubmit: boolean; from: string; at: number }
+export type PeerMessage = { text: string; from: string; at: number }
 
 export type Peer = { key: string; signal: PeerSignal }
 
@@ -52,7 +52,7 @@ export const isMessage = (value: unknown): value is PeerMessage => {
     return false
   }
   const raw = value as Record<string, unknown>
-  return typeof raw.text === 'string' && raw.text.trim() !== '' && typeof raw.isSubmit === 'boolean' && typeof raw.from === 'string' && typeof raw.at === 'number'
+  return typeof raw.text === 'string' && raw.text.trim() !== '' && typeof raw.from === 'string' && typeof raw.at === 'number'
 }
 
 export const isAlive = (signal: PeerSignal, now: number): boolean => now - (signal.aliveAt ?? signal.at) < ALIVE_MS
@@ -161,5 +161,5 @@ export const signalParts = (signal: PeerSignal, species: TokoSpecies): readonly 
     ? voiced(species, subjectParts(signal.label, '다른 세션이 ', ' '), '확인을 기다려', 'warning')
     : voiced(species, subjectParts(signal.label, '다른 세션이 ', ' '), '끝났어')
 
-export const inboxParts = (from: string, isSent: boolean, species: TokoSpecies): readonly TokoBubblePart[] =>
-  voiced(species, [...subjectParts(from, '옆 세션', ''), { text: '에서 할 일이 왔어. ' }], isSent ? '바로 보냈어' : '입력창에 넣어 뒀어')
+export const inboxParts = (from: string, species: TokoSpecies): readonly TokoBubblePart[] =>
+  voiced(species, [...subjectParts(from, '옆 세션', ''), { text: '에서 할 일이 왔어. ' }], '바로 보냈어')

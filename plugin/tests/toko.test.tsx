@@ -510,52 +510,47 @@ test('/toko send leaves a message for that session, keeping its lines', async ($
   const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
   await begin($)
   const sent = await $.command.run({ command: 'toko', args: 'send 1 로그도\n같이 봐 줘' } as never)
-  expect(sent.text).toBe('「A」 입력창에 넣어 달라고 전했어요.')
+  expect(sent.text).toBe('「A」에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.')
   const keys = [...world.store.keys()].filter(key => key.startsWith('toko:inbox:session-3:'))
   expect(keys.length).toBe(1)
-  expect(world.store.get(keys[0] ?? '')).toMatchObject({ text: '로그도\n같이 봐 줘', isSubmit: false })
+  expect(world.store.get(keys[0] ?? '')).toMatchObject({ text: '로그도\n같이 봐 줘' })
   expect((await $.command.run({ command: 'toko', args: 'send 9 아무거나' } as never)).text).toContain('그런 번호의 옆 세션이 없어요')
 })
 
-test('a message from another session lands in the prompt box and the pet says where it came from', async ($, on) => {
+test('a message from another session is sent as the user and the pet says where it came from', async ($, on) => {
   const clock = mock.clock(on, { now: START })
-  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', isSubmit: false, from: '배포 확인', at: START } })
+  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', from: '배포 확인', at: START } })
   on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
-  await begin($)
-  await clock.advance(3000)
-  expect(world.filled).toEqual(['로그 봐 줘'])
-  expect(world.submitted).toEqual([])
-  expect(world.store.has('toko:inbox:session-1:m1')).toBe(false)
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /「배포 확인」에서 할 일이 왔어\. 입력창에 넣어 뒀어 펭!/ })).toBeDefined()
-  await ui.unmount()
-})
-
-test('a message stays in the inbox while the prompt box cannot take it', async ($, on) => {
-  const clock = mock.clock(on, { now: START })
-  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', isSubmit: false, from: '', at: START } })
-  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
-  world.isFillRefused = true
-  await begin($)
-  await clock.advance(3000)
-  expect(world.store.has('toko:inbox:session-1:m1')).toBe(true)
-})
-
-test('send! goes straight in when the session is idle with an empty box, and only fills a box that has a draft', async ($, on) => {
-  const clock = mock.clock(on, { now: START })
-  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', isSubmit: true, from: '배포 확인', at: START } })
-  let draft = ''
-  on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }) as never)
   await begin($)
   await clock.advance(3000)
   expect(world.submitted).toEqual(['로그 봐 줘'])
   expect(world.submittedAsUser).toEqual([true])
   expect(world.filled).toEqual([])
-  draft = '작성 중'
-  world.store.set('toko:inbox:session-1:m2', { text: '이것도', isSubmit: true, from: '배포 확인', at: START + 3000 })
+  expect(world.store.has('toko:inbox:session-1:m1')).toBe(false)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /「배포 확인」에서 할 일이 왔어\. 바로 보냈어 펭!/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a message waits in the inbox while the session works or the box has a draft, then goes in', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  let draft = '작성 중'
+  on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }) as never)
+  await begin($)
+  world.store.set('toko:inbox:session-1:m1', { text: '로그 봐 줘', from: '배포 확인', at: START })
+  await clock.advance(3000)
+  expect(world.submitted).toEqual([])
+  expect(world.filled).toEqual([])
+  expect(world.store.has('toko:inbox:session-1:m1')).toBe(true)
+  draft = ''
+  await $.turn.start({ text: 'fix it', turnId: 't1' } as never)
+  await clock.advance(3000)
+  expect(world.store.has('toko:inbox:session-1:m1')).toBe(true)
+  await $.turn.complete({ answer: 'done', durationMs: 3000, isAborted: false, turnId: 't1', reason: 'answer', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude' } })
   await clock.advance(3000)
   expect(world.submitted).toEqual(['로그 봐 줘'])
-  expect(world.filled).toEqual([' 이것도'])
+  expect(world.store.has('toko:inbox:session-1:m1')).toBe(false)
 })
 
 test('a session starting or working tells other sessions nothing, while one finishing still does', async ($, on) => {
@@ -576,7 +571,7 @@ test('Claude cannot send into other sessions through the toko tool', async ($, o
   mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
   await begin($)
-  const answer = await $.tool.call({ tool: 'mcp__toko__command', args: 'send! 1 rm -rf build' } as never)
+  const answer = await $.tool.call({ tool: 'mcp__toko__command', args: 'send 1 rm -rf build' } as never)
   expect(String(answer.result)).toBe('다른 세션에 보내기는 사람이 /toko send 로 직접 해야 해요.')
   expect([...world.store.keys()].some(key => key.startsWith('toko:inbox:'))).toBe(false)
 })
