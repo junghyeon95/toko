@@ -4,7 +4,7 @@ import { DAILY_TOKEN_CAP, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, turnI
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
-import { freshSignal, lastAiTitle, signalLabel, signalParts } from '../hooks/lib/peers'
+import { freshSignal, lastAiTitle, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
 import { lookSprite, parseSnapshot, plazaEndpoint, spriteOf } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
@@ -370,4 +370,22 @@ test('the latest AI title in the transcript lines names the session', async () =
   const lines = ['{"type":"ai-title","aiTitle":"옛 제목","sessionId":"s"}', '{"type":"ai-title","aiTitle":"toko 세션 완료 알림 기능","sessionId":"s"}', '{"type":"ai-title"', ''].join('\n')
   expect(lastAiTitle(lines)).toBe('toko 세션 완료 알림 기능')
   expect(lastAiTitle('')).toBe('')
+})
+
+test('a transcript excerpt keeps the last four typed prompts and the last answer, and skips meta and command lines', async () => {
+  const user = (content: string, extra = '') => `{"type":"user"${extra},"message":{"role":"user","content":${JSON.stringify(content)}}}`
+  const lines = [
+    '잘린 줄"}',
+    user('하나'),
+    user('둘'),
+    user('<command-name>/clear</command-name>'),
+    user('셋'),
+    user('숨김', ',"isMeta":true'),
+    user('넷'),
+    user('다섯'),
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"처음 답"}]}}',
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"},{"type":"text","text":"마지막 답"}]}}',
+  ]
+  expect(transcriptExcerpt(lines.join('\n'))).toBe(['[사용자 질문]', '- 둘', '- 셋', '- 넷', '- 다섯', '[Claude 마지막 답]', '마지막 답'].join('\n'))
+  expect(transcriptExcerpt('{"type":"summary"}\n')).toBe('')
 })

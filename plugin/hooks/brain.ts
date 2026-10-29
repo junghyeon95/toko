@@ -42,8 +42,8 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
-import { freshSignal, isSignal, lastAiTitle, signalParts } from './lib/peers'
-import type { PeerSignal } from './lib/peers'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
@@ -96,6 +96,7 @@ export const KEY = {
   marks: 'toko:marks',
   earnPrefix: 'toko:earn:',
   signalPrefix: 'toko:signal:',
+  inboxPrefix: 'toko:inbox:',
   stats: 'toko:stats',
   tallyPrefix: 'toko:tally:',
   badges: 'toko:badges',
@@ -105,6 +106,7 @@ export const KEY = {
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
+export const HEARTBEAT_MS = 60_000
 
 export const DEFAULT_SETTINGS: TokoSettings = {
   isMuted: false,
@@ -199,6 +201,7 @@ export type Brain = {
   promptLabel: string
   sessionTitle: string
   transcriptPath: string
+  signal: PeerSignal | null
   peersSeenAt: number
   visitor: TokoVisitor | null
   visitorVisibleMs: number
@@ -269,6 +272,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   promptLabel: '',
   sessionTitle: '',
   transcriptPath: '',
+  signal: null,
   peersSeenAt: 0,
   visitor: null,
   visitorVisibleMs: 0,
@@ -317,7 +321,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   const earnKeys = keys.filter(key => key.startsWith(KEY.earnPrefix))
   const earns = await Promise.all(earnKeys.map(async key => ({ key, value: await $.store.get(key) })))
   await settleEarnings($, brain, earns, day)
-  await dropStaleSignals($, keys.filter(key => key.startsWith(KEY.signalPrefix)), day)
+  await dropStaleSignals($, keys.filter(key => key.startsWith(KEY.signalPrefix)), now)
   brain.peersSeenAt = now
   brain.earn = emptyEarn(day)
   const tallyKeys = keys.filter(key => key.startsWith(KEY.tallyPrefix))
@@ -349,10 +353,10 @@ async function settleEarnings($: $, brain: Brain, earns: readonly { key: string;
   }
 }
 
-async function dropStaleSignals($: $, keys: readonly string[], day: string): Promise<void> {
+async function dropStaleSignals($: $, keys: readonly string[], now: number): Promise<void> {
   for (const key of keys) {
     const value = await $.store.get(key)
-    if (!isSignal(value) || dayKey(value.at) !== day) {
+    if (!isSignal(value) || !isAlive(value, now)) {
       await $.store.delete(key)
     }
   }
@@ -1358,9 +1362,7 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
     brain.countdown = null
     await update($, countdownAtom, () => null)
   }
-  if (reason !== 'aborted') {
-    await signalPeers($, brain, 'done')
-  }
+  await signalPeers($, brain, reason === 'aborted' ? 'idle' : 'done')
   if (reason !== 'answer' || usage === undefined) {
     act(brain, direct.flinch(), PRIORITY.reaction)
     return
@@ -1782,18 +1784,109 @@ async function aiTitleOf($: $, path: string): Promise<string> {
   }
 }
 
+const inboxKeyPrefix = (sessionId: string): string => `${KEY.inboxPrefix}${sessionId}:`
+
 export async function signalPeers($: $, brain: Brain, kind: PeerSignal['kind']): Promise<void> {
   const aiTitle = brain.sessionTitle === '' ? await aiTitleOf($, brain.transcriptPath) : ''
   const label = brain.sessionTitle !== '' ? brain.sessionTitle : aiTitle !== '' ? aiTitle : brain.promptLabel
-  const signal: PeerSignal = { kind, at: brain.now, label }
-  await $.store.set(signalKey(brain), signal)
+  await writeSignal($, brain, { kind, at: brain.now, label, since: brain.signal?.since ?? brain.now })
+}
+
+async function writeSignal($: $, brain: Brain, signal: PeerSignal): Promise<void> {
+  brain.signal = { ...signal, aliveAt: brain.now, prompt: brain.promptLabel, path: brain.transcriptPath, turnStartedAt: brain.turnStartedAt }
+  await $.store.set(signalKey(brain), brain.signal)
 }
 
 export async function forgetSignal($: $, brain: Brain): Promise<void> {
   await $.store.delete(signalKey(brain))
+  const inbox = (await $.store.keys()).filter(key => key.startsWith(inboxKeyPrefix(brain.sessionId)))
+  await Promise.all(inbox.map(key => $.store.delete(key)))
+}
+
+async function listPeers($: $, brain: Brain): Promise<readonly Peer[]> {
+  const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.signalPrefix))
+  const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
+  return peerList(entries, signalKey(brain), brain.now)
+}
+
+export async function peersText($: $, brain: Brain): Promise<string> {
+  return sessionsText(await listPeers($, brain), brain.now)
+}
+
+const NO_PEER = '그런 번호의 옆 세션이 없어요. /toko sessions 로 번호를 확인해 주세요.'
+const TRANSCRIPT_TAIL_BYTES = 200_000
+
+export async function summarizePeer($: $, brain: Brain, index: number): Promise<string> {
+  const peer = (await listPeers($, brain))[index - 1]
+  if (peer === undefined) {
+    return NO_PEER
+  }
+  const header = sessionLine(peer.signal, brain.now)
+  const path = peer.signal.path ?? ''
+  if (path === '') {
+    return `${header}\n대화 기록 위치를 몰라서 요약은 못 했어요.`
+  }
+  const tail = await $.process
+    .run(['tail', '-c', String(TRANSCRIPT_TAIL_BYTES), path], { timeoutMs: 2000 })
+    .then(result => result.stdout)
+    .catch(() => '')
+  const excerpt = transcriptExcerpt(tail)
+  if (excerpt === '') {
+    return `${header}\n요약할 대화가 아직 없어요.`
+  }
+  const reply = await ask($, brain, persona.peerSummaryPrompt(peer.signal.label, excerpt), 200, 8000)
+  const lines = (reply ?? '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '')
+    .slice(0, 3)
+  return lines.length === 0 ? `${header}\n요약은 못 했어요(작은 모델을 쓸 수 없어요).` : [header, ...lines].join('\n')
+}
+
+export async function sendToPeer($: $, brain: Brain, index: number, text: string, isSubmit: boolean): Promise<string> {
+  const peer = (await listPeers($, brain))[index - 1]
+  if (peer === undefined) {
+    return NO_PEER
+  }
+  const sessionId = peer.key.slice(KEY.signalPrefix.length)
+  const id = `${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`
+  await $.store.set(`${inboxKeyPrefix(sessionId)}${id}`, { text, isSubmit, from: brain.signal?.label ?? '', at: brain.now })
+  const name = sessionName(peer.signal)
+  return isSubmit ? `${name}에 보냈어요. 그 세션이 쉬고 있으면 바로 보내고, 아니면 입력창에 넣어요.` : `${name} 입력창에 넣어 달라고 전했어요.`
+}
+
+async function deliverInbox($: $, brain: Brain): Promise<void> {
+  const keys = (await $.store.keys()).filter(key => key.startsWith(inboxKeyPrefix(brain.sessionId)))
+  const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
+  const next = entries.flatMap(entry => (isMessage(entry.value) ? [{ key: entry.key, message: entry.value }] : [])).sort((a, b) => a.message.at - b.message.at)[0]
+  if (next === undefined) {
+    return
+  }
+  const { text, isSubmit, from } = next.message
+  const box = await $.prompt.read()
+  const isSent = isSubmit && !brain.isTurnRunning && box.text.trim() === ''
+  if (isSent) {
+    await $.store.delete(next.key)
+    void $.prompt.submit({ text, asUser: true }).catch(() => $.store.set(next.key, next.message))
+  } else {
+    const filled = await $.prompt.fill({ text: box.text.trim() === '' ? text : ` ${text}`, mode: 'append' })
+    if (!filled.isFilled) {
+      return
+    }
+    await $.store.delete(next.key)
+  }
+  act(brain, direct.greet(), PRIORITY.reaction)
+  if (!isHushed(brain)) {
+    const parts = inboxParts(from, isSent, speciesOf(brain))
+    await say($, brain, parts.map(part => part.text).join(''), 'say', parts)
+  }
 }
 
 export async function pollPeers($: $, brain: Brain): Promise<void> {
+  if (brain.signal !== null && brain.now - (brain.signal.aliveAt ?? 0) >= HEARTBEAT_MS) {
+    await writeSignal($, brain, brain.signal)
+  }
+  await deliverInbox($, brain)
   const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.signalPrefix))
   const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
   const signal = freshSignal(entries, signalKey(brain), brain.peersSeenAt)

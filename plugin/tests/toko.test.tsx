@@ -29,11 +29,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[] }
+type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; isFillRefused: boolean }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], saved: {}, store: memory, notified: [] }
+  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], saved: {}, store: memory, notified: [], isFillRefused: false }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -73,6 +73,9 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
     return { text: e.text }
   })
   on('prompt.fill', (_, e) => {
+    if (world.isFillRefused) {
+      return { isFilled: false }
+    }
     world.filled.push(e.text)
     return { isFilled: true }
   })
@@ -451,7 +454,7 @@ test('a finished turn and a permission request leave signals, and the session en
   await begin($)
   await $.prompt.submit({ text: 'fix   the login\nbug before lunch', origin: { kind: 'composer' } } as never)
   await runTurn($, clock, 400, 5000)
-  expect(world.saved['toko:signal:session-1']).toEqual({ kind: 'done', at: START + 5000, label: 'fix the login bug before' })
+  expect(world.saved['toko:signal:session-1']).toMatchObject({ kind: 'done', at: START + 5000, label: 'fix the login bug before' })
   await clock.advance(1000)
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' } } as never)
   expect((world.saved['toko:signal:session-1'] as { kind: string }).kind).toBe('waiting')
@@ -459,14 +462,132 @@ test('a finished turn and a permission request leave signals, and the session en
   expect(world.store.has('toko:signal:session-1')).toBe(false)
 })
 
-test('an aborted turn leaves no signal', async ($, on) => {
+test('an aborted turn leaves the session idle, not done', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET })
   await begin($)
   await $.turn.start({ text: 'fix it', turnId: 't1' } as never)
   await clock.advance(3000)
   await $.turn.complete({ answer: '', durationMs: 3000, isAborted: true, turnId: 't1', reason: 'aborted' } as never)
-  expect(world.saved['toko:signal:session-1']).toBeUndefined()
+  expect((world.saved['toko:signal:session-1'] as { kind: string }).kind).toBe('idle')
+})
+
+const PEER_A = { kind: 'working', at: START - 2 * 60_000, label: 'A', since: START - 90 * 60_000, aliveAt: START - 10_000, turnStartedAt: START - 2 * 60_000, prompt: '배포 로그 봐 줘', path: '/work/a.jsonl' }
+const PEER_B = { kind: 'done', at: START - 5 * 60_000, label: 'B', since: START - 60 * 60_000, aliveAt: START - 30_000 }
+
+test('/toko sessions lists live sessions in the order they started, without itself or the gone ones', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': PEER_B, 'toko:signal:session-3': PEER_A })
+  await begin($)
+  world.store.set('toko:signal:session-4', { kind: 'done', at: START - 10 * 60_000, label: '닫힌 세션', since: START - 100 * 60_000, aliveAt: START - 4 * 60_000 })
+  const listed = await $.command.run({ command: 'toko', args: 'sessions' } as never)
+  expect(listed.text).toBe(['옆 세션 2개', '1. 「A」 작업 중 · 2분째', '   마지막 질문: 배포 로그 봐 줘', '2. 「B」 끝남 · 5분 전', '/toko sessions <번호> 요약 · /toko send <번호> <내용> 보내기'].join('\n'))
+})
+
+test('/toko sessions with no other session says so', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'sessions' } as never)).text).toBe('옆 세션이 없어요.')
+})
+
+test('/toko sessions <n> summarizes the end of that session’s transcript with the small model', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A }, '하는 중: 배포 확인\n어디까지: 롤아웃 OK\n막힌 것: 없음')
+  const tail = ['{"type":"user","message":{"role":"user","content":"배포 확인해 줘"}}', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"롤아웃 OK"}]}}'].join('\n')
+  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv[0] === 'tail' ? `잘린 앞줄"}\n${tail}\n` : '', stderr: '' } }) as never)
+  await begin($)
+  const summary = await $.command.run({ command: 'toko', args: 'sessions 1' } as never)
+  expect(summary.text).toBe(['「A」 작업 중 · 2분째', '하는 중: 배포 확인', '어디까지: 롤아웃 OK', '막힌 것: 없음'].join('\n'))
+  expect(world.models.at(-1)).toContain('- 배포 확인해 줘')
+  expect(world.models.at(-1)).toContain('롤아웃 OK')
+  await $.command.run({ command: 'toko', args: 'ai off' } as never)
+  expect((await $.command.run({ command: 'toko', args: 'sessions 1' } as never)).text).toBe('「A」 작업 중 · 2분째\n요약은 못 했어요(작은 모델을 쓸 수 없어요).')
+})
+
+test('/toko send leaves a message for that session, keeping its lines', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
+  await begin($)
+  const sent = await $.command.run({ command: 'toko', args: 'send 1 로그도\n같이 봐 줘' } as never)
+  expect(sent.text).toBe('「A」 입력창에 넣어 달라고 전했어요.')
+  const keys = [...world.store.keys()].filter(key => key.startsWith('toko:inbox:session-3:'))
+  expect(keys.length).toBe(1)
+  expect(world.store.get(keys[0] ?? '')).toMatchObject({ text: '로그도\n같이 봐 줘', isSubmit: false })
+  expect((await $.command.run({ command: 'toko', args: 'send 9 아무거나' } as never)).text).toContain('그런 번호의 옆 세션이 없어요')
+})
+
+test('a message from another session lands in the prompt box and the pet says where it came from', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', isSubmit: false, from: '배포 확인', at: START } })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
+  await begin($)
+  await clock.advance(3000)
+  expect(world.filled).toEqual(['로그 봐 줘'])
+  expect(world.submitted).toEqual([])
+  expect(world.store.has('toko:inbox:session-1:m1')).toBe(false)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /「배포 확인」에서 할 일이 왔어\. 입력창에 넣어 뒀어 펭!/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a message stays in the inbox while the prompt box cannot take it', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', isSubmit: false, from: '', at: START } })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
+  world.isFillRefused = true
+  await begin($)
+  await clock.advance(3000)
+  expect(world.store.has('toko:inbox:session-1:m1')).toBe(true)
+})
+
+test('send! goes straight in when the session is idle with an empty box, and only fills a box that has a draft', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', isSubmit: true, from: '배포 확인', at: START } })
+  let draft = ''
+  on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }) as never)
+  await begin($)
+  await clock.advance(3000)
+  expect(world.submitted).toEqual(['로그 봐 줘'])
+  expect(world.submittedAsUser).toEqual([true])
+  expect(world.filled).toEqual([])
+  draft = '작성 중'
+  world.store.set('toko:inbox:session-1:m2', { text: '이것도', isSubmit: true, from: '배포 확인', at: START + 3000 })
+  await clock.advance(3000)
+  expect(world.submitted).toEqual(['로그 봐 줘'])
+  expect(world.filled).toEqual([' 이것도'])
+})
+
+test('a session starting or working tells other sessions nothing, while one finishing still does', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  world.store.set('toko:signal:session-2', { kind: 'working', at: START + 1000, label: '배포 확인', since: START, aliveAt: START + 1000 })
+  await clock.advance(3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /배포 확인/ })).toBeUndefined()
+  world.store.set('toko:signal:session-2', { kind: 'done', at: START + 4000, label: '배포 확인', since: START, aliveAt: START + 4000 })
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /「배포 확인」 끝났어 펭!/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Claude cannot send into other sessions through the toko tool', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
+  await begin($)
+  const answer = await $.tool.call({ tool: 'mcp__toko__command', args: 'send! 1 rm -rf build' } as never)
+  expect(String(answer.result)).toBe('다른 세션에 보내기는 사람이 /toko send 로 직접 해야 해요.')
+  expect([...world.store.keys()].some(key => key.startsWith('toko:inbox:'))).toBe(false)
+})
+
+test('a session keeps itself listed with a heartbeat while it sits idle', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  expect((world.saved['toko:signal:session-1'] as { kind: string }).kind).toBe('idle')
+  await clock.advance(10 * 60_000)
+  expect((world.saved['toko:signal:session-1'] as { aliveAt: number }).aliveAt).toBeGreaterThan(START + 8 * 60_000)
 })
 
 test('its own signal, signals from before it started and quiet hours stay silent', async ($, on) => {
@@ -646,7 +767,8 @@ test('a session without a name signals under the AI title its tab shows', async 
   await $.classic.UserPromptSubmit({ prompt: '응 진행해줘', transcript_path: '/work/session-1.jsonl' } as never)
   await $.prompt.submit({ text: '응 진행해줘', origin: { kind: 'composer' } } as never)
   await runTurn($, clock, 400, 5000)
-  expect(runs).toEqual([['grep', '-F', '"type":"ai-title"', '/work/session-1.jsonl']])
+  expect(runs.length).toBeGreaterThan(0)
+  expect(runs.every(run => run.join(' ') === 'grep -F "type":"ai-title" /work/session-1.jsonl')).toBe(true)
   expect((world.saved['toko:signal:session-1'] as { label: string }).label).toBe('toko 세션 완료 알림 기능')
 })
 

@@ -410,6 +410,14 @@ const hasFinalConsonant = (word: string): boolean => {
 
 const calling = (name: string): string => (hasFinalConsonant(name) ? `${name}이` : name)
 
+export const peerSummaryPrompt = (label: string, excerpt: string): string =>
+  [
+    `옆 세션「${label || '이름 없는 세션'}」의 대화 끝부분이야. 이 세션이 지금 어떤 상태인지 사용자에게 알려 줘.`,
+    '정확히 세 줄로만 답해. 줄마다 "하는 중: ", "어디까지: ", "막힌 것: " 으로 시작하고, 한 줄은 40자 안팎. 막힌 게 없으면 "막힌 것: 없음".',
+    '',
+    excerpt,
+  ].join('\n')
+
 export const bonkMessage = (petName: string, reason: string): string =>
   [
     `${calling(petName)}가 뿅망치로 너를 콩 때렸어. 이유: ${reason.trim() || '그냥 기분이 그랬어'}`,

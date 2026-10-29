@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -175,6 +175,7 @@ export async function start($: $, ctx: Ctx): Promise<void> {
   await registerSurfaces($)
   ensureScene(brain, 80)
   await sync($, brain)
+  await signalPeers($, brain, 'idle')
   ctx.loop?.cancel()
   ctx.loop = $.clock.every(TICK_MS, () => void frame($, ctx))
   if (brain.pet === null || brain.pet.growth.stage === 'egg') {
@@ -233,6 +234,7 @@ export async function turnStarted($: $, ctx: Ctx): Promise<void> {
   brain.turnStartedAt = brain.now
   brain.typedDuringTurn = false
   brain.longTurnStage = 0
+  await signalPeers($, brain, 'working')
   if (brain.offer !== null && brain.offer.kind !== 'bonk-end' && brain.offer.kind !== 'name') {
     await answerOffer($, brain, 'ignored')
   }
@@ -321,6 +323,8 @@ export const HELP = [
   '/toko ai on | off — 작은 모델 쓰기',
   '/toko notify on | off — 집중이 끝나면 OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
+  '/toko sessions [번호] — 옆 세션 목록 · 번호를 주면 그 세션 요약',
+  '/toko send <번호> <내용> | send! <번호> <내용> — 옆 세션 입력창에 넣기 · 그 세션이 쉬고 있으면 바로 보내기',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
@@ -463,7 +467,12 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<Command
   return (await subcommand($, ctx, args)) ?? chatCommand($, ctx, args.trim())
 }
 
+const SEND = /^\s*send(!?)\s+(\d+)\s+([\s\S]+)$/
+
 export async function commandTool($: $, ctx: Ctx, args: string): Promise<string> {
+  if (/^\s*send!?(\s|$)/.test(args)) {
+    return '다른 세션에 보내기는 사람이 /toko send 로 직접 해야 해요.'
+  }
   return (await subcommand($, ctx, args))?.text ?? `그런 명령은 없어요. 쓸 수 있는 명령:\n${HELP}`
 }
 
@@ -575,6 +584,14 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       }
       await openOffer($, brain, kind, offerLine(brain, kind))
       return { text: `${kind} 이벤트를 띄웠어요.` }
+    }
+    case 'sessions':
+      return { text: value === undefined ? await peersText($, brain) : await summarizePeer($, brain, Number(value)) }
+    case 'send':
+    case 'send!': {
+      const match = SEND.exec(args)
+      const text = match?.[3]?.trim() ?? ''
+      return match === null || text === '' ? { text: '예: /toko send 2 로그도 같이 봐 줘' } : { text: await sendToPeer($, brain, Number(match[2]), text, match[1] === '!') }
     }
     case 'feed':
       return { text: await feedCommand($, ctx) }
