@@ -3,9 +3,9 @@ import type { TokoMood, TokoSpecies } from '../../types'
 export type Grid = readonly string[]
 
 export const FEET = {
-  stand: '...oo......oo...',
-  stepA: '..oo.......oo...',
-  stepB: '...oo.......oo..',
+  stand: '...KK......KK...',
+  stepA: '..KK.......KK...',
+  stepB: '...KK.......KK..',
   tuck: '................',
 } as const
 
@@ -41,10 +41,10 @@ export type SpeciesArt = {
   body: Grid
   eyes: EyeStyle
   face: Face
-  colors: { o: string; b: string; l: string; p: string; t: string; m?: string }
-  child?: Mark
-  adult?: Mark
+  colors: { o: string; b: string; l: string; p: string; t: string; f: string; m?: string }
   hatDy: number
+  neckY: number
+  armY: number
   isFloating?: boolean
   mouths?: Partial<Record<MouthShape, MouthShape>>
   aura?: { near: string; far: string }
@@ -62,6 +62,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       'obbbbllllllbbbbo',
       '.obbbllllllbbbo.',
       '.obbbbllllbbbbo.',
@@ -70,10 +71,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'round',
     face: FACE,
-    colors: { o: '#332233', b: '#FFDD99', l: '#FFEECC', p: '#FF9999', t: '#EEBB77' },
-    child: { grid: ['..o..........o..'], dx: 0, dy: -1 },
-    adult: { grid: ['oo', 'bo', 'o.'], dx: -1, dy: 9 },
+    colors: { o: '#332233', b: '#FFDD99', l: '#FFEECC', p: '#FF9999', t: '#EEBB77', f: '#D9A35E' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   bear: {
     body: [
@@ -87,6 +88,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbbbllllllbbbbo',
       'obbbbbllllbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       '.obbbllllllbbbo.',
       '.obbbbllllbbbbo.',
       '..obbbbbbbbbbo..',
@@ -94,9 +96,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'dot',
     face: FACE,
-    colors: { o: '#331F11', b: '#C08A5A', l: '#F0DCC0', p: '#FF9988', t: '#9A6A40', m: '#442211' },
-    adult: { grid: ['oo', 'bo'], dx: -1, dy: 10 },
+    colors: { o: '#331F11', b: '#C08A5A', l: '#F0DCC0', p: '#FF9988', t: '#9A6A40', f: '#9A6A40', m: '#442211' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   chick: {
     body: [
@@ -110,6 +113,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       'obbbbbllllbbbbbo',
       '.obbbllllllbbbo.',
       '..obbbbbbbbbbo..',
@@ -117,9 +121,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'dot',
     face: FACE,
-    colors: { o: '#443311', b: '#FFE066', l: '#FFF4BB', p: '#FFAA88', t: '#FFCC33', m: '#FF8833' },
-    adult: { grid: ['o.', 'bo', 'o.'], dx: -1, dy: 8 },
+    colors: { o: '#443311', b: '#FFE066', l: '#FFF4BB', p: '#FFAA88', t: '#FFCC33', f: '#FF8833', m: '#FF8833' },
     hatDy: 1,
+    neckY: 8,
+    armY: 7,
   },
   bunny: {
     body: [
@@ -132,6 +137,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       'obbbbbllllbbbbbo',
       '.obbbllllllbbbo.',
       '.obbbbllllbbbbo.',
@@ -140,15 +146,17 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'round',
     face: FACE,
-    colors: { o: '#443344', b: '#F6F0F2', l: '#FFC8D8', p: '#FF99AA', t: '#FFFFFF' },
-    adult: { grid: ['oo', 'Wo', 'oo'], dx: -1, dy: 9 },
+    colors: { o: '#443344', b: '#F6F0F2', l: '#FFC8D8', p: '#FF99AA', t: '#FFFFFF', f: '#D99AAE' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   frog: {
     body: [
       '..oooo....oooo..',
       '.obbbbo..obbbbo.',
       '.obbbbboobbbbbo.',
+      'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
@@ -163,8 +171,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'round',
     face: { leftEye: [3, 2], rightEye: [11, 2], mouth: [7, 6], leftBlush: [2, 5], rightBlush: [13, 5] },
-    colors: { o: '#1F3322', b: '#8CD06A', l: '#E2F2B0', p: '#FF9999', t: '#5FA84A' },
+    colors: { o: '#1F3322', b: '#8CD06A', l: '#E2F2B0', p: '#FF9999', t: '#5FA84A', f: '#5FA84A' },
     hatDy: -1,
+    neckY: 7,
+    armY: 7,
   },
   penguin: {
     body: [
@@ -177,6 +187,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obllllllllllllbo',
       'obllllllllllllbo',
       'obbllllllllllbbo',
+      'obbllllllllllbbo',
       'obbbllllllllbbbo',
       '.obbllllllllbbo.',
       '.obbbllllllbbbo.',
@@ -185,8 +196,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'dot',
     face: FACE,
-    colors: { o: '#111A22', b: '#3A4A5C', l: '#FFFFFF', p: '#FFAABB', t: '#2A3644', m: '#FF9922' },
+    colors: { o: '#111A22', b: '#3A4A5C', l: '#FFFFFF', p: '#FFAABB', t: '#2A3644', f: '#FF9922', m: '#FF9922' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   fox: {
     body: [
@@ -199,6 +212,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbbbbbbbbbbbbbo',
       'olllbbbbbbbblllo',
       'obllllllllllllbo',
+      'obllllllllllllbo',
       'obbllllllllllbbo',
       '.obbbllllllbbbo.',
       '.obbbbllllbbbbo.',
@@ -207,9 +221,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'sparkle',
     face: FACE,
-    colors: { o: '#3A1F14', b: '#F28A3C', l: '#FFF1E2', p: '#FF7766', t: '#FFF1E2' },
-    adult: { grid: ['.oo', 'obb', 'obl', '.oo'], dx: -2, dy: 7 },
+    colors: { o: '#3A1F14', b: '#F28A3C', l: '#FFF1E2', p: '#FF7766', t: '#FFF1E2', f: '#C8692A' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   dragon: {
     body: [
@@ -217,6 +232,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       '..yyo......oyy..',
       '..obboooooobbo..',
       '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
@@ -230,9 +246,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'sparkle',
     face: FACE,
-    colors: { o: '#163330', b: '#5CC8A8', l: '#EAF8C8', p: '#FF99BB', t: '#3FA88C' },
-    adult: { grid: ['oy', 'bo', 'o.'], dx: -1, dy: 9 },
+    colors: { o: '#163330', b: '#5CC8A8', l: '#EAF8C8', p: '#FF99BB', t: '#3FA88C', f: '#3FA88C' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   unicorn: {
     body: [
@@ -245,6 +262,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       'obbbbllllllbbbbo',
       '.obbbllllllbbbo.',
       '.obbbbllllbbbbo.',
@@ -253,9 +271,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'sparkle',
     face: FACE,
-    colors: { o: '#443355', b: '#FAF6FF', l: '#E8DDFF', p: '#FFAACC', t: '#CCBBFF' },
-    adult: { grid: ['ok', 'kq', 'o.'], dx: -1, dy: 9 },
+    colors: { o: '#443355', b: '#FAF6FF', l: '#E8DDFF', p: '#FFAACC', t: '#CCBBFF', f: '#9A86D6' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
   ghost: {
     body: [
@@ -270,14 +289,17 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'oobbbbbbbbbbbblo',
       'obbbbbbbbbbbbblo',
       '.obbbbbbbbbbbblo',
+      '.obbbbbbbbbbbblo',
       '.obbbbbbbbbbbllo',
       '.obbbbobbbbobllo',
       '..oooo.oooo.ooo.',
     ],
     eyes: 'solid',
     face: { leftEye: [4, 6], rightEye: [10, 6], mouth: [7, 8], leftBlush: [3, 8], rightBlush: [12, 8] },
-    colors: { o: '#4B3A78', b: '#FBF8FF', l: '#E6DAFF', p: '#FFB3C7', t: '#E6DAFF', m: '#3D2B5E' },
+    colors: { o: '#4B3A78', b: '#FBF8FF', l: '#E6DAFF', p: '#FFB3C7', t: '#E6DAFF', f: '#8E7CC3', m: '#3D2B5E' },
     hatDy: 0,
+    neckY: 9,
+    armY: 7,
     isFloating: true,
     mouths: { small: 'smile' },
     aura: { near: '#FFC4DD', far: '#FFD9E8' },
@@ -293,6 +315,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       '.obbbbbbbbbbbbo.',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       'obbbbbllllbbbbbo',
       'obbbllllllllbbbo',
       '.obbbllllllbbbo.',
@@ -301,9 +324,10 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     ],
     eyes: 'sparkle',
     face: FACE,
-    colors: { o: '#441111', b: '#FF6633', l: '#FFCC55', p: '#FFDD88', t: '#FFAA22', m: '#FFDD44' },
-    adult: { grid: ['.y', 'Ro', 'yo', 'R.'], dx: -1, dy: 7 },
+    colors: { o: '#441111', b: '#FF6633', l: '#FFCC55', p: '#FFDD88', t: '#FFAA22', f: '#D9541F', m: '#FFDD44' },
     hatDy: 1,
+    neckY: 8,
+    armY: 7,
   },
   robot: {
     body: [
@@ -320,12 +344,15 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       'obbTTbbbbbbTTbbo',
       'obbbbbbbbbbbbbbo',
       'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
       '.oooooooooooooo.',
     ],
     eyes: 'round',
     face: FACE,
-    colors: { o: '#2A2F3A', b: '#AAB4C4', l: '#CCEEFF', p: '#FF99AA', t: '#FFCC44' },
+    colors: { o: '#2A2F3A', b: '#AAB4C4', l: '#CCEEFF', p: '#FF99AA', t: '#FFCC44', f: '#7A8494' },
     hatDy: 1,
+    neckY: 8,
+    armY: 7,
   },
   axolotl: {
     body: [
@@ -338,6 +365,7 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       '..obbbbbbbbbbo..',
       '..obbbbbbbbbbo..',
       '..obbbbbbbbbbo..',
+      '..obbbbbbbbbbo..',
       '..obbbllllbbbo..',
       '..obbllllllbbo..',
       '..obbbllllbbbo..',
@@ -345,10 +373,11 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
       '....oooooooo....',
     ],
     eyes: 'dot',
-    face: { ...FACE, leftBlush: [3, 7], rightBlush: [12, 7] },
-    colors: { o: '#663344', b: '#FFC4D6', l: '#FFE6EE', p: '#FF88AA', t: '#FF6699' },
-    adult: { grid: ['oo', 'bo'], dx: 1, dy: 10 },
+    face: { leftEye: [3, 5], rightEye: [11, 5], mouth: [7, 7], leftBlush: [3, 7], rightBlush: [12, 7] },
+    colors: { o: '#663344', b: '#FFC4D6', l: '#FFE6EE', p: '#FF88AA', t: '#FF6699', f: '#E8789A' },
     hatDy: 0,
+    neckY: 8,
+    armY: 7,
   },
 }
 
@@ -458,8 +487,8 @@ export const HATS: Readonly<Record<string, { grid: Grid; dx: number; dy: number 
 }
 
 export const NECKS: Readonly<Record<string, { grid: Grid; dx: number; dy: number }>> = {
-  scarf: { grid: ['.RRRRRRRRRRRR.', '..RRrr....RRR.', '..........RR..'], dx: 1, dy: 12 },
-  bowtie: { grid: ['RR..RR', 'RRrrRR', 'RR..RR'], dx: 5, dy: 12 },
+  scarf: { grid: ['.RRRRRRRRRRRR.', '..RRrr....RRR.', '..........RR..'], dx: 1, dy: 0 },
+  bowtie: { grid: ['RR..RR', 'RRrrRR', 'RR..RR'], dx: 5, dy: 0 },
 }
 
 export type Glasses = { lens: Grid; bridge: string }
@@ -566,6 +595,7 @@ export const paletteOf = (species: TokoSpecies): Palette => {
     ['l', body.l],
     ['p', body.p],
     ['T', body.t],
+    ['K', body.f],
     ...(m === undefined ? [] : [['m', m] as [string, string]]),
   ]
   return new Map(entries.map(([key, value]) => [key, hex(value)]))

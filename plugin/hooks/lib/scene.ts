@@ -54,6 +54,7 @@ import {
 } from './sprites'
 
 export const PET_WIDTH = 16
+export const PET_HEIGHT = 16
 export const BAND_ROWS = 8
 
 export type Pose =
@@ -446,9 +447,12 @@ const drawWear = (canvas: Canvas, palette: Palette, art: SpeciesArt, wear: Wear,
   if (hat !== undefined) {
     drawMark(canvas, palette, { ...hat, dy: hat.dy + art.hatDy }, x, y, scale, isFlipped)
   }
+}
+
+const drawNeck = (canvas: Canvas, palette: Palette, art: SpeciesArt, wear: Wear, x: number, y: number, scale: number, isFlipped: boolean): void => {
   const neck = wear.neck === undefined ? undefined : NECKS[wear.neck]
   if (neck !== undefined) {
-    drawMark(canvas, palette, { ...neck, dy: neck.dy - 3 }, x, y, scale, isFlipped)
+    drawMark(canvas, palette, { ...neck, dy: art.neckY + neck.dy }, x, y, scale, isFlipped)
   }
 }
 
@@ -476,18 +480,22 @@ const fillBlock = (canvas: Canvas, x: number, y: number, scale: number, color: n
   }
 }
 
-const drawArms = (canvas: Canvas, palette: Palette, arms: Frame['arms'], x: number, y: number, scale: number, isFlipped: boolean): void => {
+const drawArms = (canvas: Canvas, palette: Palette, art: SpeciesArt, arms: Frame['arms'], x: number, y: number, scale: number, isFlipped: boolean): void => {
   if (arms === undefined) {
     return
   }
   const body = palette.get('b') ?? 0
   const outline = palette.get('o') ?? 0
+  const row = art.body[art.armY] ?? ''
+  const left = row.search(/[^.]/) - 1
+  const right = row.length - [...row].reverse().join('').search(/[^.]/)
+  const at = art.armY
   const spots: readonly (readonly [number, number, number])[] =
     arms === 'up'
-      ? [[-1, 3, outline], [-1, 4, body], [-1, 5, outline], [16, 3, outline], [16, 4, body], [16, 5, outline]]
+      ? [[left, at - 2, outline], [left, at - 1, body], [left, at, outline], [right, at - 2, outline], [right, at - 1, body], [right, at, outline]]
       : arms === 'wave-a'
-        ? [[16, 4, outline], [16, 5, body], [17, 4, outline]]
-        : [[16, 7, outline], [16, 8, body], [17, 8, outline]]
+        ? [[right, at - 2, outline], [right, at - 1, body], [right + 1, at - 2, outline]]
+        : [[right, at, outline], [right, at + 1, body], [right + 1, at + 1, outline]]
   for (const [ax, ay, color] of spots) {
     fillBlock(canvas, x + (isFlipped ? PET_WIDTH - 1 - ax : ax) * scale, y + ay * scale, scale, color)
   }
@@ -578,20 +586,15 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   const isFlipped = scene.dir < 0
   const art = SPECIES_ART[look.bones.species]
   drawAura(canvas, scene, art, px, py, scale)
-  if (look.stage === 'adult' && art.adult !== undefined) {
-    drawMark(canvas, scene.palette, art.adult, px, py, scale, isFlipped)
-  }
-  if ((look.stage === 'child' || look.stage === 'adult') && art.child !== undefined) {
-    drawMark(canvas, scene.palette, art.child, px, py, scale, isFlipped)
-  }
   drawGrid(canvas, art.body, px, py, scene.palette, { scale })
   if (art.isFloating !== true) {
     const feetY = frame.feet === 'tuck' ? py : baseY
-    drawGrid(canvas, [FEET[frame.feet]], px, feetY + 14 * scale, scene.palette, { scale, isFlipped })
+    drawGrid(canvas, [FEET[frame.feet]], px, feetY + (PET_HEIGHT - 1) * scale, scene.palette, { scale, isFlipped })
   }
+  drawNeck(canvas, scene.palette, art, look, px, py, scale, false)
   drawFace(canvas, scene, frame, px, py, scale, scene.clock < scene.blinkUntil)
   drawWear(canvas, scene.palette, art, look, px, py, scale, false)
-  drawArms(canvas, scene.palette, frame.arms, px, py, scale, scene.dir < 0)
+  drawArms(canvas, scene.palette, art, frame.arms, px, py, scale, scene.dir < 0)
   drawHammer(canvas, scene, frame.hammer, px, py, scale)
 }
 
@@ -664,20 +667,21 @@ const drawVisitor = (canvas: Canvas, scene: Scene, visitor: Visitor): void => {
   const art = SPECIES_ART[species]
   const palette = visitor.species === 'shadow' ? scene.palette : paletteOf(species)
   const options: DrawOptions = visitor.species === 'shadow' ? { tint: SHADOW_TINT, isFlipped: visitor.dir < 0 } : { isFlipped: visitor.dir < 0 }
-  const y = 1 + frame.dy
+  const y = BAND_ROWS * 2 - PET_HEIGHT + frame.dy
   drawGrid(canvas, art.body, visitor.x, y, palette, options)
   if (art.isFloating !== true) {
-    drawGrid(canvas, [FEET[frame.feet]], visitor.x, 15, palette, options)
+    drawGrid(canvas, [FEET[frame.feet]], visitor.x, BAND_ROWS * 2 - 1, palette, options)
   }
   if (visitor.species === 'shadow') {
     return
   }
+  drawNeck(canvas, palette, art, visitor.wear, visitor.x, y, 1, visitor.dir < 0)
   const [left, right] = frame.eyes === undefined || frame.eyes === 'open' ? [VISITOR_EYE, VISITOR_EYE] : eyeGrids(art.eyes, frame.eyes)
   drawGrid(canvas, left, visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
   drawGrid(canvas, right, visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
   drawMouth(canvas, palette, art, frame.mouth ?? 'small', visitor.x, y, 1)
   drawWear(canvas, palette, art, visitor.wear, visitor.x, y, 1, visitor.dir < 0)
-  drawArms(canvas, palette, frame.arms, visitor.x, y, 1, visitor.dir < 0)
+  drawArms(canvas, palette, art, frame.arms, visitor.x, y, 1, visitor.dir < 0)
 }
 
 export const paint = (scene: Scene, canvas: Canvas): void => {
@@ -690,7 +694,7 @@ export const paint = (scene: Scene, canvas: Canvas): void => {
   }
   const pose = scene.current?.pose ?? 'idle'
   paintCritter(canvas, scene, pose, Math.round(scene.follower.x), canvas.height, scene.follower.dir, scene.follower.isMoving, 1)
-  paintPet(canvas, scene, pose, scene.clock - scene.stepAt, Math.round(scene.x), 1, 1)
+  paintPet(canvas, scene, pose, scene.clock - scene.stepAt, Math.round(scene.x), BAND_ROWS * 2 - PET_HEIGHT, 1)
   for (const effect of scene.effects) {
     drawGrid(canvas, EFFECT_GRIDS[effect.kind](scene.clock - effect.born), effect.x, effect.y, scene.palette)
   }
@@ -714,6 +718,6 @@ export const paintRoom = (scene: Scene, canvas: Canvas, items: readonly string[]
   }
   const pose = scene.current?.pose === 'sleep' ? 'sleep' : scene.look.mood === 'excited' ? 'dance' : 'idle'
   const petX = Math.round(canvas.width / 2 - PET_WIDTH)
-  paintPet(canvas, scene, pose, scene.clock, petX, floor - 30, 2)
+  paintPet(canvas, scene, pose, scene.clock, petX, floor - PET_HEIGHT * 2, 2)
   paintCritter(canvas, scene, pose === 'sleep' ? 'sleep' : 'sit', petX + PET_WIDTH * 2 + 4, floor + 2, -1, false, 2)
 }

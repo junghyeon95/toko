@@ -306,8 +306,8 @@ const STAY: Step[] = [{ pose: 'idle', ms: 60_000 }]
 test('a ghost toko glows pink around its body, and no other species does', async () => {
   const ghost = run(GHOST, STAY, 500)
   const x = Math.round(ghost.scene.x)
-  expect(colorsIn(ghost.canvas, x - 1, x).has(GLOW)).toBe(true)
-  expect(colorsIn(ghost.canvas, x + 16, x + 17).has(GLOW)).toBe(true)
+  expect(colorsIn(ghost.canvas, x, x + 1).has(GLOW)).toBe(true)
+  expect(colorsIn(ghost.canvas, x + 15, x + 16).has(GLOW)).toBe(true)
   expect(colorsIn(run(LOOK, STAY, 500).canvas, 0, 100).has(GLOW)).toBe(false)
 })
 
@@ -401,10 +401,11 @@ test('cells encode half blocks: a bottom pixel draws the lower block, transparen
   expect(toBase64(Uint8Array.of(1, 2, 3, 4))).toBe('AQIDBA==')
 })
 
-test('every species body fits the 16 by 14 pet frame', async () => {
+test('every species body fits the 16 by 15 pet frame, and a scarf or bowtie hangs right under the mouth', async () => {
   for (const species of SPECIES_IDS) {
     const body = SPECIES_ART[species].body
-    expect([species, body.length]).toEqual([species, 14])
+    expect([species, body.length]).toEqual([species, 15])
+    expect([species, SPECIES_ART[species].neckY]).toEqual([species, SPECIES_ART[species].face.mouth[1] + 1])
     expect(body.filter(row => row.length !== 16)).toEqual([])
   }
 })
