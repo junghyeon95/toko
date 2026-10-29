@@ -878,6 +878,77 @@ test('signals from an earlier day are cleared when a session starts', async ($, 
   expect(world.store.has('toko:signal:old')).toBe(false)
 })
 
+const LIVE = START + 3_600_000
+
+test('a session left waiting for permission over 10 minutes is pointed out once more, and 괜찮아 settles it', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { kind: 'waiting', at: START - 12 * 60_000, label: '배포', since: START - 60 * 60_000, aliveAt: LIVE } })
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /「배포」 12분째 확인을 기다려 펭!/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /대답: 요약 보기 · 다음 일 보내기 · 괜찮아/ })).toBeDefined()
+  await $.command.run({ command: 'toko', args: 'answer 괜찮아' } as never)
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /대답: 요약 보기/ })).toBeUndefined()
+  expect(world.store.get('toko:reminded:session-2')).toBe(START - 12 * 60_000)
+  await ui.unmount()
+})
+
+test('a session finished over 30 minutes ago is asked about, a fresher one is not', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, {
+    'toko:pet': PET,
+    'toko:signal:session-2': { kind: 'done', at: START - 20 * 60_000, label: '방금', since: START - 60 * 60_000, aliveAt: LIVE },
+    'toko:signal:session-3': { kind: 'done', at: START - 31 * 60_000, label: '리뷰', since: START - 90 * 60_000, aliveAt: LIVE },
+  })
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /「리뷰」 끝난 지 31분 됐어\. 안 봐도 돼\? 펭!/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /방금/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a session already answered or reminded about in any tab is not brought up again until it changes', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const old = { kind: 'done', at: START - 40 * 60_000, label: '리뷰', since: START - 90 * 60_000, aliveAt: LIVE }
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': old, 'toko:reminded:session-2': old.at })
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /리뷰/ })).toBeUndefined()
+  world.store.set('toko:signal:session-2', { ...old, kind: 'waiting', at: START - 11 * 60_000 })
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /「리뷰」 11분째 확인을 기다려/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('reminders keep quiet during a focus timer and with peers off', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { kind: 'waiting', at: START - 15 * 60_000, label: '배포', since: START - 60 * 60_000, aliveAt: LIVE } })
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await $.command.run({ command: 'toko', args: 'peers off' } as never)
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /배포/ })).toBeUndefined()
+  await $.command.run({ command: 'toko', args: 'peers on' } as never)
+  await $.command.run({ command: 'toko', args: 'focus 25' } as never)
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /배포/ })).toBeUndefined()
+  await $.command.run({ command: 'toko', args: 'focus off' } as never)
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: /「배포」 15분째 확인을 기다려/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a reminder about a session that is gone is cleared when a session starts', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:reminded:gone': START - 60_000 })
+  await begin($)
+  expect(world.store.has('toko:reminded:gone')).toBe(false)
+})
+
 test('/toko peers off keeps other sessions’ news to itself', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET })

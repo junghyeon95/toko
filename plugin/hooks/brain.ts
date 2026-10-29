@@ -55,7 +55,7 @@ import type { Addition } from './lib/news'
 import type { Limit } from './lib/meter'
 import { addTurn, isWorked, workText } from './lib/today'
 import type { WorkedSession } from './lib/today'
-import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, matchPeers, missText, peerList, sendTarget, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, leftAlone, matchPeers, missText, peerList, reminderParts, sendTarget, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
@@ -114,6 +114,7 @@ export const KEY = {
   signalPrefix: 'toko:signal:',
   inboxPrefix: 'toko:inbox:',
   replyPrefix: 'toko:reply:',
+  remindedPrefix: 'toko:reminded:',
   workedPrefix: 'toko:worked:',
   stats: 'toko:stats',
   tallyPrefix: 'toko:tally:',
@@ -414,6 +415,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   const earns = await Promise.all(earnKeys.map(async key => ({ key, value: await $.store.get(key) })))
   await settleEarnings($, brain, earns, day)
   await dropStaleSignals($, keys.filter(key => key.startsWith(KEY.signalPrefix)), now)
+  await dropStaleReminders($)
   await dropStaleWorked($, keys.filter(key => key.startsWith(KEY.workedPrefix)), day)
   brain.peersSeenAt = now
   brain.earn = emptyEarn(day)
@@ -456,6 +458,12 @@ async function dropStaleSignals($: $, keys: readonly string[], now: number): Pro
       await $.store.delete(key)
     }
   }
+}
+
+async function dropStaleReminders($: $): Promise<void> {
+  const keys = await $.store.keys()
+  const live = new Set(keys.filter(key => key.startsWith(KEY.signalPrefix)).map(key => key.slice(KEY.signalPrefix.length)))
+  await Promise.all(keys.filter(key => key.startsWith(KEY.remindedPrefix) && !live.has(key.slice(KEY.remindedPrefix.length))).map(key => $.store.delete(key)))
 }
 
 async function dropStaleWorked($: $, keys: readonly string[], day: string): Promise<void> {
@@ -2648,6 +2656,7 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
   const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
   const signal = freshSignal(entries, signalKey(brain), brain.peersSeenAt)
   if (signal === null) {
+    await remindPeer($, brain, entries)
     return
   }
   brain.peersSeenAt = signal.at
@@ -2663,12 +2672,35 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
   await say($, brain, line, 'say', parts)
 }
 
+const remindedKey = (peerKey: string): string => `${KEY.remindedPrefix}${peerKey.slice(KEY.signalPrefix.length)}`
+
+async function remindPeer($: $, brain: Brain, entries: readonly { key: string; value: unknown }[]): Promise<void> {
+  if (!brain.settings.isPeersOn || isHushed(brain) || brain.offer !== null) {
+    return
+  }
+  const peers = peerList(entries, signalKey(brain), brain.now)
+  const handled = new Map(await Promise.all(peers.map(async peer => [peer.key, await $.store.get(remindedKey(peer.key))] as const)))
+  const peer = leftAlone(peers, candidate => handled.get(candidate.key) === candidate.signal.at, brain.now)
+  if (peer === null) {
+    return
+  }
+  await $.store.set(remindedKey(peer.key), peer.signal.at)
+  const parts = reminderParts(peer.signal, brain.now, speciesOf(brain))
+  await openOffer($, brain, 'peer', parts.map(part => part.text).join(''), parts, peer.key)
+}
+
 async function answerPeer($: $, brain: Brain, choice: string, key: string): Promise<void> {
-  if (choice !== 'summary' && choice !== 'next') {
+  if (choice !== 'summary' && choice !== 'next' && choice !== 'later') {
     return
   }
   const peers = await listPeers($, brain)
   const peer = peers.find(candidate => candidate.key === key)
+  if (peer !== undefined) {
+    await $.store.set(remindedKey(peer.key), peer.signal.at)
+  }
+  if (choice === 'later') {
+    return
+  }
   if (peer === undefined) {
     await say($, brain, '그 세션이 이제 안 보여')
     return

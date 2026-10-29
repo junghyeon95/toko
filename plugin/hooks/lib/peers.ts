@@ -94,11 +94,22 @@ export const sessionLine = (signal: PeerSignal, now: number): string => {
 
 const URGENCY: Readonly<Record<PeerSignal['kind'], number>> = { waiting: 2, done: 1, working: 0, idle: 0 }
 
+const byUrgency = (a: { signal: PeerSignal }, b: { signal: PeerSignal }): number => URGENCY[b.signal.kind] - URGENCY[a.signal.kind] || a.signal.at - b.signal.at
+
+export const REMIND_WAITING_MS = 10 * MINUTE
+export const REMIND_DONE_MS = 30 * MINUTE
+
+const isLeftAlone = (signal: PeerSignal, now: number): boolean =>
+  (signal.kind === 'waiting' && now - signal.at >= REMIND_WAITING_MS) || (signal.kind === 'done' && now - signal.at >= REMIND_DONE_MS)
+
+export const leftAlone = (peers: readonly Peer[], handled: (peer: Peer) => boolean, now: number): Peer | null =>
+  peers.filter(peer => isLeftAlone(peer.signal, now) && !handled(peer)).sort(byUrgency)[0] ?? null
+
 const firstToSee = (peers: readonly Peer[], now: number): readonly string[] => {
   const ranked = peers
     .map(({ signal }, index) => ({ signal, index }))
     .filter(({ signal }) => URGENCY[signal.kind] > 0)
-    .sort((a, b) => URGENCY[b.signal.kind] - URGENCY[a.signal.kind] || a.signal.at - b.signal.at)
+    .sort(byUrgency)
   const first = ranked[0]
   return peers.length < 2 || first === undefined ? [] : [`먼저 볼 것: ${first.index + 1}. ${sessionLine(first.signal, now)}`]
 }
@@ -216,6 +227,11 @@ export const signalParts = (signal: PeerSignal, species: TokoSpecies): readonly 
   signal.kind === 'waiting'
     ? voiced(species, subjectParts(signal.label, '다른 세션이 ', ' '), '확인을 기다려', 'warning')
     : voiced(species, subjectParts(signal.label, '다른 세션이 ', ' '), '끝났어')
+
+export const reminderParts = (signal: PeerSignal, now: number, species: TokoSpecies): readonly TokoBubblePart[] =>
+  signal.kind === 'waiting'
+    ? voiced(species, subjectParts(signal.label, '다른 세션이 ', ' '), `${span(now - signal.at)}째 확인을 기다려`, 'warning')
+    : voiced(species, subjectParts(signal.label, '다른 세션이 ', ' '), `끝난 지 ${span(now - signal.at)} 됐어. 안 봐도 돼?`)
 
 export const inboxParts = (from: string, species: TokoSpecies): readonly TokoBubblePart[] =>
   voiced(species, [...subjectParts(from, '옆 세션', ''), { text: '에서 할 일이 왔어. ' }], '바로 보냈어')
