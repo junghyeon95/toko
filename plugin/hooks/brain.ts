@@ -46,7 +46,7 @@ import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/
 import { FEATURE_REWARD, asFeatureDex, featureDef, featureLine, featureViews, featuresUsed, mergeFeatureDex } from './lib/features'
 import type { FeatureDex } from './lib/features'
 import { BOSS_REWARD, BOSS_STREAK, bossStatus, meetBoss } from './lib/boss'
-import { MEMORY_ASK, addBonk, asBonks, isSimilarReason, parseRepeat, repeatPrompt, repeatSystem } from './lib/bonks'
+import { MEMORY_ASK, addBonk, asBonks, guessKind, isSimilarReason, kindPrompt, kindSystem, parseKind, parseRepeat, repeatPrompt, repeatSystem } from './lib/bonks'
 import { meterOf } from './lib/meter'
 import { CHECK_TIP_PROMPTS, CHECK_TIP_WINDOW_MS, COMPACT_TIP_PERCENT, KNOWN, PERMISSION_TIP_ASKS, TIPS, asTips, isTipWanted } from './lib/tips'
 import type { Tips } from './lib/tips'
@@ -61,8 +61,8 @@ import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, PLAZA_POLL_MS, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, plazaStreamUrl, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
-import type { PlazaAction, PlazaEvent, PlazaSnapshot, PlazaStatus } from './lib/plaza'
+import { FRIEND_TTL_MS, NO_BONKS, PLAZA_POLL_MS, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, plazaStreamUrl, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
+import type { PlazaAction, PlazaBonks, PlazaEvent, PlazaSnapshot, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
@@ -233,6 +233,7 @@ export type Brain = {
   plazaId: string
   plazaTab: string
   friends: readonly TokoFriend[]
+  plazaBonks: PlazaBonks
   feed: readonly { at: number; text: string }[]
   lastPollAt: number
   plazaStream: 'off' | 'connecting' | 'live' | 'unsupported'
@@ -323,6 +324,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   plazaId: '',
   plazaTab: '',
   friends: [],
+  plazaBonks: NO_BONKS,
   feed: [],
   lastPollAt: 0,
   plazaStream: 'off',
@@ -1648,6 +1650,7 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
   }
   brain.bonk = { reason, isTurnRunning: brain.isTurnRunning, hasApology: false, isSubmitted: false, isDone: false }
   brain.bonkRepeat = judgeRepeat($, brain, reason)
+  $.clock.after(1, () => void reportBonk($, brain, reason))
   remember(brain, 'bonk', reason, 2)
   await closeOffer($, brain)
   const onHit = (): void => {
@@ -1678,6 +1681,17 @@ async function judgeRepeat($: $, brain: Brain, reason: string): Promise<boolean>
   }
   const reply = await ask($, brain, repeatPrompt(text, past), 40, 4000, repeatSystem)
   return (reply === null ? null : parseRepeat(reply)) ?? isSimilarReason(text, past)
+}
+
+async function reportBonk($: $, brain: Brain, reason: string): Promise<void> {
+  const url = isPlazaReady(brain) ? plazaEndpoint(brain.serverUrl, '/v1/bonk') : null
+  if (url === null) {
+    return
+  }
+  const text = reason.trim()
+  const reply = text === '' ? null : await ask($, brain, kindPrompt(text), 12, 4000, kindSystem)
+  const kind = (reply === null ? null : parseKind(reply)) ?? guessKind(text)
+  await $.http.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ me: plazaMe(brain), kind }) }).catch(() => undefined)
 }
 
 export async function memoryAskOf(brain: Brain): Promise<string> {
@@ -2280,6 +2294,7 @@ export async function pollPlaza($: $, brain: Brain): Promise<void> {
 
 async function takeSnapshot($: $, brain: Brain, snapshot: PlazaSnapshot): Promise<void> {
   brain.friends = snapshot.friends
+  brain.plazaBonks = snapshot.bonks
   const fresh = snapshot.events.filter(event => !brain.seenEvents.includes(event.id) && isForMe(event, brain.plazaId))
   brain.seenEvents = [...brain.seenEvents, ...fresh.map(event => event.id)].slice(-200)
   for (const event of fresh) {

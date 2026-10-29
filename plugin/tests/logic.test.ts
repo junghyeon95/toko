@@ -7,7 +7,8 @@ import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perc
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
 import { freshSignal, lastAiTitle, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
-import { lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf } from '../hooks/lib/plaza'
+import { BONK_KINDS, guessKind, kindPrompt, parseKind } from '../hooks/lib/bonks'
+import { bonkBoardText, lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
@@ -431,6 +432,36 @@ test('plaza snapshots drop my own echo and anything malformed', async () => {
   expect(parseSnapshot('not json', 'me')).toBe(null)
   expect(plazaEndpoint('https://plaza.example/', '/v1/poll')).toBe('https://plaza.example/v1/poll')
   expect(plazaEndpoint('javascript:alert(1)', '/v1/poll')).toBe(null)
+})
+
+test('a bonk reason becomes one of the fixed kinds, from the model or from plain words', async () => {
+  expect(parseKind('unverified\n')).toBe('unverified')
+  expect(parseKind(' Test-Dodge ')).toBe('test-dodge')
+  expect(parseKind('just')).toBe(null)
+  expect(parseKind('잘 모르겠어')).toBe(null)
+  expect(guessKind('')).toBe('just')
+  expect(guessKind('테스트 지우지 말랬잖아')).toBe('test-dodge')
+  expect(guessKind('돌려 보지도 않고 됐다고 함')).toBe('unverified')
+  expect(guessKind('시키지 않은 파일까지 고침')).toBe('overreach')
+  expect(guessKind('또 그러네')).toBe('repeat')
+  expect(guessKind('음')).toBe('other')
+  const prompt = kindPrompt('테스트 지우지 마')
+  expect(Object.keys(BONK_KINDS).filter(kind => kind !== 'just').every(kind => prompt.includes(`${kind}:`))).toBe(true)
+  expect(prompt).not.toContain('just:')
+})
+
+test('the plaza’s bonk board keeps only known kinds and reads as one line', async () => {
+  const body = JSON.stringify({
+    now: 5,
+    friends: [],
+    events: [],
+    bonks: { total: 9, top: [{ kind: 'unverified', label: '?', count: 5 }, { kind: '<b>', count: 3 }, { kind: 'wordy', count: 1 }, { kind: 'stuck', count: -1 }] },
+  })
+  const bonks = parseSnapshot(body, 'me')?.bonks
+  expect(bonks).toEqual({ total: 9, top: [{ kind: 'unverified', count: 5 }, { kind: 'wordy', count: 1 }] })
+  expect(bonkBoardText(bonks ?? { total: 0, top: [] })).toBe('뿅망치 전광판: 오늘 Clawd가 9번 맞았어요 · 1위 안 돌려 보고 됐다고 함(5번), 2위 말이 너무 김(1번)')
+  expect(parseSnapshot(JSON.stringify({ now: 1, friends: [], events: [] }), 'me')?.bonks).toEqual({ total: 0, top: [] })
+  expect(bonkBoardText({ total: 0, top: [] })).toBe(null)
 })
 
 test('the plaza gets the pet’s own picture, one palette key per pixel', async () => {

@@ -451,6 +451,26 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
   expect(sent.text).toContain('보냈어요')
 })
 
+test('a /bonk tells the plaza only what kind of mistake it was, and /toko plaza shows the day’s board', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' }, 'test-dodge')
+  const calls: { url: string; body: string }[] = []
+  on('http.fetch', (_, e) => {
+    calls.push({ url: e.url, body: e.init?.body ?? '' })
+    const body = JSON.stringify({ now: START, friends: [], events: [], bonks: { total: 7, top: [{ kind: 'unverified', label: '?', count: 4 }, { kind: 'test-dodge', label: '?', count: 3 }] } })
+    return { value: { status: 200, ok: true, headers: {}, text: body } }
+  })
+  await begin($)
+  await clock.advance(25_000)
+  await $.command.run({ command: 'bonk', args: '테스트 지우지 말랬잖아' } as never)
+  await clock.advance(4000)
+  const sent = calls.find(call => call.url === 'http://plaza.test/v1/bonk')
+  expect(JSON.parse(sent?.body ?? '{}').kind).toBe('test-dodge')
+  expect(sent?.body).not.toContain('지우지')
+  const status = await $.command.run({ command: 'toko', args: 'plaza' } as never)
+  expect(status.text).toContain('오늘 Clawd가 7번 맞았어요 · 1위 안 돌려 보고 됐다고 함(4번), 2위 테스트를 지우거나 건너뜀(3번)')
+})
+
 test('friends arrive over the plaza event stream, and an open stream only reports what changed', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })

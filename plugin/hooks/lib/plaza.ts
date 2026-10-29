@@ -1,5 +1,6 @@
 import type { TokoFriend, TokoMood, TokoSpecies, TokoVisitor } from '../../types'
 
+import { BONK_KINDS } from './bonks'
 import { SPECIES, isSpecies } from './pet'
 import type { Canvas } from './raster'
 import { DEFAULT } from './raster'
@@ -86,7 +87,11 @@ export type PlazaEvent = {
   line: string
 }
 
-export type PlazaSnapshot = { friends: readonly TokoFriend[]; events: readonly PlazaEvent[]; now: number }
+export type PlazaBonks = { total: number; top: readonly { kind: string; count: number }[] }
+
+export const NO_BONKS: PlazaBonks = { total: 0, top: [] }
+
+export type PlazaSnapshot = { friends: readonly TokoFriend[]; events: readonly PlazaEvent[]; bonks: PlazaBonks; now: number }
 
 const COLORS: ReadonlySet<string> = new Set(['honey', 'mint', 'peach', 'lavender'])
 const MOODS: ReadonlySet<string> = new Set(['excited', 'calm', 'sleepy', 'worried', 'sulky'])
@@ -141,6 +146,26 @@ const parseEvent = (value: unknown): PlazaEvent | null => {
 
 const isPresent = <T>(value: T | null): value is T => value !== null
 
+const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
+
+const parseBonks = (value: unknown): PlazaBonks => {
+  const raw = asRecord(value)
+  const top = (Array.isArray(raw?.top) ? raw.top : [])
+    .map(asRecord)
+    .filter(isPresent)
+    .filter(row => typeof row.kind === 'string' && Object.hasOwn(BONK_KINDS, row.kind) && count(row.count) > 0)
+    .map(row => ({ kind: String(row.kind), count: count(row.count) }))
+  return { total: count(raw?.total), top: top.slice(0, 5) }
+}
+
+export const bonkBoardText = (bonks: PlazaBonks): string | null =>
+  bonks.total === 0
+    ? null
+    : `뿅망치 전광판: 오늘 Clawd가 ${bonks.total}번 맞았어요 · ${bonks.top
+        .slice(0, 3)
+        .map((row, index) => `${index + 1}위 ${BONK_KINDS[row.kind]}(${row.count}번)`)
+        .join(', ')}`
+
 export const parseSnapshot = (body: string, myId: string): PlazaSnapshot | null => {
   try {
     const raw = asRecord(JSON.parse(body))
@@ -149,7 +174,7 @@ export const parseSnapshot = (body: string, myId: string): PlazaSnapshot | null 
     }
     const friends = (Array.isArray(raw.friends) ? raw.friends : []).map(parseFriend).filter(isPresent).filter(friend => friend.id !== myId)
     const events = (Array.isArray(raw.events) ? raw.events : []).map(parseEvent).filter(isPresent).filter(event => event.from.id !== myId)
-    return { friends: friends.slice(0, 30), events: events.slice(-20), now: typeof raw.now === 'number' ? raw.now : 0 }
+    return { friends: friends.slice(0, 30), events: events.slice(-20), bonks: parseBonks(raw.bonks), now: typeof raw.now === 'number' ? raw.now : 0 }
   } catch {
     return null
   }

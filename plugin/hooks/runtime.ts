@@ -17,7 +17,7 @@ import { bubbleLine, chatRules, nameProblem } from './lib/persona'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
-import { findFriend } from './lib/plaza'
+import { bonkBoardText, findFriend } from './lib/plaza'
 import type { PlazaAction } from './lib/plaza'
 import { questText } from './lib/quests'
 import { hashText } from './lib/random'
@@ -496,7 +496,8 @@ async function plazaCommand($: $, brain: Brain, words: readonly string[]): Promi
   if (action === undefined) {
     const friends = brain.friends.map(friend => `- ${friend.name} (${SPECIES[friend.species].label}, ${friend.status})`)
     const header = brain.serverUrl.length === 0 ? '광장 서버가 설정되지 않았어요(serverUrl).' : `광장: ${brain.settings.isPlazaOn ? '켜짐' : '꺼짐'} · 친구 ${brain.friends.length}명`
-    return { text: [header, ...friends].join('\n') }
+    const board = bonkBoardText(brain.plazaBonks)
+    return { text: [header, ...friends, ...(board === null ? [] : [board])].join('\n') }
   }
   if (action === 'stretch-call' || target === 'all' || target === '') {
     return { text: await sendPlaza($, brain, action, null) }
