@@ -23,7 +23,7 @@ const without = (list: readonly unknown[], taken: readonly unknown[]): unknown[]
   })
 }
 
-export const mergeShared = <T>(synced: unknown, local: T, stored: unknown, counters: readonly string[] = []): T => {
+export const mergeShared = <T>(synced: unknown, local: T, stored: unknown, counters: readonly string[] = [], levels: readonly string[] = []): T => {
   if (same(local, synced)) {
     return stored as T
   }
@@ -41,8 +41,10 @@ export const mergeShared = <T>(synced: unknown, local: T, stored: unknown, count
       keys
         .map(key => {
           const [was, mine, theirs] = [before[key], local[key], stored[key]]
-          const isCounter = counters.includes(key) && typeof was === 'number' && typeof mine === 'number' && typeof theirs === 'number'
-          return [key, isCounter ? theirs + mine - was : mergeShared(was, mine, theirs)] as const
+          const isNumber = typeof was === 'number' && typeof mine === 'number' && typeof theirs === 'number'
+          const isCounter = isNumber && counters.includes(key)
+          const isLevel = isNumber && levels.includes(key) && mine !== was && theirs !== was
+          return [key, isCounter ? theirs + mine - was : isLevel ? mine + Math.max(0, theirs - was) : mergeShared(was, mine, theirs)] as const
         })
         .filter(([, value]) => value !== undefined),
     ) as T

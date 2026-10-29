@@ -58,7 +58,7 @@ import { mergeShared, same } from './lib/shared'
 import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
 import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
 import type { QuestsPaid } from './lib/quests'
-import { BREAK_KINDS, ENCOUNTER_LINES, candidatesOf, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
+import { BREAK_KINDS, ENCOUNTER_LINES, NEED_KEYS, candidatesOf, clampNeeds, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from './lib/stats'
 import type { StatKey } from './lib/stats'
 import { HOUR, MINUTE, clockText, dayKey, hourOf } from './lib/time'
@@ -308,7 +308,7 @@ const newPlazaId = (brain: Brain): string => `p${Math.floor(brain.random() * 2 *
 const SHARED: { readonly [K in SharedField]: (stored: unknown, brain: Brain) => Brain[K] } = {
   pet: (stored, brain) => (isPet(stored) ? upgradePet({ ...stored, growth: advanceDay(stored.growth, today(brain)) }) : null),
   shelf: stored => (Array.isArray(stored) ? stored.filter(isPet).map(upgradePet) : []),
-  needs: (stored, brain) => merge(fullNeeds(brain.now), stored),
+  needs: (stored, brain) => clampNeeds(merge(fullNeeds(brain.now), stored)),
   memory: stored => merge(emptyMemory(), stored),
   wallet: stored => merge(EMPTY_WALLET, stored),
   budget: (stored, brain) => rollBudget(isRecord(stored) ? merge(emptyBudget(today(brain)), stored) : null, today(brain)),
@@ -530,7 +530,7 @@ export async function checkProgress($: $, brain: Brain): Promise<void> {
 
 async function syncField<K extends SharedField>($: $, brain: Brain, field: K): Promise<void> {
   const stored = await $.store.get(KEY[field])
-  const merged = SHARED[field](mergeShared(brain.synced[field], brain[field], stored, field === 'wallet' ? ['coins'] : []), brain)
+  const merged = SHARED[field](mergeShared(brain.synced[field], brain[field], stored, field === 'wallet' ? ['coins'] : [], field === 'needs' ? NEED_KEYS : []), brain)
   brain[field] = merged
   brain.synced[field] = merged
   if (!same(merged, stored)) {

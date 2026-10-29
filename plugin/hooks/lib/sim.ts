@@ -4,6 +4,8 @@ import { MINUTE } from './time'
 
 export type NeedKey = 'energy' | 'fun' | 'hunger' | 'social'
 
+export const NEED_KEYS: readonly NeedKey[] = ['energy', 'fun', 'hunger', 'social']
+
 export const fullNeeds = (now: number): TokoNeeds => ({ energy: 80, fun: 70, hunger: 70, social: 70, updatedAt: now })
 
 const DECAY_PER_MINUTE: Readonly<Record<NeedKey, number>> = { energy: 0.25, fun: 0.4, hunger: 0.35, social: 0.3 }
@@ -24,6 +26,8 @@ export const decayNeeds = (needs: TokoNeeds, now: number, isPresent: boolean): T
     updatedAt: now,
   }
 }
+
+export const clampNeeds = (needs: TokoNeeds): TokoNeeds => ({ ...needs, energy: clamp(needs.energy), fun: clamp(needs.fun), hunger: clamp(needs.hunger), social: clamp(needs.social) })
 
 export const restore = (needs: TokoNeeds, change: Partial<Record<NeedKey, number>>): TokoNeeds => ({
   energy: clamp(needs.energy + (change.energy ?? 0)),

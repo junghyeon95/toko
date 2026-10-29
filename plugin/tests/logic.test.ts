@@ -47,6 +47,13 @@ test('a shared value keeps what this terminal changed and takes what another ter
   expect(mergeShared(null, restedHere, null)).toEqual(restedHere)
 })
 
+test('a need another terminal refilled adds to this terminal’s own drop, and a need this terminal left alone follows the other terminal', async () => {
+  const was = { energy: 60, fun: 50, hunger: 40, social: 70, updatedAt: 0 }
+  const here = { energy: 59, fun: 49, hunger: 39, social: 70, updatedAt: 10 }
+  const there = { energy: 58, fun: 50, hunger: 65, social: 69, updatedAt: 9 }
+  expect(mergeShared(was, here, there, [], ['energy', 'fun', 'hunger', 'social'])).toEqual({ energy: 59, fun: 49, hunger: 64, social: 69, updatedAt: 10 })
+})
+
 test('coins and items two terminals add at the same time both count', async () => {
   const base = { coins: 100, items: ['cookie'], worn: [] as string[] }
   const here = { coins: 130, items: ['cookie', 'cookie'], worn: [] }
