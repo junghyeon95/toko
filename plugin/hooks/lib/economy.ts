@@ -33,6 +33,8 @@ export const emptyEarn = (day: string): TokoEarn => ({ day, earned: 0, health: 0
 
 export const earnBalance = (earn: TokoEarn): number => earn.earned + earn.health - earn.spent
 
+export const isEmptyEarn = (earn: TokoEarn): boolean => earn.earned === 0 && earn.health === 0 && earn.spent === 0
+
 export const balanceOf = (wallet: TokoWallet, earns: readonly TokoEarn[]): number =>
   wallet.coins + earns.reduce((sum, earn) => sum + earnBalance(earn), 0)
 

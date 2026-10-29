@@ -393,6 +393,18 @@ test('a name and a hide another terminal set reach this terminal, and its own sa
   expect((world.memory.get('toko:pet') as typeof PET).soul.name).toBe('토뀌')
 })
 
+test('coins another terminal earns show here within seconds, and a terminal that earned nothing leaves no coin record', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 100, items: [], worn: [] } })
+  await begin($)
+  world.memory.set('toko:earn:session-B', { day: '2026-10-29', earned: 50, health: 0, spent: 0 })
+  await clock.advance(6000)
+  const status = JSON.parse(String((await $.tool.call({ tool: 'mcp__toko__pet_status' } as never)).result)) as { coins: number }
+  expect(status.coins).toBe(150)
+  await end($)
+  expect(world.memory.has('toko:earn:session-1')).toBe(false)
+})
+
 test('coins and items another terminal saved stay when this terminal buys something', async ($, on) => {
   mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 50, items: [], worn: [] } })

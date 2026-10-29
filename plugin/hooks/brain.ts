@@ -35,7 +35,7 @@ import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordS
 import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
-import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earnedTokenToday, emptyEarn, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
+import { HEALTH_REWARD, SPEND, balanceOf, buy, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
 import type { TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
@@ -533,6 +533,12 @@ async function syncField<K extends SharedField>($: $, brain: Brain, field: K): P
   }
 }
 
+async function syncEarns($: $, brain: Brain): Promise<void> {
+  const own = `${KEY.earnPrefix}${brain.sessionId}`
+  const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.earnPrefix) && key !== own)
+  brain.otherEarns = (await Promise.all(keys.map(key => $.store.get(key)))).filter(isEarn)
+}
+
 export async function syncShared($: $, brain: Brain): Promise<void> {
   if (!brain.isLoaded) {
     return
@@ -540,6 +546,7 @@ export async function syncShared($: $, brain: Brain): Promise<void> {
   for (const field of SHARED_FIELDS) {
     await syncField($, brain, field)
   }
+  await syncEarns($, brain)
   if (brain.scene !== null) {
     setLook(brain.scene, lookOf(brain))
   }
@@ -550,7 +557,8 @@ export async function save($: $, brain: Brain): Promise<void> {
     return
   }
   await syncShared($, brain)
-  await Promise.all([$.store.set(`${KEY.earnPrefix}${brain.sessionId}`, brain.earn), $.store.set(tallyKey(brain), brain.tally)])
+  const own = `${KEY.earnPrefix}${brain.sessionId}`
+  await Promise.all([isEmptyEarn(brain.earn) ? $.store.delete(own) : $.store.set(own, brain.earn), $.store.set(tallyKey(brain), brain.tally)])
   brain.isDirty = false
 }
 
