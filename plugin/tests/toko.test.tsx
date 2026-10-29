@@ -721,6 +721,21 @@ test('/toko draw spends coins, shelves the current pet and hatches a new egg', a
   expect(again.text).toContain('모자라')
 })
 
+test('a drawn pet survives an old terminal that writes back the pet it had before the draw', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 250, items: [], worn: [] } })
+  await begin($)
+  await $.command.run({ command: 'toko', args: 'draw' } as never)
+  await clock.advance(9000)
+  const drawn = (world.saved['toko:pet'] as { id: string }).id
+  world.store.set('toko:pet', PET)
+  world.store.set('toko:shelf', [])
+  await clock.advance(9000)
+  const pet = world.store.get('toko:pet') as { id: string }
+  const shelf = (world.store.get('toko:shelf') as { id: string }[]).map(shelved => shelved.id)
+  expect([pet.id, ...shelf].sort()).toEqual([...new Set([PET.id, drawn])].sort())
+})
+
 test('a full collection stops the draw before it takes any coins', async ($, on) => {
   mock.clock(on, { now: START })
   const species = ['cat', 'bear', 'chick', 'bunny', 'frog', 'fox', 'dragon', 'unicorn', 'ghost', 'phoenix', 'robot', 'axolotl']

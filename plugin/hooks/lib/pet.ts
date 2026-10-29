@@ -105,3 +105,8 @@ export const upgradePet = (pet: TokoPet): TokoPet => ({
   id: typeof pet.id === 'string' ? pet.id : `pet-${pet.bones.seed.toString(36)}`,
   bones: { seed: pet.bones.seed, species: isSpecies(pet.bones.species) ? pet.bones.species : 'cat' },
 })
+
+export const restoreLost = (owned: readonly TokoPet[], pet: TokoPet | null, shelf: readonly TokoPet[]): TokoPet[] => {
+  const kept = new Set([...(pet === null ? [] : [pet.id]), ...shelf.map(other => other.id)])
+  return [...shelf, ...owned.filter(other => !kept.has(other.id))]
+}

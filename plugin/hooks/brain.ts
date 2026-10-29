@@ -45,7 +45,7 @@ import type { Limit } from './lib/meter'
 import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
-import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
+import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
 import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, shouldDismissVisitor, visitorOf, wireColor } from './lib/plaza'
@@ -541,6 +541,18 @@ async function syncField<K extends SharedField>($: $, brain: Brain, field: K): P
   }
 }
 
+const ownedPets = (brain: Brain): TokoPet[] => [...(brain.pet === null ? [] : [brain.pet]), ...brain.shelf]
+
+async function keepOwnedPets($: $, brain: Brain, owned: readonly TokoPet[]): Promise<void> {
+  const shelf = restoreLost(owned, brain.pet, brain.shelf)
+  if (shelf.length === brain.shelf.length) {
+    return
+  }
+  brain.shelf = shelf
+  brain.synced.shelf = shelf
+  await $.store.set(KEY.shelf, shelf)
+}
+
 async function syncEarns($: $, brain: Brain): Promise<void> {
   const own = `${KEY.earnPrefix}${brain.sessionId}`
   const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.earnPrefix) && key !== own)
@@ -551,9 +563,11 @@ export async function syncShared($: $, brain: Brain): Promise<void> {
   if (!brain.isLoaded) {
     return
   }
+  const owned = ownedPets(brain)
   for (const field of SHARED_FIELDS) {
     await syncField($, brain, field)
   }
+  await keepOwnedPets($, brain, owned)
   await syncEarns($, brain)
   if (brain.scene !== null) {
     setLook(brain.scene, lookOf(brain))
