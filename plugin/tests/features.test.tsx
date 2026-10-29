@@ -405,6 +405,18 @@ test('coins another terminal earns show here within seconds, and a terminal that
   expect(world.memory.has('toko:earn:session-1')).toBe(false)
 })
 
+test('a pet gets a little hungry and tired over five minutes of work', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:needs': { energy: 80, fun: 70, hunger: 70, social: 70, updatedAt: START } })
+  await begin($)
+  for (let minute = 0; minute < 5; minute += 1) {
+    await clock.advance(60_000)
+  }
+  const status = JSON.parse(String((await $.tool.call({ tool: 'mcp__toko__pet_status' } as never)).result)) as { needs: { energy: number; hunger: number } }
+  expect(status.needs).toMatchObject({ energy: 79, hunger: 68 })
+  await end($)
+})
+
 test('snacks given in two terminals at once both fill the pet', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:needs': { energy: 80, fun: 70, hunger: 30, social: 70, updatedAt: START }, 'toko:wallet': { coins: 0, items: ['cookie'], worn: [] } })

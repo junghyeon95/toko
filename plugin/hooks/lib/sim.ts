@@ -10,7 +10,7 @@ export const fullNeeds = (now: number): TokoNeeds => ({ energy: 80, fun: 70, hun
 
 const DECAY_PER_MINUTE: Readonly<Record<NeedKey, number>> = { energy: 0.25, fun: 0.4, hunger: 0.35, social: 0.3 }
 
-const clamp = (value: number): number => Math.max(0, Math.min(100, Math.round(value * 10) / 10))
+const clamp = (value: number): number => Math.max(0, Math.min(100, Math.round(value * 10_000) / 10_000))
 
 export const decayNeeds = (needs: TokoNeeds, now: number, isPresent: boolean): TokoNeeds => {
   const minutes = Math.max(0, (now - needs.updatedAt) / MINUTE)

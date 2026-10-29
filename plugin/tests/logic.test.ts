@@ -206,6 +206,15 @@ test('needs drop only while the person is at the desk, and mood follows', async 
   expect(moodOf({ ...needs, energy: 10 }, [], 1000, 14, 0)).toBe('sleepy')
 })
 
+test('needs keep dropping when the pet checks on them every two seconds', async () => {
+  let needs = fullNeeds(0)
+  for (let at = 2000; at <= 5 * 60_000; at += 2000) {
+    needs = decayNeeds(needs, at, true)
+  }
+  expect(Math.abs(needs.hunger - 68.25) < 0.01).toBe(true)
+  expect(Math.abs(needs.energy - 78.75) < 0.01).toBe(true)
+})
+
 test('random encounters wait six minutes and change with the hour', async () => {
   expect(encounterOf({ hour: 14, mood: 'calm', isWorking: true, minutesSinceEncounter: 2, luck: 0 })).toEqual([])
   const day = encounterOf({ hour: 14, mood: 'calm', isWorking: true, minutesSinceEncounter: 10, luck: 0 }).map(entry => entry.item)
