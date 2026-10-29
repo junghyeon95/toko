@@ -42,7 +42,7 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
-import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
@@ -98,6 +98,7 @@ export const KEY = {
   earnPrefix: 'toko:earn:',
   signalPrefix: 'toko:signal:',
   inboxPrefix: 'toko:inbox:',
+  replyPrefix: 'toko:reply:',
   stats: 'toko:stats',
   tallyPrefix: 'toko:tally:',
   badges: 'toko:badges',
@@ -208,6 +209,8 @@ export type Brain = {
   transcriptPath: string
   signal: PeerSignal | null
   peersSeenAt: number
+  peerTurn: { text: string; to: string } | null
+  replyTo: string | null
   visitor: TokoVisitor | null
   visitorVisibleMs: number
   isDirty: boolean
@@ -280,6 +283,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   transcriptPath: '',
   signal: null,
   peersSeenAt: 0,
+  peerTurn: null,
+  replyTo: null,
   visitor: null,
   visitorVisibleMs: 0,
   isDirty: false,
@@ -1831,6 +1836,8 @@ async function aiTitleOf($: $, path: string): Promise<string> {
 
 const inboxKeyPrefix = (sessionId: string): string => `${KEY.inboxPrefix}${sessionId}:`
 
+const replyKeyPrefix = (sessionId: string): string => `${KEY.replyPrefix}${sessionId}:`
+
 export async function signalPeers($: $, brain: Brain, kind: PeerSignal['kind']): Promise<void> {
   const aiTitle = brain.sessionTitle === '' ? await aiTitleOf($, brain.transcriptPath) : ''
   const label = brain.sessionTitle !== '' ? brain.sessionTitle : aiTitle !== '' ? aiTitle : brain.promptLabel
@@ -1844,8 +1851,8 @@ async function writeSignal($: $, brain: Brain, signal: PeerSignal): Promise<void
 
 export async function forgetSignal($: $, brain: Brain): Promise<void> {
   await $.store.delete(signalKey(brain))
-  const inbox = (await $.store.keys()).filter(key => key.startsWith(inboxKeyPrefix(brain.sessionId)))
-  await Promise.all(inbox.map(key => $.store.delete(key)))
+  const own = (await $.store.keys()).filter(key => key.startsWith(inboxKeyPrefix(brain.sessionId)) || key.startsWith(replyKeyPrefix(brain.sessionId)))
+  await Promise.all(own.map(key => $.store.delete(key)))
 }
 
 async function listPeers($: $, brain: Brain): Promise<readonly Peer[]> {
@@ -1888,15 +1895,40 @@ export async function summarizePeer($: $, brain: Brain, index: number): Promise<
   return lines.length === 0 ? `${header}\n요약은 못 했어요(작은 모델을 쓸 수 없어요).` : [header, ...lines].join('\n')
 }
 
+const messageId = (brain: Brain): string => `${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`
+
 export async function sendToPeer($: $, brain: Brain, index: number, text: string): Promise<string> {
   const peer = (await listPeers($, brain))[index - 1]
   if (peer === undefined) {
     return NO_PEER
   }
   const sessionId = peer.key.slice(KEY.signalPrefix.length)
-  const id = `${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`
-  await $.store.set(`${inboxKeyPrefix(sessionId)}${id}`, { text, from: brain.signal?.label ?? '', at: brain.now })
+  await $.store.set(`${inboxKeyPrefix(sessionId)}${messageId(brain)}`, { text, from: brain.signal?.label ?? '', at: brain.now, replyTo: brain.sessionId })
   return `${sessionName(peer.signal)}에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.`
+}
+
+export function noteTurnText(brain: Brain, text: string): void {
+  brain.replyTo = brain.peerTurn !== null && brain.peerTurn.text === text ? brain.peerTurn.to : null
+  brain.peerTurn = null
+}
+
+export async function replyToPeer($: $, brain: Brain, answer: string): Promise<void> {
+  const to = brain.replyTo
+  brain.replyTo = null
+  if (to === null || answer.trim() === '') {
+    return
+  }
+  await $.store.set(`${replyKeyPrefix(to)}${messageId(brain)}`, { text: answer, from: brain.signal?.label ?? '', at: brain.now })
+}
+
+async function deliverReplies($: $, brain: Brain): Promise<void> {
+  const keys = (await $.store.keys()).filter(key => key.startsWith(replyKeyPrefix(brain.sessionId)))
+  const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
+  const replies = entries.flatMap(entry => (isMessage(entry.value) ? [{ key: entry.key, message: entry.value }] : [])).sort((a, b) => a.message.at - b.message.at)
+  for (const { key, message } of replies) {
+    await $.store.delete(key)
+    $.ui.log(replyText(message.from, message.text))
+  }
 }
 
 async function deliverInbox($: $, brain: Brain): Promise<void> {
@@ -1913,8 +1945,9 @@ async function deliverInbox($: $, brain: Brain): Promise<void> {
   if (box.text.trim() !== '') {
     return
   }
-  const { text, from } = next.message
+  const { text, from, replyTo } = next.message
   await $.store.delete(next.key)
+  brain.peerTurn = replyTo === undefined ? null : { text, to: replyTo }
   void $.prompt.submit({ text, asUser: true }).catch(() => $.store.set(next.key, next.message))
   act(brain, direct.greet(), PRIORITY.reaction)
   if (!isHushed(brain)) {
@@ -1928,6 +1961,7 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
     await writeSignal($, brain, brain.signal)
   }
   await deliverInbox($, brain)
+  await deliverReplies($, brain)
   const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.signalPrefix))
   const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
   const signal = freshSignal(entries, signalKey(brain), brain.peersSeenAt)

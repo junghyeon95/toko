@@ -132,7 +132,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       chatStarted(ctx, e.text, e.turnId)
-      await turnStarted($, ctx)
+      await turnStarted($, ctx, e.text)
     }
     return next(e)
   })
@@ -140,7 +140,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined) {
-      await turnEnded($, ctx, e.durationMs, e.reason, e.usage)
+      await turnEnded($, ctx, e.durationMs, e.reason, e.usage, e.reason === 'answer' ? e.answer : '')
       await chatAnswered($, ctx, e.turnId, e.reason === 'answer' ? e.answer : '')
     }
     return result

@@ -29,11 +29,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; systems: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; isFillRefused: boolean }
+type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; systems: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; logs: string[]; isFillRefused: boolean }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], systems: [], saved: {}, store: memory, notified: [], isFillRefused: false }
+  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], systems: [], saved: {}, store: memory, notified: [], logs: [], isFillRefused: false }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -62,7 +62,10 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
     world.notified.push(String(e.text))
     return { value: { isSent: true, channel: 'terminal_bell' } }
   })
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_, e) => {
+    world.logs.push(e.text)
+    return { value: undefined }
+  })
   on('model.complete', (_, e) => {
     world.models.push(e.prompt)
     world.systems.push(e.system ?? '')
@@ -516,7 +519,7 @@ test('/toko send leaves a message for that session, keeping its lines', async ($
   expect(sent.text).toBe('「A」에 보냈어요. 그 세션이 하던 일을 끝내고 입력창이 비면 바로 들어가요.')
   const keys = [...world.store.keys()].filter(key => key.startsWith('toko:inbox:session-3:'))
   expect(keys.length).toBe(1)
-  expect(world.store.get(keys[0] ?? '')).toMatchObject({ text: '로그도\n같이 봐 줘' })
+  expect(world.store.get(keys[0] ?? '')).toMatchObject({ text: '로그도\n같이 봐 줘', replyTo: 'session-1' })
   expect((await $.command.run({ command: 'toko', args: 'send 9 아무거나' } as never)).text).toContain('그런 번호의 옆 세션이 없어요')
 })
 
@@ -554,6 +557,47 @@ test('a message waits in the inbox while the session works or the box has a draf
   await clock.advance(3000)
   expect(world.submitted).toEqual(['로그 봐 줘'])
   expect(world.store.has('toko:inbox:session-1:m1')).toBe(false)
+})
+
+const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude' }
+
+const replyKeys = (world: World, sessionId: string): string[] => [...world.store.keys()].filter(key => key.startsWith(`toko:reply:${sessionId}:`))
+
+test('the answer to a message from another session goes back to that session, and later turns do not', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', from: '배포 확인', at: START, replyTo: 'session-9' } })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
+  await begin($)
+  await clock.advance(3000)
+  await $.turn.start({ text: '로그 봐 줘', turnId: 't1' } as never)
+  await $.turn.complete({ answer: '로그 깨끗해요', durationMs: 3000, isAborted: false, turnId: 't1', reason: 'answer', usage: USAGE })
+  expect(replyKeys(world, 'session-9').map(key => world.store.get(key))).toEqual([expect.objectContaining({ text: '로그 깨끗해요' })])
+  await $.turn.start({ text: 'fix it', turnId: 't2' } as never)
+  await $.turn.complete({ answer: 'fixed', durationMs: 3000, isAborted: false, turnId: 't2', reason: 'answer', usage: USAGE })
+  expect(replyKeys(world, 'session-9').length).toBe(1)
+})
+
+test('a message without a sender to answer sends nothing back', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:inbox:session-1:m1': { text: '로그 봐 줘', from: '배포 확인', at: START } })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
+  await begin($)
+  await clock.advance(3000)
+  await $.turn.start({ text: '로그 봐 줘', turnId: 't1' } as never)
+  await $.turn.complete({ answer: '로그 깨끗해요', durationMs: 3000, isAborted: false, turnId: 't1', reason: 'answer', usage: USAGE })
+  expect([...world.store.keys()].some(key => key.startsWith('toko:reply:'))).toBe(false)
+})
+
+test('an answer that comes back is shown in the chat as it was written, cut when too long', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:reply:session-1:r1': { text: '로그 깨끗해요', from: '배포 확인', at: START } })
+  await begin($)
+  await clock.advance(3000)
+  expect(world.logs).toEqual(['「배포 확인」 답\n로그 깨끗해요'])
+  expect(replyKeys(world, 'session-1')).toEqual([])
+  world.store.set('toko:reply:session-1:r2', { text: '가'.repeat(2000), from: '', at: START + 3000 })
+  await clock.advance(3000)
+  expect(world.logs.at(-1)).toBe(`「이름 없는 세션」 답\n${'가'.repeat(1800)}\n…(나머지는 그 세션에서 보세요)`)
 })
 
 test('a session starting or working tells other sessions nothing, while one finishing still does', async ($, on) => {

@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, noteTurnText, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -231,9 +231,10 @@ export async function submitted($: $, ctx: Ctx, text: string, isPersonTyped: boo
   }
 }
 
-export async function turnStarted($: $, ctx: Ctx): Promise<void> {
+export async function turnStarted($: $, ctx: Ctx, text: string): Promise<void> {
   const brain = ctx.brain
   await now($, ctx)
+  noteTurnText(brain, text)
   brain.isTurnRunning = true
   brain.turnStartedAt = brain.now
   brain.typedDuringTurn = false
@@ -244,9 +245,10 @@ export async function turnStarted($: $, ctx: Ctx): Promise<void> {
   }
 }
 
-export async function turnEnded($: $, ctx: Ctx, durationMs: number, reason: string, usage: TurnUsage | undefined): Promise<void> {
+export async function turnEnded($: $, ctx: Ctx, durationMs: number, reason: string, usage: TurnUsage | undefined, answer: string): Promise<void> {
   await now($, ctx)
   await onTurnComplete($, ctx.brain, durationMs, reason, usage)
+  await replyToPeer($, ctx.brain, answer)
   $.clock.after(1500, () => void thinkLater($, ctx))
 }
 

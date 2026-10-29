@@ -14,7 +14,7 @@ export type PeerSignal = {
   turnStartedAt?: number
 }
 
-export type PeerMessage = { text: string; from: string; at: number }
+export type PeerMessage = { text: string; from: string; at: number; replyTo?: string }
 
 export type Peer = { key: string; signal: PeerSignal }
 
@@ -22,6 +22,7 @@ export const ALIVE_MS = 3 * MINUTE
 const PROMPTS_IN_EXCERPT = 4
 const PROMPT_LENGTH = 300
 const ANSWER_LENGTH = 1500
+const REPLY_LENGTH = 1800
 
 const LABEL_LENGTH = 24
 
@@ -73,7 +74,9 @@ export const peerList = (entries: readonly { key: string; value: unknown }[], ow
 
 const span = (ms: number): string => (ms < HOUR ? `${Math.max(1, Math.floor(ms / MINUTE))}분` : `${Math.floor(ms / HOUR)}시간`)
 
-export const sessionName = (signal: PeerSignal): string => `「${signal.label === '' ? '이름 없는 세션' : signal.label}」`
+const labelName = (label: string): string => `「${label === '' ? '이름 없는 세션' : label}」`
+
+export const sessionName = (signal: PeerSignal): string => labelName(signal.label)
 
 export const sessionLine = (signal: PeerSignal, now: number): string => {
   switch (signal.kind) {
@@ -98,6 +101,9 @@ export const sessionsText = (peers: readonly Peer[], now: number): string =>
       ].join('\n')
 
 const clip = (text: string, length: number): string => [...text.trim()].slice(0, length).join('')
+
+export const replyText = (from: string, answer: string): string =>
+  [`${labelName(from)} 답`, clip(answer, REPLY_LENGTH), ...([...answer.trim()].length > REPLY_LENGTH ? ['…(나머지는 그 세션에서 보세요)'] : [])].join('\n')
 
 const recordOf = (line: string): Record<string, unknown> | null => {
   try {
