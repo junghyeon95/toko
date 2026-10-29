@@ -94,7 +94,7 @@ const engine = (on: On, store: Record<string, unknown>): World => {
   on('turn.start', (_, e) => ({ turnId: e.turnId ?? 't' }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('command.run', () => ({ text: '' }))
-  on('tool.call', () => ({ result: {}, text: '' }) as never)
+  on('session.measure', (_, e) => ({ changed: e.changed }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('prompt.mention', () => ({ type: 'file' }) as never)
   return world
@@ -116,6 +116,32 @@ const typed = async ($: Engine, command: string) => $.command.run({ command, arg
 const healthOf = (world: World) => (world.saved['toko:earn:session-1'] as { health: number } | undefined)?.health ?? 0
 
 const end = async ($: Engine) => $.session.end({ reason: 'other', sessionId: 'session-1', resume: {} } as never)
+
+const SEEN_NEWS = { seen: VERSION, pick: null, shownAt: 0, notBefore: 0, picks: [] }
+
+const measure = async ($: Engine, percent: number) =>
+  $.session.measure({ context: { window: 200_000, tokens: percent * 2000, percent }, rateLimits: [], cost: { usd: 0.5 }, changed: ['context', 'cost'] } as never)
+
+const tipsOf = (world: World) => world.saved['toko:tips'] as Record<string, string> | undefined
+
+const said = async ($: Engine, pattern: RegExp) => {
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const found = await band.find({ type: 'Text', text: pattern })
+  await band.unmount()
+  return found !== undefined
+}
+
+const untilTip = async (clock: { advance: (ms: number) => Promise<void> }, world: World, id: string) => {
+  for (let step = 0; step < 120 && tipsOf(world)?.[id] === undefined; step += 1) {
+    await clock.advance(1000)
+  }
+}
+
+const answer = async ($: Engine, key: string) => {
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key })
+  await band.unmount()
+}
 
 const newsOf = (world: World) => world.saved['toko:news'] as { seen: string; shownAt: number; notBefore: number; picks: readonly { title: string }[] }
 
@@ -226,6 +252,7 @@ test('the first time a person runs a Claude Code command it joins the feature de
 test('plan mode, a command sent to the background, a pasted image and an @ mention fill the dex too', OFFLINE, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:news': { seen: VERSION, pick: null, shownAt: 0, notBefore: 0, picks: [] } })
+  on('tool.call', () => ({ result: {}, text: '' }) as never)
   await begin($)
   await $.tool.call({ tool: 'ExitPlanMode', plan: 'do it' } as never)
   await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true } as never)
@@ -252,4 +279,92 @@ test('the eighth feature tried unlocks 기능 수집가', OFFLINE, async ($, on)
   await clock.advance(2500)
   expect((world.saved['toko:badges'] as Record<string, number>)['features-8']).toBeDefined()
   expect((await $.command.run({ command: 'toko', args: 'badges' } as never)).text).toContain('✓ 기능 수집가')
+})
+
+test('a context past 80% brings a /compact tip once a day, and 써 보기 puts the command in the prompt box', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  await begin($)
+  await measure($, 82)
+  await clock.advance(34_000)
+  expect(await said($, /컨텍스트가 80% 넘었어\. \/compact 로 요약해서 비울래/)).toBe(true)
+  await answer($, 'choice-accept')
+  expect(world.filled).toEqual(['/compact'])
+  expect(tipsOf(world)).toEqual({ compact: '2026-10-29' })
+  await clock.advance(6000)
+  await measure($, 90)
+  await clock.advance(40_000)
+  expect(world.filled).toEqual(['/compact'])
+  expect(await said($, /\/compact 로 요약해서/)).toBe(false)
+})
+
+test('no tip for a feature already in the dex, and 알아 stops a tip for good', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:features': { compact: START - 1000 } })
+  on('classic.PermissionRequest', () => ({}) as never)
+  await begin($)
+  await measure($, 82)
+  for (let ask = 0; ask < 3; ask += 1) {
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: `npm run build --step ${ask}` } } as never)
+  }
+  await clock.advance(34_000)
+  expect(await said($, /같은 확인을 세 번째 눌렀어\. \/permissions/)).toBe(true)
+  await answer($, 'choice-drop')
+  expect(tipsOf(world)).toEqual({ permissions: 'known' })
+})
+
+test('once a /bonk is over the pet speaks up again, and the next gap offers /rewind', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  await begin($)
+  await clock.advance(2000)
+  await $.command.run({ command: 'bonk', args: '테스트 지우지 말랬잖아' } as never)
+  await clock.advance(4000)
+  await answer($, 'choice-later')
+  await untilTip(clock, world, 'rewind')
+  expect(await said($, /되돌리고 싶으면 \/rewind 로 아까 시점에 돌아갈 수 있어/)).toBe(true)
+  expect(tipsOf(world)).toEqual({ rewind: '2026-10-29' })
+})
+
+test('a commit queues a /code-review tip, and a push before the next gap takes it back', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  const git: { operation: unknown } = { operation: { commit: { sha: 'abc1234def', kind: 'committed', branch: 'main' } } }
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', gitOperation: git.operation }, text: '' }) as never)
+  await begin($)
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m "fix"' } as never)
+  git.operation = { push: { branch: 'main' } }
+  await $.tool.call({ tool: 'Bash', command: 'git push' } as never)
+  await clock.advance(34_000)
+  expect(tipsOf(world)).toBeUndefined()
+  git.operation = { commit: { sha: 'bcd2345efa', kind: 'committed', branch: 'main' } }
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m "more"' } as never)
+  await untilTip(clock, world, 'code-review')
+  expect(await said($, /커밋했네! 푸시 전에 \/code-review 한 번 돌려 볼래/)).toBe(true)
+})
+
+test('asking for the same check three times within an hour brings the /loop tip', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  await begin($)
+  for (const text of ['배포 끝났어?', '빌드 다시 확인해 줘', 'CI 상태 봐 줘']) {
+    await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)
+    await clock.advance(10_000)
+  }
+  await untilTip(clock, world, 'loop')
+  expect(await said($, /같은 확인을 계속 부탁하네\. \/loop 로 맡겨 볼래/)).toBe(true)
+  await answer($, 'choice-accept')
+  expect(world.filled).toEqual(['/loop 5m '])
+})
+
+test('a repository without CLAUDE.md brings the /init tip, and one with it does not', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  const found = new Set<string>()
+  on('session.repo', () => ({ value: { root: '/work', remote: null, internal: false, name: 'work' } }) as never)
+  on('fs.exists', (_, e) => ({ value: found.has(e.path) }) as never)
+  await begin($)
+  await clock.advance(34_000)
+  expect(await said($, /이 레포엔 CLAUDE\.md가 없네\. \/init 으로 만들어 볼래/)).toBe(true)
+  expect(tipsOf(world)).toEqual({ init: '2026-10-29' })
 })

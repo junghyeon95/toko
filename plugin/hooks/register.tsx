@@ -200,7 +200,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('classic.PermissionRequest', async ($, e, next) => {
-    await permissionAsked($, ctx)
+    await permissionAsked($, ctx, e.tool_name, e.tool_input)
     return next(e)
   }).catch(($, e, next) => next(e))
 

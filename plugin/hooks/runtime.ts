@@ -2,12 +2,13 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
 import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
 import { featureOfCommand, featureOfTool, featureText } from './lib/features'
+import { isCheckPrompt, permissionKey } from './lib/tips'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { signalLabel } from './lib/peers'
@@ -30,6 +31,7 @@ type $ = EngineInterface
 
 export const TICK_MS = 100
 export const NEWS_DELAY_MS = 8000
+export const INIT_TIP_DELAY_MS = 5000
 export const THINK_EVERY = 20
 export const SYNC_EVERY = 40
 export const SAVE_EVERY = 300
@@ -190,6 +192,7 @@ export async function start($: $, ctx: Ctx): Promise<void> {
   ctx.loop?.cancel()
   ctx.loop = $.clock.every(TICK_MS, () => void frame($, ctx))
   $.clock.after(NEWS_DELAY_MS, () => void prepareNews($, brain))
+  $.clock.after(INIT_TIP_DELAY_MS, () => void checkInit($, brain))
   if (brain.pet === null || brain.pet.growth.stage === 'egg') {
     $.clock.after(1500, () => void startHatch($, brain))
     return
@@ -230,6 +233,9 @@ export async function submitted($: $, ctx: Ctx, text: string, isPersonTyped: boo
   brain.lastTypingAt = brain.now
   if (isPersonTyped) {
     brain.promptLabel = signalLabel(text)
+  }
+  if (isPersonTyped && isCheckPrompt(text)) {
+    onCheckPrompt(brain)
   }
   if (isPersonTyped && brain.settings.isMoodSensing && brain.settings.isAiOn && text.length > 0) {
     void $.model
@@ -342,7 +348,10 @@ export async function attention($: $, ctx: Ctx): Promise<void> {
   await onAttention($, ctx.brain)
 }
 
-export async function permissionAsked($: $, ctx: Ctx): Promise<void> {
+export async function permissionAsked($: $, ctx: Ctx, tool = '', input: unknown = undefined): Promise<void> {
+  if (tool !== '') {
+    onPermission(ctx.brain, permissionKey(tool, input))
+  }
   await attention($, ctx)
   await signalPeers($, ctx.brain, 'waiting')
 }

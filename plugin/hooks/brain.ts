@@ -45,6 +45,8 @@ import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/
 import { FEATURE_REWARD, asFeatureDex, featureDef, featureLine, featureViews, featuresUsed, mergeFeatureDex } from './lib/features'
 import type { FeatureDex } from './lib/features'
 import { meterOf } from './lib/meter'
+import { CHECK_TIP_PROMPTS, CHECK_TIP_WINDOW_MS, COMPACT_TIP_PERCENT, KNOWN, PERMISSION_TIP_ASKS, TIPS, asTips, isTipWanted } from './lib/tips'
+import type { Tips } from './lib/tips'
 import { CHANGELOG_URL, EMPTY_NEWS, NEWS_LATER_MS, asNews, freshAdditions, isNewsDue, newsDetail, newsLine, newsPrompt, newsSystem, newsText, parseChangelog, parseNews, withPick } from './lib/news'
 import type { Addition } from './lib/news'
 import type { Limit } from './lib/meter'
@@ -117,6 +119,7 @@ export const KEY = {
   memos: 'toko:memos',
   news: 'toko:news',
   features: 'toko:features',
+  tips: 'toko:tips',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -153,7 +156,7 @@ const EMPTY_WALLET: TokoWallet = { coins: 0, items: [], worn: [] }
 
 type Countdown = { kind: string; label: string; endsAt: number; reward: number; then: 'praise' | 'unstick' | 'quiet' }
 
-type Bonk = { reason: string; isTurnRunning: boolean; hasApology: boolean; isSubmitted: boolean }
+type Bonk = { reason: string; isTurnRunning: boolean; hasApology: boolean; isSubmitted: boolean; isDone: boolean }
 
 export type Brain = {
   random: Random
@@ -178,6 +181,11 @@ export type Brain = {
   questsPaid: QuestsPaid
   dex: Dex
   features: FeatureDex
+  tips: Tips
+  tipQueue: readonly string[]
+  tipOfferId: string | null
+  permissionAsks: Readonly<Record<string, number>>
+  checkPrompts: readonly number[]
   memos: readonly TokoMemo[]
   memoOfferId: string | null
   news: TokoNews
@@ -261,6 +269,11 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   questsPaid: { day: '', ids: [] },
   dex: {},
   features: {},
+  tips: {},
+  tipQueue: [],
+  tipOfferId: null,
+  permissionAsks: {},
+  checkPrompts: [],
   memos: [],
   memoOfferId: null,
   news: EMPTY_NEWS,
@@ -352,7 +365,7 @@ const SHARED_FIELDS = Object.keys(SHARED) as readonly SharedField[]
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, news, features, keys] = await Promise.all([
+  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, news, features, tips, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.shelf),
     $.store.get(KEY.needs),
@@ -369,6 +382,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.memos),
     $.store.get(KEY.news),
     $.store.get(KEY.features),
+    $.store.get(KEY.tips),
     $.store.keys(),
   ])
   brain.pet = SHARED.pet(pet, brain)
@@ -400,6 +414,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.memos = asMemos(memos)
   brain.news = asNews(news)
   brain.features = asFeatureDex(features)
+  brain.tips = asTips(tips)
   brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
@@ -476,6 +491,7 @@ export async function refreshShared($: $, brain: Brain, isForced = false): Promi
   brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
   brain.dex = mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex)
   brain.features = mergeFeatureDex(asFeatureDex(await $.store.get(KEY.features)), brain.features)
+  brain.tips = { ...brain.tips, ...asTips(await $.store.get(KEY.tips)) }
   brain.memos = asMemos(await $.store.get(KEY.memos))
   await update($, memosAtom, () => brain.memos)
   brain.news = asNews(await $.store.get(KEY.news))
@@ -851,6 +867,13 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
       { key: 'drop', label: '지우기', hotkey: '3' },
     ]
   }
+  if (kind === 'cc-tip') {
+    return [
+      { key: 'accept', label: '써 보기', hotkey: '1' },
+      { key: 'later', label: '나중에', hotkey: '2' },
+      { key: 'drop', label: '알아', hotkey: '3' },
+    ]
+  }
   if (kind === 'cc-news') {
     return [
       { key: 'accept', label: '알려 줘', hotkey: '1' },
@@ -940,6 +963,10 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
   }
   if (offer.kind === 'cc-news') {
     await answerNews($, brain, choice)
+    return
+  }
+  if (offer.kind === 'cc-tip') {
+    await answerTip($, brain, choice)
     return
   }
   const answer: Answer = choice === 'accept' ? 'accept' : choice === 'stop' ? 'stop' : choice === 'ignored' ? 'ignored' : 'later'
@@ -1111,6 +1138,60 @@ async function answerMemo($: $, brain: Brain, choice: string): Promise<void> {
   if (choice === 'later') {
     await say($, brain, '30분 뒤에 다시 꺼낼게')
   }
+}
+
+const isBonking = (brain: Brain): boolean => brain.bonk !== null && !brain.bonk.isDone
+
+const isTipFresh = (brain: Brain, id: string): boolean => isTipWanted(brain.tips, id, today(brain), brain.features[id] !== undefined)
+
+export const queueTip = (brain: Brain, id: string): void => {
+  if (isTipFresh(brain, id) && !brain.tipQueue.includes(id)) {
+    brain.tipQueue = [...brain.tipQueue, id]
+  }
+}
+
+const dropTip = (brain: Brain, id: string): void => {
+  brain.tipQueue = brain.tipQueue.filter(queued => queued !== id)
+}
+
+async function markTip($: $, brain: Brain, id: string, value: string): Promise<void> {
+  brain.tips = { ...asTips(await $.store.get(KEY.tips)), [id]: value }
+  await $.store.set(KEY.tips, brain.tips)
+}
+
+async function showTip($: $, brain: Brain, id: string): Promise<boolean> {
+  dropTip(brain, id)
+  brain.tips = { ...brain.tips, ...asTips(await $.store.get(KEY.tips)) }
+  const tip = TIPS[id]
+  if (tip === undefined || !isTipFresh(brain, id)) {
+    return false
+  }
+  await markTip($, brain, id, today(brain))
+  brain.tipOfferId = id
+  remember(brain, 'tip', id, 0.3)
+  await openOffer($, brain, 'cc-tip', persona.voiceLine(speciesOf(brain), tip.line))
+  return true
+}
+
+async function answerTip($: $, brain: Brain, choice: string): Promise<void> {
+  const tip = brain.tipOfferId === null ? undefined : TIPS[brain.tipOfferId]
+  brain.tipOfferId = null
+  if (tip === undefined) {
+    return
+  }
+  if (choice === 'drop') {
+    await markTip($, brain, tip.id, KNOWN)
+    await say($, brain, '알고 있었구나. 이건 다시 안 물어볼게')
+    return
+  }
+  if (choice !== 'accept') {
+    if (choice === 'later') {
+      await say($, brain, '알겠어. 다음에 또 알려 줄게')
+    }
+    return
+  }
+  const isFilled = await fillCommand($, tip.fill)
+  await say($, brain, isFilled ? tip.filled : `입력창에 쳐 봐: ${tip.fill.trim()}`)
 }
 
 const hasBubbleRoom = (brain: Brain): boolean => !brain.budget.stoppedToday && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4
@@ -1555,7 +1636,7 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
   if (balance(brain) >= SPEND.bonk) {
     brain.earn = { ...brain.earn, spent: brain.earn.spent + SPEND.bonk }
   }
-  brain.bonk = { reason, isTurnRunning: brain.isTurnRunning, hasApology: false, isSubmitted: false }
+  brain.bonk = { reason, isTurnRunning: brain.isTurnRunning, hasApology: false, isSubmitted: false, isDone: false }
   remember(brain, 'bonk', reason, 2)
   await closeOffer($, brain)
   const isRunning = brain.isTurnRunning
@@ -1596,6 +1677,10 @@ export async function submitBonk($: $, brain: Brain): Promise<void> {
 
 async function finishBonk($: $, brain: Brain, choice: string): Promise<void> {
   const reason = brain.bonk?.reason ?? ''
+  if (brain.bonk !== null) {
+    brain.bonk = { ...brain.bonk, isDone: true }
+  }
+  queueTip(brain, 'rewind')
   if (choice === 'breathe') {
     await breathe($, brain, 1)
     return
@@ -1700,6 +1785,11 @@ export async function onTest($: $, brain: Brain, kind: 'test-fail' | 'test-pass'
 export async function onGit($: $, brain: Brain, kind: 'commit' | 'push' | 'pr', detail: string): Promise<void> {
   remember(brain, kind, detail, 1.5)
   count(brain, kind)
+  if (kind === 'commit') {
+    queueTip(brain, 'code-review')
+  } else {
+    dropTip(brain, 'code-review')
+  }
   if (kind === 'pr') {
     jot(brain, `PR ${detail}`)
     if (detail.endsWith(' merged')) {
@@ -1714,6 +1804,32 @@ export async function onGit($: $, brain: Brain, kind: 'commit' | 'push' | 'pr', 
     return
   }
   await quietLine($, brain, 'commit')
+}
+
+export const onPermission = (brain: Brain, key: string): void => {
+  const asks = (brain.permissionAsks[key] ?? 0) + 1
+  brain.permissionAsks = { ...brain.permissionAsks, [key]: asks }
+  if (asks >= PERMISSION_TIP_ASKS) {
+    queueTip(brain, 'permissions')
+  }
+}
+
+export const onCheckPrompt = (brain: Brain): void => {
+  brain.checkPrompts = [...brain.checkPrompts.filter(at => brain.now - at < CHECK_TIP_WINDOW_MS), brain.now]
+  if (brain.checkPrompts.length >= CHECK_TIP_PROMPTS) {
+    queueTip(brain, 'loop')
+  }
+}
+
+export async function checkInit($: $, brain: Brain): Promise<void> {
+  const repo = await $.session.repo().catch(() => null)
+  if (repo === null) {
+    return
+  }
+  const found = await Promise.all([`${repo.root}/CLAUDE.md`, `${repo.root}/.claude/CLAUDE.md`].map(path => $.fs.exists(path).catch(() => true)))
+  if (!found.includes(true)) {
+    queueTip(brain, 'init')
+  }
 }
 
 export const onSubagents = (brain: Brain, shadows: number): void => {
@@ -1733,6 +1849,9 @@ export async function onMeasure($: $, brain: Brain, contextPercent: number | und
     brain.lastCostUsd = costUsd
     brain.tally = { ...brain.tally, costUsd: Math.max(0, costUsd - brain.costBase) }
     brain.isDirty = true
+  }
+  if (contextPercent !== undefined && contextPercent >= COMPACT_TIP_PERCENT) {
+    queueTip(brain, 'compact')
   }
   if (contextPercent !== undefined && contextPercent >= 85 && !brain.isFullShown) {
     brain.isFullShown = true
@@ -1848,7 +1967,7 @@ export async function think($: $, brain: Brain): Promise<void> {
   await watchLongTurn($, brain)
   await maybeEncounter($, brain)
   await checkProgress($, brain)
-  if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || brain.bonk !== null || isFocusing(brain)) {
+  if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || isBonking(brain) || isFocusing(brain)) {
     return
   }
   const presence = presenceOf(brain)
@@ -1874,6 +1993,10 @@ export async function think($: $, brain: Brain): Promise<void> {
   if (isNewsDue(brain.news, now) && hasBubbleRoom(brain) && (await showNews($, brain))) {
     return
   }
+  const tip = brain.tipQueue.find(id => isTipFresh(brain, id))
+  if (tip !== undefined && hasBubbleRoom(brain) && (await showTip($, brain, tip))) {
+    return
+  }
   const candidates = gateCandidates(candidatesOf(contextOf(brain)), brain.budget, brain.settings, now)
   if (candidates.length === 0) {
     return
@@ -1896,7 +2019,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
   const elapsed = brain.now - brain.turnStartedAt
   if (elapsed >= MINUTE && brain.longTurnStage === 0) {
     brain.longTurnStage = 1
-    if (canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion) && brain.countdown === null && brain.bonk === null && !isFocusing(brain)) {
+    if (canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion) && brain.countdown === null && !isBonking(brain) && !isFocusing(brain)) {
       act(brain, direct.eyeRest(20_000), PRIORITY.encounter)
       await startCountdown($, brain, { kind: 'quiet-eye', label: '기다리는 동안 먼 곳 보기', endsAt: brain.now + 20_000, reward: 0, then: 'quiet' })
     }
@@ -1909,7 +2032,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
 
 async function maybeEncounter($: $, brain: Brain): Promise<void> {
   const scene = brain.scene
-  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || brain.bonk !== null || isFocusing(brain)) {
+  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || isBonking(brain) || isFocusing(brain)) {
     return
   }
   if (!canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
