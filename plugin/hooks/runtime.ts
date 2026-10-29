@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -116,6 +116,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
         await syncShared($, brain)
       }
       await think($, brain)
+      openPlazaStream($, brain)
       await pollPlaza($, brain)
       await pollPeers($, brain)
       await tendVisitor($, brain, TICK_MS * THINK_EVERY)

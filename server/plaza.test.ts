@@ -9,7 +9,37 @@ const post = (path: string, body: unknown) =>
 
 const read = async (response: Response) => ({ status: response.status, body: (await response.json()) as Record<string, any> })
 
+const listen = async (path: string, plaza: ReturnType<typeof createPlaza>) => {
+  const response = await plaza.handle(new Request(`http://plaza.test${path}`))
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+  const decoder = new TextDecoder()
+  const next = async (name: string): Promise<Record<string, any>> => {
+    const { value } = await reader.read()
+    const block = decoder.decode(value).split('\n\n').find(part => part.includes(`event: ${name}`)) ?? ''
+    return JSON.parse(block.slice(block.indexOf('data: ') + 6))
+  }
+  return { type: response.headers.get('content-type'), next, close: () => reader.cancel() }
+}
+
 describe('plaza', () => {
+  test('a wave reaches its target over the event stream without waiting for a poll', async () => {
+    const plaza = createPlaza({ keepAliveMs: 60_000 })
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 }))
+    const kong = await listen('/v1/stream?id=bbbb2&tab=t1', plaza)
+    const page = await listen('/v1/plaza/stream', plaza)
+    expect(kong.type).toContain('text/event-stream')
+    expect((await kong.next('plaza')).friends.map((friend: { name: string }) => friend.name)).toEqual(['말랑'])
+    expect((await page.next('view')).pets.length).toBe(2)
+    await plaza.handle(post('/v1/act', { me: me('aaaa1', '말랑'), kind: 'wave', to: 'bbbb2' }))
+    await plaza.settle()
+    expect((await kong.next('plaza')).events.at(-1).kind).toBe('wave')
+    expect((await page.next('view')).events.at(-1).kind).toBe('wave')
+    expect((await plaza.handle(new Request('http://plaza.test/v1/stream?id=!'))).status).toBe(400)
+    await kong.close()
+    await page.close()
+  })
+
   test('friends see each other and a wave reaches only its target', async () => {
     let clock = 1_000
     const plaza = createPlaza({ now: () => clock })

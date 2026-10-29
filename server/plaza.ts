@@ -24,6 +24,7 @@ export type PlazaOptions = {
   friendTtlMs?: number
   maxEvents?: number
   actionsPerMinute?: number
+  keepAliveMs?: number
 }
 
 const COLORS: ReadonlySet<string> = new Set(['honey', 'mint', 'peach', 'lavender'])
@@ -104,6 +105,13 @@ export const parseMe = (value: unknown, now: number): Member | null => {
 const friendOf = ({ sprite, ...friend }: Member): Omit<Member, 'sprite'> => friend
 
 const TAB_TTL_MS = 45_000
+
+type Listener = { id: string | null; send: (text: string) => void }
+
+const sseMessage = (name: string, data: unknown): string => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`
+
+const sameLook = (a: Member | undefined, b: Member | undefined): boolean =>
+  a !== undefined && b !== undefined && JSON.stringify({ ...a, lastSeen: 0 }) === JSON.stringify({ ...b, lastSeen: 0 })
 
 const STATUS_RANK: Readonly<Record<Status, number>> = { away: 0, idle: 1, resting: 2, working: 3 }
 
@@ -293,9 +301,11 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   const friendTtlMs = options.friendTtlMs ?? 90_000
   const maxEvents = options.maxEvents ?? 500
   const actionsPerMinute = options.actionsPerMinute ?? 12
+  const keepAliveMs = options.keepAliveMs ?? 15_000
   const members = new Map<string, Member>()
   const tabs = new Map<string, Map<string, Member>>()
   const actions = new Map<string, number[]>()
+  const listeners = new Set<Listener>()
   let events: PlazaEvent[] = []
   let pending: Promise<void>[] = []
   let counter = 0
@@ -305,11 +315,30 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     return `e${now().toString(36)}${counter.toString(36)}`
   }
 
+  const friendsOf = (id: string): Omit<Member, 'sprite'>[] => [...members.values()].filter(member => member.id !== id).slice(0, 30).map(friendOf)
+
+  const eventsFor = (id: string, since: number): PlazaEvent[] =>
+    events.filter(event => event.at > since && event.from.id !== id && (event.to === null || event.to === id)).slice(-20)
+
+  const messageFor = (listener: Listener, at: number): string =>
+    listener.id === null
+      ? sseMessage('view', plazaView([...members.values()], events, at))
+      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id), events: eventsFor(listener.id, 0) })
+
+  const broadcast = (): void => {
+    const at = now()
+    for (const listener of listeners) {
+      listener.send(messageFor(listener, at))
+    }
+  }
+
   const record = (event: PlazaEvent): void => {
     events = [...events, event].slice(-maxEvents)
+    broadcast()
   }
 
   const prune = (at: number): void => {
+    const before = members.size
     for (const [id, member] of members) {
       if (at - member.lastSeen > friendTtlMs) {
         members.delete(id)
@@ -317,9 +346,20 @@ export const createPlaza = (options: PlazaOptions = {}) => {
         actions.delete(id)
       }
     }
+    if (members.size !== before) {
+      broadcast()
+    }
+  }
+
+  const remerge = (id: string): void => {
+    const [first, ...rest] = [...(tabs.get(id)?.values() ?? [])]
+    if (first !== undefined) {
+      members.set(id, mergeTabs([first, ...rest]))
+    }
   }
 
   const join = (me: Member): void => {
+    const before = members.get(me.id)
     const reports = tabs.get(me.id) ?? new Map<string, Member>()
     reports.set(me.tab ?? '', me)
     for (const [tab, report] of reports) {
@@ -328,7 +368,55 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       }
     }
     tabs.set(me.id, reports)
-    members.set(me.id, mergeTabs([me, ...[...reports.values()].filter(report => report !== me)]))
+    remerge(me.id)
+    if (!sameLook(before, members.get(me.id))) {
+      broadcast()
+    }
+  }
+
+  const touch = (id: string, tab: string, at: number): void => {
+    const report = tabs.get(id)?.get(tab)
+    if (report !== undefined) {
+      tabs.get(id)?.set(tab, { ...report, lastSeen: at })
+      remerge(id)
+    }
+  }
+
+  const stream = (id: string | null, tab: string): Response => {
+    const encoder = new TextEncoder()
+    let listener: Listener | null = null
+    let timer: ReturnType<typeof setInterval> | undefined
+    const close = (): void => {
+      clearInterval(timer)
+      if (listener !== null) {
+        listeners.delete(listener)
+      }
+    }
+    const body = new ReadableStream<Uint8Array>({
+      start: controller => {
+        const send = (text: string): void => {
+          try {
+            controller.enqueue(encoder.encode(text))
+          } catch {
+            close()
+          }
+        }
+        const opened: Listener = { id, send }
+        listener = opened
+        listeners.add(opened)
+        send(`retry: 3000\n\n${messageFor(opened, now())}`)
+        timer = setInterval(() => {
+          const at = now()
+          if (id !== null) {
+            touch(id, tab, at)
+          }
+          prune(at)
+          send(': ping\n\n')
+        }, keepAliveMs)
+      },
+      cancel: close,
+    })
+    return new Response(body, { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' } })
   }
 
   const isRateLimited = (id: string, at: number): boolean => {
@@ -349,9 +437,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
     join(me)
-    const friends = [...members.values()].filter(member => member.id !== me.id).slice(0, 30).map(friendOf)
-    const mine = events.filter(event => event.at > since && event.from.id !== me.id && (event.to === null || event.to === me.id)).slice(-20)
-    return json(200, { now: at, friends, events: mine })
+    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since) })
   }
 
   const act = async (me: Member, kind: Action, toId: string | null): Promise<Response> => {
@@ -386,6 +472,19 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       prune(now())
       return json(200, plazaView([...members.values()], events, now()))
     }
+    if (request.method === 'GET' && url.pathname === '/v1/plaza/stream') {
+      prune(now())
+      return stream(null, '')
+    }
+    if (request.method === 'GET' && url.pathname === '/v1/stream') {
+      const id = url.searchParams.get('id') ?? ''
+      const tab = url.searchParams.get('tab') ?? ''
+      if (!/^[a-z0-9-]{4,64}$/i.test(id)) {
+        return json(400, { error: 'bad request' })
+      }
+      prune(now())
+      return stream(id, /^[a-z0-9]{1,16}$/i.test(tab) ? tab : '')
+    }
     if (request.method === 'GET' && url.pathname === '/health') {
       return json(200, { ok: true, members: members.size })
     }
@@ -418,6 +517,6 @@ if (import.meta.main) {
   const env = process.env
   const { generate, source } = pickGenerator(env)
   const plaza = createPlaza({ generate })
-  const server = Bun.serve({ port: Number(env.PORT ?? 8080), hostname: env.HOST ?? '0.0.0.0', fetch: plaza.handle })
+  const server = Bun.serve({ port: Number(env.PORT ?? 8080), hostname: env.HOST ?? '0.0.0.0', idleTimeout: 120, fetch: plaza.handle })
   console.log(`toko plaza listening on http://${server.hostname}:${server.port} (lines: ${source})`)
 }

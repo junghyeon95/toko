@@ -7,6 +7,8 @@ import type { Look } from './scene'
 import { portraitOf } from './scene'
 
 export const PLAZA_POLL_MS = 20_000
+export const STREAM_STEADY_MS = 30_000
+export const STREAM_RETRY_MAX_MS = 60_000
 export const FRIEND_TTL_MS = 90_000
 
 export type PlazaStatus = 'working' | 'resting' | 'idle' | 'away'
@@ -146,6 +148,20 @@ export const parseSnapshot = (body: string, myId: string): PlazaSnapshot | null 
 export const plazaEndpoint = (base: string, path: string): string | null => {
   const trimmed = base.trim().replace(/\/+$/, '')
   return /^https?:\/\/[^\s]+$/.test(trimmed) ? `${trimmed}${path}` : null
+}
+
+export const plazaStreamUrl = (base: string, id: string, tab: string): string | null => {
+  const url = plazaEndpoint(base, '/v1/stream')
+  return url === null ? null : `${url}?id=${encodeURIComponent(id)}&tab=${encodeURIComponent(tab)}`
+}
+
+export const splitEvents = (text: string): { data: string[]; rest: string } => {
+  const blocks = text.replace(/\r\n/g, '\n').split('\n\n')
+  const rest = blocks.pop() ?? ''
+  const data = blocks
+    .map(block => block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n'))
+    .filter(payload => payload.length > 0)
+  return { data, rest }
 }
 
 export const isForMe = (event: PlazaEvent, myId: string): boolean => event.to === null || event.to === myId

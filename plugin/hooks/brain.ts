@@ -50,8 +50,8 @@ import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, shouldDismissVisitor, visitorOf, wireColor } from './lib/plaza'
-import type { PlazaAction, PlazaEvent, PlazaStatus } from './lib/plaza'
+import { FRIEND_TTL_MS, PLAZA_POLL_MS, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseSnapshot, plazaEndpoint, plazaStreamUrl, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
+import type { PlazaAction, PlazaEvent, PlazaSnapshot, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
@@ -207,6 +207,8 @@ export type Brain = {
   friends: readonly TokoFriend[]
   feed: readonly { at: number; text: string }[]
   lastPollAt: number
+  plazaStream: 'off' | 'connecting' | 'live' | 'unsupported'
+  lastPlazaReport: string
   seenEvents: readonly string[]
   promptLabel: string
   sessionTitle: string
@@ -284,6 +286,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   friends: [],
   feed: [],
   lastPollAt: 0,
+  plazaStream: 'off',
+  lastPlazaReport: '',
   seenEvents: [],
   promptLabel: '',
   sessionTitle: '',
@@ -1798,7 +1802,13 @@ export const isPlazaReady = (brain: Brain): boolean =>
   brain.settings.isPlazaOn && brain.serverUrl.length > 0 && nameOf(brain.pet) !== null
 
 export async function pollPlaza($: $, brain: Brain): Promise<void> {
-  if (!isPlazaReady(brain) || brain.now - brain.lastPollAt < PLAZA_POLL_MS) {
+  if (!isPlazaReady(brain)) {
+    return
+  }
+  const me = plazaMe(brain)
+  const report = JSON.stringify(me)
+  const isDue = brain.plazaStream === 'live' ? report !== brain.lastPlazaReport : brain.now - brain.lastPollAt >= PLAZA_POLL_MS
+  if (!isDue) {
     return
   }
   brain.lastPollAt = brain.now
@@ -1807,20 +1817,82 @@ export async function pollPlaza($: $, brain: Brain): Promise<void> {
     return
   }
   try {
-    const response = await $.http.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ me: plazaMe(brain), since: brain.lastPollAt - PLAZA_POLL_MS * 2 }) })
+    const response = await $.http.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ me, since: brain.lastPollAt - PLAZA_POLL_MS * 2 }) })
     const snapshot = response.ok ? parseSnapshot(response.text, brain.plazaId) : null
     if (snapshot === null) {
       return
     }
-    brain.friends = snapshot.friends
-    const fresh = snapshot.events.filter(event => !brain.seenEvents.includes(event.id) && isForMe(event, brain.plazaId))
-    brain.seenEvents = [...brain.seenEvents, ...fresh.map(event => event.id)].slice(-200)
-    for (const event of fresh) {
-      await receivePlaza($, brain, event)
-    }
-    await update($, plazaAtom, () => ({ isOnline: true, friends: brain.friends, feed: brain.feed }))
+    brain.lastPlazaReport = report
+    await takeSnapshot($, brain, snapshot)
   } catch {
     await update($, plazaAtom, () => ({ isOnline: false, friends: [], feed: brain.feed }))
+  }
+}
+
+async function takeSnapshot($: $, brain: Brain, snapshot: PlazaSnapshot): Promise<void> {
+  brain.friends = snapshot.friends
+  const fresh = snapshot.events.filter(event => !brain.seenEvents.includes(event.id) && isForMe(event, brain.plazaId))
+  brain.seenEvents = [...brain.seenEvents, ...fresh.map(event => event.id)].slice(-200)
+  for (const event of fresh) {
+    await receivePlaza($, brain, event)
+  }
+  await update($, plazaAtom, () => ({ isOnline: true, friends: brain.friends, feed: brain.feed }))
+}
+
+export function openPlazaStream($: $, brain: Brain): void {
+  if (brain.plazaStream !== 'off' || !isPlazaReady(brain)) {
+    return
+  }
+  brain.plazaStream = 'connecting'
+  void listenPlaza($, brain).catch(() => {
+    brain.plazaStream = 'off'
+  })
+}
+
+async function listenPlaza($: $, brain: Brain): Promise<void> {
+  let failures = 0
+  while (isPlazaReady(brain)) {
+    const url = plazaStreamUrl(brain.serverUrl, brain.plazaId, brain.plazaTab)
+    if (url === null) {
+      break
+    }
+    const openedAt = brain.now
+    try {
+      await readPlazaStream($, brain, url)
+    } catch {
+      if (brain.plazaStream !== 'live') {
+        brain.plazaStream = 'unsupported'
+        return
+      }
+    }
+    brain.plazaStream = 'connecting'
+    failures = brain.now - openedAt >= STREAM_STEADY_MS ? 0 : failures + 1
+    await $.clock.sleep(Math.min(STREAM_RETRY_MAX_MS, 1000 * 2 ** failures))
+  }
+  brain.plazaStream = 'off'
+}
+
+async function readPlazaStream($: $, brain: Brain, url: string): Promise<void> {
+  let rest = ''
+  for await (const piece of $.process.spawn({ argv: ['curl', '-sfN', '--max-time', '900', '-H', 'accept: text/event-stream', url] })) {
+    if (piece.stream !== 'stdout') {
+      continue
+    }
+    if (brain.plazaStream !== 'live') {
+      brain.plazaStream = 'live'
+      brain.lastPlazaReport = ''
+    }
+    const split = splitEvents(rest + piece.text)
+    rest = split.rest
+    for (const data of split.data) {
+      const snapshot = parseSnapshot(data, brain.plazaId)
+      if (snapshot !== null) {
+        await takeSnapshot($, brain, snapshot)
+      }
+    }
+    if (!isPlazaReady(brain)) {
+      break
+    }
   }
 }
 

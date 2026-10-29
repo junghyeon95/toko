@@ -429,6 +429,37 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
   expect(sent.text).toContain('보냈어요')
 })
 
+test('friends arrive over the plaza event stream, and an open stream only reports what changed', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })
+  const polls: string[] = []
+  const streams: string[] = []
+  on('http.fetch', (_, e) => {
+    polls.push(e.url)
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ now: START, friends: [], events: [] }) } }
+  })
+  let release = (): void => {}
+  const snapshot = { now: START, friends: [{ id: 'f1', name: '콩떡', color: 'peach', species: 'fox', mood: 'calm', status: 'working', lastSeen: START }], events: [] }
+  on('process.spawn', async function* (_, e) {
+    streams.push(e.argv.at(-1) ?? '')
+    yield { stream: 'stdout' as const, text: `retry: 3000\n\nevent: plaza\ndata: ${JSON.stringify(snapshot)}\n\n` }
+    await new Promise<void>(resolve => {
+      release = resolve
+    })
+    return { value: { code: 0, signal: null } }
+  } as never)
+  await begin($)
+  await clock.advance(3000)
+  expect(streams[0]).toMatch(/^http:\/\/plaza\.test\/v1\/stream\?id=me&tab=[a-z0-9]+$/)
+  const status = await $.command.run({ command: 'toko', args: 'plaza' } as never)
+  expect(status.text).toContain('콩떡 (여우')
+  await clock.advance(5_000)
+  const reported = polls.length
+  await clock.advance(21_000)
+  expect(polls.length).toBe(reported)
+  release()
+})
+
 test('another session’s finished turn reaches the pet as a bubble', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { kind: 'done', at: START + 1000, label: '배포 확인' } })
