@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -28,6 +28,7 @@ import type { ShopItem, TurnUsage } from './lib/economy'
 type $ = EngineInterface
 
 export const TICK_MS = 100
+export const NEWS_DELAY_MS = 8000
 export const THINK_EVERY = 20
 export const SYNC_EVERY = 40
 export const SAVE_EVERY = 300
@@ -174,6 +175,10 @@ export async function start($: $, ctx: Ctx): Promise<void> {
     .then(usage => usage.cost?.usd ?? 0)
     .catch(() => 0)
   brain.lastCostUsd = brain.costBase
+  brain.version = await $.session
+    .version()
+    .then(version => (version.base ?? version.version).replace(/-.*$/, ''))
+    .catch(() => '')
   await readEnvironment($, brain)
   await load($, brain)
   await reflect($, brain)
@@ -183,6 +188,7 @@ export async function start($: $, ctx: Ctx): Promise<void> {
   await signalPeers($, brain, 'idle')
   ctx.loop?.cancel()
   ctx.loop = $.clock.every(TICK_MS, () => void frame($, ctx))
+  $.clock.after(NEWS_DELAY_MS, () => void prepareNews($, brain))
   if (brain.pet === null || brain.pet.growth.stage === 'egg') {
     $.clock.after(1500, () => void startHatch($, brain))
     return
@@ -341,13 +347,14 @@ export const HELP = [
   '/toko quests — 오늘의 퀘스트',
   '/toko badges — 업적',
   '/toko dex — 인카운터 도감',
+  '/toko news — Claude Code 새 기능 소개 다시 보기',
   '/toko memo [내용 | clear] — 생각 주차장 메모 (/memo <내용> 도 같음)',
   '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   `/toko draw — 펫 뽑기(${SPEND.draw}코인, 알부터 키워요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
-  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용)',
+  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
 ].join('\n')
@@ -553,6 +560,8 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       return { text: badgeText(progressOf(brain).badges) }
     case 'dex':
       return { text: dexText(progressOf(brain).dex) }
+    case 'news':
+      return { text: await newsReport($, brain) }
     case 'memo':
       return { text: await memoCommand($, ctx, rest.join(' ')) }
     case 'today':
@@ -585,6 +594,10 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       return plazaCommand($, brain, rest)
     case 'event': {
       const kind = value ?? 'stretch'
+      if (kind === 'update') {
+        $.clock.after(1, () => void demoNews($, ctx))
+        return { text: '업데이트 내역에서 새 기능을 고르고 있어요. 몇 초 뒤에 토코가 알려 줄게요.' }
+      }
       if (isEncounterKind(kind)) {
         await runEncounter($, brain, kind, rest[1] === 'shiny')
         await sync($, brain)
@@ -657,6 +670,21 @@ export async function chatAnswered($: $, ctx: Ctx, turnId: string, answer: strin
   if (line !== null) {
     await chatted($, ctx.brain, line)
   }
+}
+
+async function demoNews($: $, ctx: Ctx): Promise<void> {
+  await now($, ctx)
+  const problem = await prepareNews($, ctx.brain, true)
+  await now($, ctx)
+  if (!(await showNews($, ctx.brain, true))) {
+    await say($, ctx.brain, problem === '' ? '소개할 새 기능이 없어' : problem)
+  }
+  await sync($, ctx.brain)
+}
+
+export async function newsTry($: $, ctx: Ctx): Promise<string> {
+  await now($, ctx)
+  return tryNews($, ctx.brain)
 }
 
 export async function todayCommand($: $, ctx: Ctx): Promise<string> {

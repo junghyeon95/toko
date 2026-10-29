@@ -17,6 +17,8 @@ import type {
   TokoMeter,
   TokoMood,
   TokoNeeds,
+  TokoNews,
+  TokoNewsPick,
   TokoOffer,
   TokoPet,
   TokoProgress,
@@ -41,6 +43,8 @@ import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, 
 import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
+import { CHANGELOG_URL, EMPTY_NEWS, NEWS_LATER_MS, asNews, freshAdditions, isNewsDue, newsDetail, newsLine, newsPrompt, newsSystem, newsText, parseChangelog, parseNews, withPick } from './lib/news'
+import type { Addition } from './lib/news'
 import type { Limit } from './lib/meter'
 import { addTurn, isWorked, workText } from './lib/today'
 import type { WorkedSession } from './lib/today'
@@ -84,6 +88,7 @@ const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
+const newsAtom = atom({ plugin: 'toko', key: 'news' } as const, null)
 
 type $ = EngineInterface
 
@@ -108,6 +113,7 @@ export const KEY = {
   quests: 'toko:quests',
   dex: 'toko:dex',
   memos: 'toko:memos',
+  news: 'toko:news',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -170,6 +176,9 @@ export type Brain = {
   dex: Dex
   memos: readonly TokoMemo[]
   memoOfferId: string | null
+  news: TokoNews
+  version: string
+  isFetchingNews: boolean
   mood: TokoMood
   isLoaded: boolean
   isTurnRunning: boolean
@@ -249,6 +258,9 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   dex: {},
   memos: [],
   memoOfferId: null,
+  news: EMPTY_NEWS,
+  version: '',
+  isFetchingNews: false,
   mood: 'calm',
   isLoaded: false,
   isTurnRunning: false,
@@ -335,7 +347,7 @@ const SHARED_FIELDS = Object.keys(SHARED) as readonly SharedField[]
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, keys] = await Promise.all([
+  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, news, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.shelf),
     $.store.get(KEY.needs),
@@ -350,6 +362,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.quests),
     $.store.get(KEY.dex),
     $.store.get(KEY.memos),
+    $.store.get(KEY.news),
     $.store.keys(),
   ])
   brain.pet = SHARED.pet(pet, brain)
@@ -379,6 +392,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.questsPaid = asPaid(questsPaid, day)
   brain.dex = asDex(dex)
   brain.memos = asMemos(memos)
+  brain.news = asNews(news)
   brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
@@ -456,6 +470,8 @@ export async function refreshShared($: $, brain: Brain, isForced = false): Promi
   brain.dex = mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex)
   brain.memos = asMemos(await $.store.get(KEY.memos))
   await update($, memosAtom, () => brain.memos)
+  brain.news = asNews(await $.store.get(KEY.news))
+  await update($, newsAtom, () => brain.news)
   const paid = asPaid(await $.store.get(KEY.quests), today(brain)).ids
   brain.questsPaid = { day: today(brain), ids: [...new Set([...paid, ...(brain.questsPaid.day === today(brain) ? brain.questsPaid.ids : [])])] }
   brain.isProgressDirty = true
@@ -625,6 +641,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, focusAtom, () => brain.focus),
     update($, meterAtom, () => brain.meter),
     update($, memosAtom, () => brain.memos),
+    update($, newsAtom, () => brain.news),
   ])
 }
 
@@ -824,6 +841,13 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
       { key: 'drop', label: '지우기', hotkey: '3' },
     ]
   }
+  if (kind === 'cc-news') {
+    return [
+      { key: 'accept', label: '알려 줘', hotkey: '1' },
+      { key: 'later', label: '나중에', hotkey: '2' },
+      { key: 'drop', label: '안 볼래', hotkey: '3' },
+    ]
+  }
   return CHOICES
 }
 
@@ -902,6 +926,10 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
   }
   if (offer.kind === 'memo') {
     await answerMemo($, brain, choice)
+    return
+  }
+  if (offer.kind === 'cc-news') {
+    await answerNews($, brain, choice)
     return
   }
   const answer: Answer = choice === 'accept' ? 'accept' : choice === 'stop' ? 'stop' : choice === 'ignored' ? 'ignored' : 'later'
@@ -1073,6 +1101,140 @@ async function answerMemo($: $, brain: Brain, choice: string): Promise<void> {
   if (choice === 'later') {
     await say($, brain, '30분 뒤에 다시 꺼낼게')
   }
+}
+
+const hasBubbleRoom = (brain: Brain): boolean => !brain.budget.stoppedToday && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4
+
+async function fetchAdditions($: $, seen: string, version: string): Promise<readonly Addition[] | null> {
+  try {
+    const response = await $.http.fetch(CHANGELOG_URL)
+    return response.ok ? freshAdditions(parseChangelog(response.text), seen, version) : null
+  } catch {
+    return null
+  }
+}
+
+async function keepNews($: $, brain: Brain, news: TokoNews): Promise<void> {
+  brain.news = news
+  await $.store.set(KEY.news, news)
+  await update($, newsAtom, () => news)
+}
+
+export async function prepareNews($: $, brain: Brain, isForced = false): Promise<string> {
+  if (brain.version === '') {
+    return '지금 Claude Code 버전을 알 수 없어요.'
+  }
+  if (brain.isFetchingNews) {
+    return '업데이트 내역을 읽고 있어요. 잠시 뒤에 다시 해 주세요.'
+  }
+  const stored = asNews(await $.store.get(KEY.news))
+  brain.news = stored
+  if (!isForced && stored.seen === brain.version) {
+    return ''
+  }
+  const claimed = { ...stored, seen: brain.version }
+  if (!brain.settings.isAiOn) {
+    if (!isForced) {
+      await keepNews($, brain, claimed)
+    }
+    return '작은 모델이 꺼져 있어서 새 기능 소개는 건너뛰어요.'
+  }
+  brain.isFetchingNews = true
+  try {
+    if (!isForced) {
+      await $.store.set(KEY.news, claimed)
+    }
+    const additions = await fetchAdditions($, isForced ? '' : stored.seen, brain.version)
+    if (additions === null) {
+      await $.store.set(KEY.news, stored)
+      return '업데이트 내역을 받아 오지 못했어요.'
+    }
+    if (additions.length === 0) {
+      return '이번 업데이트에는 새로 생긴 기능이 없어요.'
+    }
+    const reply = await ask($, brain, newsPrompt(additions), 300, 15_000, newsSystem)
+    const pick = reply === null ? null : parseNews(reply, additions)
+    if (pick === null) {
+      await $.store.set(KEY.news, stored)
+      return '새 기능을 고르지 못했어요. 다음 세션에 다시 해 볼게요.'
+    }
+    if (pick === 'none') {
+      await keepNews($, brain, claimed)
+      return '이번 업데이트에는 모두에게 소개할 만한 새 기능이 없어요.'
+    }
+    await keepNews($, brain, withPick(asNews(await $.store.get(KEY.news)), brain.version, pick))
+    return ''
+  } finally {
+    brain.isFetchingNews = false
+  }
+}
+
+export async function showNews($: $, brain: Brain, isForced = false): Promise<boolean> {
+  const news = asNews(await $.store.get(KEY.news))
+  if (news.pick === null || (!isForced && !isNewsDue(news, brain.now))) {
+    brain.news = news
+    return false
+  }
+  await keepNews($, brain, { ...news, shownAt: brain.now })
+  await openOffer($, brain, 'cc-news', persona.voiceLine(speciesOf(brain), newsLine(news.pick)))
+  return true
+}
+
+function logNews($: $, pick: TokoNewsPick): void {
+  for (const line of newsDetail(pick)) {
+    $.ui.log(line)
+  }
+}
+
+async function fillCommand($: $, command: string): Promise<boolean> {
+  const box = await $.prompt.read().catch(() => null)
+  if (box === null || box.text.trim().length > 0) {
+    return false
+  }
+  const filled = await $.prompt.fill({ text: command, mode: 'replace' }).catch(() => ({ isFilled: false }))
+  return filled.isFilled
+}
+
+async function answerNews($: $, brain: Brain, choice: string): Promise<void> {
+  const pick = brain.news.pick
+  if (pick === null) {
+    return
+  }
+  if (choice === 'later' || (choice === 'ignored' && brain.news.notBefore === 0)) {
+    await keepNews($, brain, { ...brain.news, shownAt: 0, notBefore: brain.now + NEWS_LATER_MS })
+    if (choice === 'later') {
+      await say($, brain, '30분 뒤에 다시 알려 줄게')
+    }
+    return
+  }
+  if (choice !== 'accept') {
+    if (choice === 'drop') {
+      await say($, brain, '알겠어. 궁금해지면 /toko news 로 다시 볼 수 있어')
+    }
+    return
+  }
+  logNews($, pick)
+  remember(brain, 'news', pick.title)
+  act(brain, direct.perk(), PRIORITY.reaction)
+  const isFilled = pick.tryIt !== '' && (await fillCommand($, pick.tryIt))
+  await say($, brain, isFilled ? `입력창에 ${pick.tryIt} 넣어 뒀어. 엔터 누르면 바로 해 볼 수 있어` : '대화창에 자세히 적어 뒀어')
+}
+
+export async function newsReport($: $, brain: Brain): Promise<string> {
+  brain.news = asNews(await $.store.get(KEY.news))
+  return newsText(brain.news)
+}
+
+export async function tryNews($: $, brain: Brain): Promise<string> {
+  const pick = brain.news.pick
+  if (pick === null) {
+    return newsText(brain.news)
+  }
+  logNews($, pick)
+  if (pick.tryIt !== '' && (await fillCommand($, pick.tryIt))) {
+    return `입력창에 ${pick.tryIt} 넣어 뒀어요.`
+  }
+  return '대화창에 자세히 적어 뒀어요.'
 }
 
 export const FOCUS_MINUTES = 25
@@ -1679,6 +1841,9 @@ export async function think($: $, brain: Brain): Promise<void> {
   if (memo !== undefined) {
     brain.memoOfferId = memo.id
     await openOffer($, brain, 'memo', `아까 맡긴 메모: ${clipMemo(memo.text, 40)}`)
+    return
+  }
+  if (isNewsDue(brain.news, now) && hasBubbleRoom(brain) && (await showNews($, brain))) {
     return
   }
   const candidates = gateCandidates(candidatesOf(contextOf(brain)), brain.budget, brain.settings, now)

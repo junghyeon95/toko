@@ -35,6 +35,7 @@ import {
   memoCommand,
   memoDrop,
   memoFill,
+  newsTry,
   permissionAsked,
   petStatus,
   pickPet,
@@ -74,6 +75,7 @@ const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
 const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
 const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
 const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
+const newsAtom = atom({ plugin: 'toko', key: 'news' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -323,7 +325,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, shelf, wallet, needs, mood, plaza, lessons, progress, focus, memos] = await Promise.all([
+    const [pet, shelf, wallet, needs, mood, plaza, lessons, progress, focus, memos, news] = await Promise.all([
       read($, petAtom),
       read($, shelfAtom),
       read($, walletAtom),
@@ -334,6 +336,7 @@ export const register: Register = (on, options) => {
       read($, progressAtom),
       read($, focusAtom),
       read($, memosAtom),
+      read($, newsAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
@@ -446,6 +449,25 @@ export const register: Register = (on, options) => {
             <Text dimColor={progress.dex.every(entry => entry.seen === 0)}>
               {progress.dex.map(entry => (entry.seen === 0 ? '???' : `${entry.name}${entry.shiny > 0 ? ' ✦' : ''}`)).join(' · ')}
             </Text>
+          </Box>
+        )}
+        {news !== null && news.picks.length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">Claude Code 새 기능</Text>
+            {[...news.picks]
+              .reverse()
+              .slice(0, 3)
+              .map(pick => (
+                <Text key={`news-${pick.version}-${pick.title}`} wrap="truncate-end">
+                  {`${pick.version} ${pick.title}: ${pick.what}`}
+                </Text>
+              ))}
+            {news.pick !== null && (
+              <Box gap={1}>
+                <Button key="news-try" label={news.pick.tryIt === '' ? '자세히 보기' : `${news.pick.tryIt} 해 보기`} onPress={press(() => newsTry($, ctx))} />
+                <Text dimColor>/toko news 로 지난 소개도 봐요</Text>
+              </Box>
+            )}
           </Box>
         )}
         {SHELVES.map(([title, shelf]) => (

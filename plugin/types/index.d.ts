@@ -112,6 +112,10 @@ export type TokoFriend = { id: string; name: string; species: TokoSpecies; mood:
 
 export type TokoVisitor = { name: string; species: TokoSpecies; kind: string; line: string; at: number }
 
+export type TokoNewsPick = { version: string; title: string; what: string; when: string; tryIt: string; source: string }
+
+export type TokoNews = { seen: string; pick: TokoNewsPick | null; shownAt: number; notBefore: number; picks: readonly TokoNewsPick[] }
+
 export type TokoPlazaView = {
   isOnline: boolean
   friends: readonly TokoFriend[]
@@ -140,6 +144,7 @@ declare module 'claude-code' {
       focus: TokoFocus | null
       meter: TokoMeter | null
       memos: readonly TokoMemo[]
+      news: TokoNews | null
     }
   }
 }
