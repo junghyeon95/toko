@@ -22,7 +22,8 @@ export const ALIVE_MS = 3 * MINUTE
 const PROMPTS_IN_EXCERPT = 4
 const PROMPT_LENGTH = 300
 const ANSWER_LENGTH = 1500
-const REPLY_LENGTH = 1800
+const REPLY_LINES = 6
+const REPLY_LENGTH = 400
 
 const LABEL_LENGTH = 24
 
@@ -102,8 +103,13 @@ export const sessionsText = (peers: readonly Peer[], now: number): string =>
 
 const clip = (text: string, length: number): string => [...text.trim()].slice(0, length).join('')
 
-export const replyText = (from: string, answer: string): string =>
-  [`${labelName(from)} 답`, clip(answer, REPLY_LENGTH), ...([...answer.trim()].length > REPLY_LENGTH ? ['…(나머지는 그 세션에서 보세요)'] : [])].join('\n')
+export const replyText = (from: string, answer: string): string => {
+  const whole = answer.trim()
+  const lines = whole.split('\n').filter(line => line.trim() !== '')
+  const head = clip(lines.slice(0, REPLY_LINES).join('\n'), REPLY_LENGTH)
+  const isCut = head !== lines.join('\n')
+  return [`${labelName(from)} 답`, head, ...(isCut ? [`…(${[...whole].length.toLocaleString('en-US')}자 중 앞부분 · 전체는 그 세션에서)`] : [])].join('\n')
+}
 
 const recordOf = (line: string): Record<string, unknown> | null => {
   try {
