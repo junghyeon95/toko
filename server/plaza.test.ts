@@ -42,6 +42,22 @@ describe('plaza', () => {
     expect((lines[2]?.length ?? 0) > 0).toBe(true)
   })
 
+  test('one person’s tabs show as their busiest tab, and a closed tab stops counting', async () => {
+    let clock = 1_000
+    const plaza = createPlaza({ now: () => clock })
+    const hat = { palette: ['332233'], rows: ['00', '00'] }
+    const bare = { palette: ['332233'], rows: ['..', '00'] }
+    const view = async () => (await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.pets[0]
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'one', status: 'working', sprite: hat }, since: 0 }))
+    clock += 5_000
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'two', status: 'away', sprite: bare }, since: 0 }))
+    expect([(await view()).status, (await view()).sprite.rows]).toEqual(['working', hat.rows])
+    expect(plaza.members.size).toBe(1)
+    clock += 50_000
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), tab: 'two', status: 'away', sprite: bare }, since: 0 }))
+    expect([(await view()).status, (await view()).sprite.rows]).toEqual(['away', bare.rows])
+  })
+
   test('too many actions in a minute are refused gently', async () => {
     const plaza = createPlaza({ actionsPerMinute: 2 })
     const act = () => plaza.handle(post('/v1/act', { me: me('aaaa1', '말랑'), kind: 'cheer', to: null }))

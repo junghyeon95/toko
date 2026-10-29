@@ -200,6 +200,7 @@ export type Brain = {
   isLineMode: boolean
   serverUrl: string
   plazaId: string
+  plazaTab: string
   friends: readonly TokoFriend[]
   feed: readonly { at: number; text: string }[]
   lastPollAt: number
@@ -274,6 +275,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   isLineMode: false,
   serverUrl,
   plazaId: '',
+  plazaTab: '',
   friends: [],
   feed: [],
   lastPollAt: 0,
@@ -348,6 +350,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.marks = SHARED.marks(marks, brain)
   brain.budget = SHARED.budget(budget, brain)
   brain.plazaId = SHARED.plazaId(plazaId, brain)
+  brain.plazaTab = Math.floor(brain.random() * 2 ** 32).toString(36)
   brain.synced = { pet: brain.pet, shelf: brain.shelf, needs: brain.needs, memory: brain.memory, wallet: brain.wallet, budget: brain.budget, settings: brain.settings, marks: brain.marks, plazaId }
   const earnKeys = keys.filter(key => key.startsWith(KEY.earnPrefix))
   const earns = await Promise.all(earnKeys.map(async key => ({ key, value: await $.store.get(key) })))
@@ -1751,6 +1754,7 @@ export const plazaStatus = (brain: Brain): PlazaStatus => {
 
 const plazaMe = (brain: Brain) => ({
   id: brain.plazaId,
+  tab: brain.plazaTab,
   name: nameOf(brain.pet) ?? '알',
   color: wireColor(brain.pet?.bones.species ?? 'cat'),
   species: brain.pet?.bones.species ?? 'cat',

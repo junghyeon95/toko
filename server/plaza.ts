@@ -5,7 +5,7 @@ export type Action = 'wave' | 'heart' | 'snack' | 'stretch-call' | 'cheer'
 
 export type Sprite = { palette: readonly string[]; rows: readonly string[] }
 
-export type Member = { id: string; name: string; color: Color; species?: string; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite }
+export type Member = { id: string; tab?: string; name: string; color: Color; species?: string; mood: Mood; status: Status; lastSeen: number; sprite?: Sprite }
 
 export type PlazaEvent = {
   id: string
@@ -86,9 +86,11 @@ export const parseMe = (value: unknown, now: number): Member | null => {
     return null
   }
   const species = clean(raw.species, 16)
+  const tab = clean(raw.tab, 16)
   const sprite = parseSprite(raw.sprite)
   return {
     id,
+    ...(/^[a-z0-9]{1,16}$/i.test(tab) ? { tab } : {}),
     name: clean(raw.name, 12) || '친구',
     color: raw.color as Color,
     ...(/^[a-z]{2,16}$/.test(species) ? { species } : {}),
@@ -100,6 +102,20 @@ export const parseMe = (value: unknown, now: number): Member | null => {
 }
 
 const friendOf = ({ sprite, ...friend }: Member): Omit<Member, 'sprite'> => friend
+
+const TAB_TTL_MS = 45_000
+
+const STATUS_RANK: Readonly<Record<Status, number>> = { away: 0, idle: 1, resting: 2, working: 3 }
+
+export const mergeTabs = ([first, ...rest]: readonly [Member, ...Member[]]): Member => {
+  const lead = rest.reduce(
+    (best, report) =>
+      STATUS_RANK[report.status] > STATUS_RANK[best.status] || (STATUS_RANK[report.status] === STATUS_RANK[best.status] && report.lastSeen > best.lastSeen) ? report : best,
+    first,
+  )
+  const { tab, ...member } = lead
+  return { ...member, lastSeen: Math.max(first.lastSeen, ...rest.map(report => report.lastSeen)) }
+}
 
 const senderOf = (me: Member): PlazaEvent['from'] => ({ id: me.id, name: me.name, color: me.color, ...(me.species === undefined ? {} : { species: me.species }) })
 
@@ -278,6 +294,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   const maxEvents = options.maxEvents ?? 500
   const actionsPerMinute = options.actionsPerMinute ?? 12
   const members = new Map<string, Member>()
+  const tabs = new Map<string, Map<string, Member>>()
   const actions = new Map<string, number[]>()
   let events: PlazaEvent[] = []
   let pending: Promise<void>[] = []
@@ -296,9 +313,22 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     for (const [id, member] of members) {
       if (at - member.lastSeen > friendTtlMs) {
         members.delete(id)
+        tabs.delete(id)
         actions.delete(id)
       }
     }
+  }
+
+  const join = (me: Member): void => {
+    const reports = tabs.get(me.id) ?? new Map<string, Member>()
+    reports.set(me.tab ?? '', me)
+    for (const [tab, report] of reports) {
+      if (me.lastSeen - report.lastSeen > TAB_TTL_MS) {
+        reports.delete(tab)
+      }
+    }
+    tabs.set(me.id, reports)
+    members.set(me.id, mergeTabs([me, ...[...reports.values()].filter(report => report !== me)]))
   }
 
   const isRateLimited = (id: string, at: number): boolean => {
@@ -318,7 +348,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     if (!members.has(me.id)) {
       record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
-    members.set(me.id, me)
+    join(me)
     const friends = [...members.values()].filter(member => member.id !== me.id).slice(0, 30).map(friendOf)
     const mine = events.filter(event => event.at > since && event.from.id !== me.id && (event.to === null || event.to === me.id)).slice(-20)
     return json(200, { now: at, friends, events: mine })
@@ -326,7 +356,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
 
   const act = async (me: Member, kind: Action, toId: string | null): Promise<Response> => {
     const at = me.lastSeen
-    members.set(me.id, me)
+    join(me)
     if (isRateLimited(me.id, at)) {
       return json(429, { error: 'too many actions, take a breath' })
     }
