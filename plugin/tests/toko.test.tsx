@@ -29,11 +29,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; isFillRefused: boolean }
+type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; systems: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; isFillRefused: boolean }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], saved: {}, store: memory, notified: [], isFillRefused: false }
+  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], systems: [], saved: {}, store: memory, notified: [], isFillRefused: false }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -65,6 +65,7 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
   on('ui.log', () => ({ value: undefined }))
   on('model.complete', (_, e) => {
     world.models.push(e.prompt)
+    world.systems.push(e.system ?? '')
     return { value: { isAnswered: true, text: modelText, usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   on('prompt.submit', (_, e) => {
@@ -493,14 +494,16 @@ test('/toko sessions with no other session says so', async ($, on) => {
 
 test('/toko sessions <n> summarizes the end of that session’s transcript with the small model', async ($, on) => {
   mock.clock(on, { now: START })
-  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A }, '하는 중: 배포 확인\n어디까지: 롤아웃 OK\n막힌 것: 없음')
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A }, '하는 일: 배포 확인\n어디까지: 롤아웃 OK\n막힌 것: 없음')
   const tail = ['{"type":"user","message":{"role":"user","content":"배포 확인해 줘"}}', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"롤아웃 OK"}]}}'].join('\n')
   on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv[0] === 'tail' ? `잘린 앞줄"}\n${tail}\n` : '', stderr: '' } }) as never)
   await begin($)
   const summary = await $.command.run({ command: 'toko', args: 'sessions 1' } as never)
-  expect(summary.text).toBe(['「A」 작업 중 · 2분째', '하는 중: 배포 확인', '어디까지: 롤아웃 OK', '막힌 것: 없음'].join('\n'))
+  expect(summary.text).toBe(['「A」 작업 중 · 2분째', '하는 일: 배포 확인', '어디까지: 롤아웃 OK', '막힌 것: 없음'].join('\n'))
   expect(world.models.at(-1)).toContain('- 배포 확인해 줘')
   expect(world.models.at(-1)).toContain('롤아웃 OK')
+  expect(world.models.at(-1)).toContain('지금 아직 일하는 중')
+  expect(world.systems.at(-1)).toContain('펫 말투 없이')
   await $.command.run({ command: 'toko', args: 'ai off' } as never)
   expect((await $.command.run({ command: 'toko', args: 'sessions 1' } as never)).text).toBe('「A」 작업 중 · 2분째\n요약은 못 했어요(작은 모델을 쓸 수 없어요).')
 })

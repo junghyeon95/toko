@@ -3,6 +3,7 @@ import type { TokoBones, TokoMemoryEvent, TokoMood, TokoNeeds, TokoRarity, TokoS
 import { SPECIES, rarityOf } from './pet'
 import type { Random } from './random'
 import { pick } from './random'
+import type { PeerSignal } from './peers'
 import type { Candidate } from './sim'
 
 export const MAX_LINE = 60
@@ -410,10 +411,22 @@ const hasFinalConsonant = (word: string): boolean => {
 
 const calling = (name: string): string => (hasFinalConsonant(name) ? `${name}이` : name)
 
-export const peerSummaryPrompt = (label: string, excerpt: string): string =>
+const PEER_STATE: Record<PeerSignal['kind'], string> = {
+  working: '아직 일하는 중',
+  waiting: '도구 실행 허락을 기다리는 중',
+  done: '답을 마치고 사용자의 다음 말을 기다리는 중',
+  idle: '쉬는 중',
+}
+
+export const peerSummarySystem = 'Claude Code 세션 기록을 다른 세션의 사용자에게 요약해 주는 도우미다. 펫 말투 없이 존댓말(~해요)로, 대화에 있는 사실만 쓴다.'
+
+export const peerSummaryPrompt = (label: string, kind: PeerSignal['kind'], excerpt: string): string =>
   [
-    `옆 세션「${label || '이름 없는 세션'}」의 대화 끝부분이야. 이 세션이 지금 어떤 상태인지 사용자에게 알려 줘.`,
-    '정확히 세 줄로만 답해. 줄마다 "하는 중: ", "어디까지: ", "막힌 것: " 으로 시작하고, 한 줄은 40자 안팎. 막힌 게 없으면 "막힌 것: 없음".',
+    `옆 세션「${label || '이름 없는 세션'}」의 대화 끝부분이다. 이 세션은 지금 ${PEER_STATE[kind]}이다.`,
+    '정확히 세 줄로 답한다. 줄마다 "하는 일: ", "어디까지: ", "막힌 것: " 으로 시작하고, 한 줄은 60자 안팎이다.',
+    '- 하는 일: 사용자가 맡긴 일. 답을 마친 세션이면 "~했어요"처럼 끝난 일로 쓴다.',
+    '- 어디까지: Claude 마지막 답의 결론과 핵심 사실. 이름·숫자·파일은 답에 나온 그대로 쓴다.',
+    '- 막힌 것: 일을 더 못 하게 막는 것만 쓴다(오류, 허락 대기, 사용자가 답해야만 진행되는 질문). 답 끝에 덧붙인 "혹시 ~라면 알려 주세요" 같은 확인 질문은 막힌 것이 아니다. 없으면 "막힌 것: 없음".',
     '',
     excerpt,
   ].join('\n')

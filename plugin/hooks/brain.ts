@@ -597,14 +597,14 @@ const presenceOf = (brain: Brain) => ({
   lastTurnEndAt: brain.lastTurnEndAt,
 })
 
-async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs = 4000): Promise<string | null> {
+async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs = 4000, system?: string): Promise<string | null> {
   if (!brain.settings.isAiOn || brain.budget.aiCalls >= DAILY_AI_CALLS || brain.pet?.soul === null || brain.pet === null) {
     return null
   }
   brain.budget = { ...brain.budget, aiCalls: brain.budget.aiCalls + 1 }
   brain.isDirty = true
   try {
-    const reply = await $.model.complete({ model: 'haiku', prompt, system: persona.soulSystem(brain.pet.soul, brain.pet.bones.species), maxTokens, effort: 'low', timeoutMs })
+    const reply = await $.model.complete({ model: 'haiku', prompt, system: system ?? persona.soulSystem(brain.pet.soul, brain.pet.bones.species), maxTokens, effort: 'low', timeoutMs })
     return reply.isAnswered ? reply.text : null
   } catch {
     return null
@@ -1834,7 +1834,7 @@ export async function summarizePeer($: $, brain: Brain, index: number): Promise<
   if (excerpt === '') {
     return `${header}\n요약할 대화가 아직 없어요.`
   }
-  const reply = await ask($, brain, persona.peerSummaryPrompt(peer.signal.label, excerpt), 200, 8000)
+  const reply = await ask($, brain, persona.peerSummaryPrompt(peer.signal.label, peer.signal.kind, excerpt), 400, 8000, persona.peerSummarySystem)
   const lines = (reply ?? '')
     .split('\n')
     .map(line => line.trim())
