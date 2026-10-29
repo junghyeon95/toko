@@ -252,6 +252,8 @@ test('model replies are parsed defensively', async () => {
   expect(parseIntent('잘 모르겠어요', candidates)).toBe(null)
   expect(sanitizeLine('바보야 쉬어')).toBe(null)
   expect(bonkMessage('말랑', '테스트 지우지 말랬잖아')).toContain('mcp__toko__apologize')
+  expect(bonkMessage('몽떡', '').split('\n')[0]).toBe('몽떡이가 뿅망치로 너를 콩 때렸어. 이유: 그냥 기분이 그랬어')
+  expect(bonkMessage('풍풍이', '')).toContain('풍풍이한테 사과해 줘')
 })
 
 test('every species speaks fallback lines in its own voice, within the line rules', async () => {

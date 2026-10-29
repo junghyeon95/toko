@@ -29,11 +29,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[] }
+type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[] }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { submitted: [], filled: [], blits: 0, models: [], saved: {}, store: memory, notified: [] }
+  const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], saved: {}, store: memory, notified: [] }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -69,6 +69,7 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
   })
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
+    world.submittedAsUser.push(e.origin?.asUser === true)
     return { text: e.text }
   })
   on('prompt.fill', (_, e) => {
@@ -228,6 +229,7 @@ test('/bonk while idle runs the show, then sends Claude a message and offers a c
   expect(result.text).toContain('뿅망치')
   await clock.advance(4000)
   expect(world.submitted.some(text => text.includes('테스트 지우지 말랬잖아') && text.includes('mcp__toko__apologize'))).toBe(true)
+  expect(world.submittedAsUser.at(-1)).toBe(true)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Button', key: 'choice-breathe' })).toBeDefined()
   await ui.press({ key: 'choice-tell' })

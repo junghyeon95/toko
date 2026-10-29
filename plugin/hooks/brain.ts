@@ -1309,7 +1309,7 @@ export async function submitBonk($: $, brain: Brain): Promise<void> {
     return
   }
   brain.bonk = { ...bonk, isSubmitted: true }
-  await $.prompt.submit({ text: persona.bonkMessage(nameOf(brain.pet) ?? '토코', bonk.reason) })
+  await $.prompt.submit({ text: persona.bonkMessage(nameOf(brain.pet) ?? '토코', bonk.reason), asUser: true })
 }
 
 async function finishBonk($: $, brain: Brain, choice: string): Promise<void> {

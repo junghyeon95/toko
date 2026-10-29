@@ -404,9 +404,16 @@ export const correctionPrompt = (reason: string): string =>
 
 export const fallbackCorrection = (reason: string): string => `다음부터는 이 점을 꼭 지켜 줘: ${reason.trim()}. 방금 작업에서 어긋난 부분이 있으면 바로잡아 줘.`
 
+const hasFinalConsonant = (word: string): boolean => {
+  const code = word.at(-1)?.codePointAt(0) ?? 0
+  return code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0
+}
+
+const calling = (name: string): string => (hasFinalConsonant(name) ? `${name}이` : name)
+
 export const bonkMessage = (petName: string, reason: string): string =>
   [
-    `${petName}(이)가 뿅망치로 Claude를 때렸다. 이유: ${reason.trim() || '그냥 기분이 그랬다'}`,
-    '이건 사용자의 가벼운 분풀이 연출이다. 첫 줄을 "아야…"로 시작해 짧게 받아들이고, 이유에 맞게 바로잡을 게 있으면 바로잡아 줘.',
-    '그리고 mcp__toko__apologize 도구를 한 번 불러 펫에게 사과해 줘.',
+    `${calling(petName)}가 뿅망치로 너를 콩 때렸어. 이유: ${reason.trim() || '그냥 기분이 그랬어'}`,
+    '가벼운 장난이야. 첫 줄은 "아야…"로 시작해서 짧게 받아 주고, 이유를 보고 고칠 게 있으면 바로 고쳐 줘.',
+    `그다음 mcp__toko__apologize 도구를 한 번 불러서 ${calling(petName)}한테 사과해 줘.`,
   ].join('\n')
