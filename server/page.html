@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>토코 광장</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css">
+<style>
+:root{--u:1;--ink:#3d3346}
+html,body{margin:0;height:100%;overflow:hidden;background:#8fd3f4}
+body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color:var(--ink)}
+#world{position:fixed;left:0;top:0;image-rendering:pixelated}
+#labels{position:fixed;inset:0;overflow:hidden;pointer-events:none}
+.tag,.say{position:absolute;left:0;top:0;font-size:calc(11px*var(--u));line-height:1.3}
+.tag{white-space:nowrap;padding:calc(1px*var(--u)) calc(5px*var(--u)) calc(2px*var(--u));border:calc(2px*var(--u)) solid var(--ink);border-radius:calc(4px*var(--u));background:#fffaf0;box-shadow:0 calc(2px*var(--u)) 0 rgba(61,51,70,.3)}
+.tag i{margin-left:calc(4px*var(--u));font-style:normal;color:#8a7f96}
+.tag.working i{color:#2e8b57}.tag.resting i{color:#3b6fc4}.tag.away{opacity:.8}
+.say{width:max-content;max-width:calc(160px*var(--u));padding:calc(3px*var(--u)) calc(7px*var(--u)) calc(4px*var(--u));border:calc(2px*var(--u)) solid var(--ink);border-radius:calc(6px*var(--u));background:#fff;text-align:center;word-break:keep-all;animation:pop .3s steps(3)}
+.say::after{content:'';position:absolute;left:50%;bottom:calc(-10px*var(--u));margin-left:calc(-5px*var(--u));border:calc(5px*var(--u)) solid transparent;border-top-color:var(--ink)}
+.sign{position:fixed;left:20px;top:20px;margin:0;padding:10px 16px 12px;background:#c98b55;color:#fff6e6;box-shadow:0 -4px 0 #5a3420,0 4px 0 #5a3420,-4px 0 0 #5a3420,4px 0 0 #5a3420,inset 0 -4px 0 #a86b3c,inset 0 4px 0 #dfa577}
+.sign h1{margin:0;font:28px/1 Galmuri14,Galmuri11,sans-serif;letter-spacing:1px;text-shadow:0 2px 0 #7a4627}
+.sign p{margin:8px 0 0;font-size:11px}
+#empty{position:fixed;left:50%;top:72%;transform:translate(-50%,-50%);margin:0;padding:6px 12px;border:2px solid var(--ink);background:#fffaf0;font-size:calc(11px*var(--u));white-space:nowrap}
+.sign .hint{margin-top:4px;color:#ffe2c2}
+@keyframes pop{from{scale:.4;opacity:0}}
+@media (max-width:520px){.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.tag i{display:none}}
+</style>
+</head>
+<body>
+<canvas id="world" role="img" aria-label="토코 광장: 들어온 토코들이 분수대 광장을 돌아다니는 그림"></canvas>
+<div id="labels" aria-hidden="true"></div>
+<header class="sign"><h1>토코 광장</h1><p id="count">지금 {{count}}마리가 함께 쉬어 가는 중이에요</p><p class="hint">Claude Code에서 토코를 켜 두면 여기로 놀러 와요</p></header>
+<p id="empty" {{empty}}>아직 아무도 없어요. 토코를 데리고 놀러 오세요</p>
+<noscript><ul>{{roster}}</ul></noscript>
+<script id="state" type="application/json">{{state}}</script>
+<script>
+'use strict'
+const $ = id => document.getElementById(id)
+const canvas = $('world')
+const ctx = canvas.getContext('2d')
+const labels = $('labels')
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches
+const forcedHour = new URLSearchParams(location.search).get('hour')
+const STATUS = { working: '일하는 중', resting: '쉬는 중', idle: '잠깐 멈춤', away: '자리 비움' }
+const SAY = { wave: '안녕! 잠깐 쉬어 가', heart: '하트 보낼게', snack: '간식 나눠 먹자', 'stretch-call': '다 같이 기지개 켜자!', cheer: '응원해!' }
+const KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
+const INK = '#3d3346'
+
+let W = 0
+let H = 0
+let S = 4
+let L = null
+let scenery = null
+let props = []
+let clouds = []
+let flyers = []
+let clock = 0
+let last = 0
+let phase = 'day'
+let isFirstSync = true
+const pets = new Map()
+const effects = []
+const seen = new Set()
+
+const random = seed => () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296
+const between = (low, high) => low + Math.random() * (high - low)
+const sheet = (w, h, paint) => {
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  paint(c.getContext('2d'))
+  return c
+}
+const box = (g, x, y, w, h, color) => {
+  g.fillStyle = color
+  g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h))
+}
+const oval = (g, cx, cy, rx, ry, color) => {
+  const [x0, y0, a, b] = [Math.round(cx), Math.round(cy), Math.max(0, Math.round(rx)), Math.max(0, Math.round(ry))]
+  g.fillStyle = color
+  for (let dy = -b; dy <= b; dy += 1) {
+    const half = b === 0 ? a : Math.round(a * Math.sqrt(Math.max(0, 1 - (dy * dy) / (b * b))))
+    g.fillRect(x0 - half, y0 + dy, half * 2 + 1, 1)
+  }
+}
+const art = (rows, colors) =>
+  sheet(Math.max(...rows.map(row => row.length)), rows.length, g => rows.forEach((row, y) => [...row].forEach((key, x) => colors[key] && box(g, x, y, 1, 1, colors[key]))))
+const inside = (x, y, o) => ((x - o.x) / o.rx) ** 2 + ((y - o.y) / o.ry) ** 2 <= 1
+
+const LAMP = art(['..ooo..', '.oyyyo.', 'oyYYYyo', 'oyYYYyo', '.oyyyo.', '..ooo..', ...Array(16).fill('..oPo..'), '.ooooo.', 'oPPPPPo', 'ooooooo'], { o: INK, y: '#ffe08a', Y: '#fff8d6', P: '#6a6280' })
+const BENCH = art(
+  ['.oooooooooooooo.', '.oWWWWWWWWWWWWo.', '.oDDDDDDDDDDDDo.', '.oWWWWWWWWWWWWo.', 'oooooooooooooooo', 'oWWWWWWWWWWWWWWo', 'oDDDDDDDDDDDDDDo', 'oooooooooooooooo', '.oLo........oLo.', '.ooo........ooo.'],
+  { o: INK, W: '#dc9d62', D: '#b3743f', L: '#6a6280' },
+)
+const BOARD = art(
+  ['oooooooooooo', 'oWWWWWWWWWWo', 'oWppWWWqqqWo', 'oWppWWWqqqWo', 'oWWWWrrrWWWo', 'oWsssWrrrWWo', 'oWsssWWWWWWo', 'oDDDDDDDDDDo', 'oooooooooooo', '....oPPo....', '....oPPo....', '....oPPo....', '...oooooo...'],
+  { o: INK, W: '#d99a5f', D: '#a86b3c', p: '#fff3c4', q: '#ffd1dc', r: '#cfe8ff', s: '#e6ffd6', P: '#8a5a3c' },
+)
+const FX = {
+  heart: art(['.k.k.', 'kKkkk', 'kkkkk', '.kkk.', '..k..'], { k: '#ff6f9c', K: '#ffd0de' }),
+  star: art(['..y..', '.yYy.', 'yYYYy', '.yYy.', '.y.y.'], { y: '#ffc93c', Y: '#fff3b0' }),
+  note: art(['..kk', '..k.', '..k.', 'kkk.', 'kk..'], { k: '#ff7fb0' }),
+  z: art(['zzz', '..z', '.z.', 'z..', 'zzz'], { z: '#7f93d6' }),
+  cookie: art(['.gg.', 'gGgg', 'ggGg', '.gg.'], { g: '#d8954a', G: '#7a4a2a' }),
+  spark: art(['.Y.', 'YYY', '.Y.'], { Y: '#fff6b8' }),
+}
+const WINGS = ['#ffb3d1', '#ffe27a', '#bfe3ff'].map(color => [art(['qq.qq', 'qqaqq', '.q.q.'], { q: color, a: INK }), art(['.q.q.', '..a..', '.q.q.'], { q: color, a: INK })])
+
+const canopy = (g, blobs, leaf, light, dark, seed) => {
+  for (const [x, y, rx, ry] of blobs) oval(g, x, y, rx + 1, ry + 1, INK)
+  for (const [x, y, rx, ry] of blobs) oval(g, x, y, rx, ry, dark)
+  for (const [x, y, rx, ry] of blobs) oval(g, x - 1, y - 1, rx - 1, ry - 1, leaf)
+  for (const [x, y, rx, ry] of blobs) oval(g, x - rx / 3, y - ry / 3, rx / 3, ry / 4, light)
+  const r = random(seed)
+  const [cx, cy, rx, ry] = blobs[0]
+  for (let i = 0; i < rx * 2; i += 1) {
+    const [px, py] = [cx + (r() * 2 - 1) * rx * 0.7, cy + (r() * 2 - 1) * ry * 0.7]
+    if (((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 < 0.45) box(g, px, py, 1, 1, dark)
+  }
+}
+const tree = (seed, tint = 0) =>
+  sheet(30, 36, g => {
+    box(g, 12, 22, 6, 13, INK)
+    box(g, 13, 22, 4, 12, '#9a6a45')
+    box(g, 15, 22, 2, 12, '#7a5034')
+    const leaves = [['#6cbf5d', '#98dc7e', '#4f9c48'], ['#7cc96a', '#a8e48c', '#57a64d'], ['#5fb36b', '#8fd69a', '#468f52']][tint]
+    canopy(g, [[15, 14, 11, 9], [8, 18, 6, 5], [22, 18, 6, 5], [15, 8, 7, 5]], ...leaves, seed)
+  })
+const bush = seed =>
+  sheet(32, 18, g => {
+    canopy(g, [[16, 9, 8, 7], [8, 11, 7, 5], [24, 11, 7, 5]], '#72c462', '#9ddf86', '#529d4b', seed)
+    const r = random(seed + 7)
+    for (let i = 0; i < 5; i += 1) box(g, 6 + r() * 20, 6 + r() * 7, 1, 1, ['#ffd1e6', '#fff6b0', '#ffffff'][i % 3])
+  })
+const stall = (stripe, seed) =>
+  sheet(26, 28, g => {
+    box(g, 2, 8, 3, 18, INK)
+    box(g, 3, 8, 1, 18, '#b07a4c')
+    box(g, 21, 8, 3, 18, INK)
+    box(g, 22, 8, 1, 18, '#b07a4c')
+    box(g, 1, 15, 24, 12, INK)
+    box(g, 2, 16, 22, 10, '#d99a5f')
+    box(g, 2, 16, 22, 2, '#ebb683')
+    box(g, 2, 24, 22, 2, '#b3743f')
+    for (let x = 7; x < 24; x += 5) box(g, x, 18, 1, 6, '#b3743f')
+    const goods = ['#ff8a8a', '#ffd166', '#9be38a', '#ffb3d1', '#a3c4ff']
+    for (let i = 0; i < 6; i += 1) oval(g, 5 + i * 3.4, 13, 1, 1, goods[(i + seed) % goods.length])
+    box(g, 0, 0, 26, 8, INK)
+    for (let k = 0; k < 8; k += 1) {
+      const color = k % 2 === 0 ? stripe : '#fff8ee'
+      box(g, 1 + k * 3, 1, 3, 7, color)
+      box(g, 1 + k * 3, 8, 3, 1, INK)
+      box(g, 2 + k * 3, 8, 1, 1, color)
+      box(g, 2 + k * 3, 9, 1, 1, INK)
+    }
+  })
+const cloud = (w, seed) =>
+  sheet(w, 16, g => {
+    const r = random(seed)
+    const puffs = []
+    for (let x = 7; x < w - 6; x += 6 + r() * 4) puffs.push([x, 9 - r() * 3, 5 + r() * 3, 4 + r() * 2])
+    box(g, 4, 10, w - 8, 4, '#d6eaf6')
+    for (const [x, y, rx, ry] of puffs) oval(g, x, y + 1, rx, ry, '#d6eaf6')
+    for (const [x, y, rx, ry] of puffs) oval(g, x, y, rx, ry, '#ffffff')
+    box(g, 4, 10, w - 8, 3, '#ffffff')
+  })
+
+const spriteOf = sprite => {
+  const w = Math.max(...sprite.rows.map(row => row.length))
+  const image = sheet(w, sprite.rows.length, g =>
+    sprite.rows.forEach((row, y) => [...row].forEach((key, x) => key !== '.' && box(g, x, y, 1, 1, `#${sprite.palette[KEYS.indexOf(key)]}`))),
+  )
+  const feet = sprite.rows.reduce((low, row, y) => (/[^.]/.test(row) ? y : low), 0)
+  const head = sprite.rows.findIndex(row => /[^.]/.test(row))
+  return { image, w, feet, tall: feet - Math.max(0, head) + 1 }
+}
+
+const planLayout = () => {
+  const horizon = Math.round(Math.min(H * 0.3, 78))
+  const ground = H - horizon
+  const cx = Math.round(W / 2)
+  const rx = Math.round(Math.min(W * 0.44, 240))
+  const ry = Math.round(Math.min(ground * 0.37, rx * 0.75))
+  const cy = Math.round(horizon + Math.max(ry + 16, ground * 0.5))
+  const fountain = { x: cx, y: cy, rx: Math.round(Math.min(30, rx * 0.2)), ry: Math.round(Math.min(11, ry * 0.19)) }
+  const walk = { x: cx, y: cy, rx: rx - 10, ry: ry - 6 }
+  return { horizon, cx, cy, rx, ry, fountain, walk, windows: [], blocks: [{ x: cx, y: cy + 2, rx: fountain.rx + 7, ry: fountain.ry + 5 }] }
+}
+
+const pathHalf = y => 9 + ((y - (L.cy + L.ry)) / Math.max(1, H - (L.cy + L.ry))) * 9
+const onPath = (x, y) =>
+  (y > L.cy && Math.abs(x - L.cx) < pathHalf(y) + 2) || (y < L.cy && y > L.horizon && Math.abs(x - L.cx) < 9)
+
+const paintHouse = (g, x, base, w, wallH, roofH, wall, roof, roofDark, r) => {
+  const top = base - wallH
+  const cx = x + w / 2
+  box(g, x - 1, top, w + 2, wallH + 1, INK)
+  box(g, x, top, w, wallH, wall)
+  box(g, x + w - 3, top, 3, wallH, 'rgba(61,51,70,.12)')
+  for (let i = 0; i < roofH; i += 1) {
+    const half = Math.round(((w / 2 + 3) * (i + 1)) / roofH)
+    box(g, cx - half - 1, top - roofH + i, half * 2 + 2, 1, INK)
+    box(g, cx - half, top - roofH + i, half * 2, 1, i % 3 === 2 ? roofDark : roof)
+  }
+  box(g, x - 4, top, w + 8, 2, INK)
+  box(g, x - 3, top, w + 6, 1, roofDark)
+  const windows = w >= 30 ? [x + 4, x + w - 10] : [x + Math.round(w / 2) - 3]
+  for (const wx of windows) {
+    const wy = top + 4
+    box(g, wx, wy, 6, 6, INK)
+    box(g, wx + 1, wy + 1, 4, 4, '#a3d2ef')
+    box(g, wx + 1, wy + 3, 4, 1, '#e8f6ff')
+    box(g, wx + 3, wy + 1, 1, 4, '#e8f6ff')
+    L.windows.push([wx + 1, wy + 1, 4, 4])
+  }
+  if (wallH >= 19 && r() < 0.8) {
+    const dx = Math.round(cx) - 3
+    box(g, dx, base - 9, 6, 9, INK)
+    box(g, dx + 1, base - 8, 4, 8, '#b5794c')
+    box(g, dx + 3, base - 4, 1, 1, '#ffd166')
+  }
+}
+
+const paintPlaza = g => {
+  const { cx, cy, rx, ry } = L
+  oval(g, cx, cy + 4, rx + 5, ry + 4, 'rgba(61,51,70,.16)')
+  oval(g, cx, cy + 2, rx + 4, ry + 3, INK)
+  oval(g, cx, cy + 1, rx + 3, ry + 2, '#b39b78')
+  oval(g, cx, cy, rx + 3, ry + 2, '#d6bf9a')
+  const image = g.getImageData(0, 0, W, H)
+  const tone = [[239, 229, 211], [246, 238, 223], [229, 216, 194]]
+  for (let y = cy - ry; y <= cy + ry; y += 1) {
+    for (let x = cx - rx; x <= cx + rx; x += 1) {
+      const t = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+      if (t > 1) continue
+      const row = Math.floor((y - cy + ry) / 4)
+      const isMortar = (y - cy + ry) % 4 === 0 || (x + (row % 2) * 4) % 8 === 0
+      const isRing = (t > 0.3 && t < 0.36) || (t > 0.74 && t < 0.8)
+      const brick = Math.floor((x + (row % 2) * 4) / 8) * 31 + row * 17
+      const base = isRing ? [227, 205, 170] : tone[(brick * 2654435761 >>> 29) % 3] ?? tone[0]
+      const [red, green, blue] = isMortar ? base.map(value => value - 22) : base
+      const at = (y * W + x) * 4
+      image.data.set([red, green, blue, 255], at)
+    }
+  }
+  g.putImageData(image, 0, 0)
+}
+
+const paintScenery = () => {
+  L.windows = []
+  scenery = sheet(W, H, g => {
+    const r = random(1234)
+    for (let x = 0; x < W; x += 1) {
+      const far = Math.round(L.horizon - 34 - 6 * Math.sin(x * 0.018 + 1.3) - 4 * Math.sin(x * 0.047 + 0.4))
+      box(g, x, far, 1, L.horizon - far, '#c3e3c4')
+      const near = Math.round(L.horizon - 20 - 5 * Math.sin(x * 0.03 + 2.1) - 3 * Math.sin(x * 0.08))
+      box(g, x, near, 1, 1, '#8fc88a')
+      box(g, x, near + 1, 1, L.horizon - near, '#a9d8a0')
+    }
+    for (let x = 6; x < W; x += 34 + r() * 40) g.drawImage(TREES[Math.floor(r() * 3)], Math.round(x), L.horizon - 34)
+    for (let x = -6; x < W + 6; ) {
+      const w = 24 + Math.round(r() * 14)
+      if (x + w > L.cx - 12 && x < L.cx + 12) {
+        x = L.cx + 13
+        continue
+      }
+      const [roof, roofDark] = [['#ee8577', '#c4584c'], ['#7ea6ec', '#5279c2'], ['#f2b45a', '#c98a2e'], ['#93cf7f', '#649e52'], ['#c49ae6', '#9468bb']][Math.floor(r() * 5)]
+      const wall = ['#fff4e0', '#ffe2d6', '#e3eeff', '#eefbe0', '#fdeaf6'][Math.floor(r() * 5)]
+      paintHouse(g, x, L.horizon + 2, w, 14 + Math.round(r() * 8), 8 + Math.round(r() * 5), wall, roof, roofDark, r)
+      x += w + 4 + Math.round(r() * 9)
+    }
+    box(g, 0, L.horizon + 2, W, H - L.horizon, '#a8da86')
+    for (let y = L.horizon + 2; y < L.horizon + 9; y += 1) for (let x = (y % 2) * 1; x < W; x += 2) box(g, x, y, 1, 1, '#bde79f')
+    for (let y = Math.round(L.cy + L.ry - 2); y < H; y += 1) {
+      const half = Math.round(pathHalf(y))
+      box(g, L.cx - half - 1, y, half * 2 + 3, 1, '#c9ac7c')
+      box(g, L.cx - half, y, half * 2 + 1, 1, '#ead6ad')
+    }
+    for (let y = L.horizon + 2; y < L.cy - L.ry + 3; y += 1) {
+      box(g, L.cx - 7, y, 15, 1, '#c9ac7c')
+      box(g, L.cx - 6, y, 13, 1, '#ead6ad')
+    }
+    paintPlaza(g)
+    for (let i = 0; i < (W * H) / 70; i += 1) {
+      const [x, y] = [Math.round(r() * W), Math.round(L.horizon + 10 + r() * (H - L.horizon))]
+      if (inside(x, y, { x: L.cx, y: L.cy, rx: L.rx + 6, ry: L.ry + 5 }) || onPath(x, y)) continue
+      if (r() < 0.86) {
+        box(g, x, y, 1, 1, '#8cc86f')
+        box(g, x + 2, y, 1, 1, '#8cc86f')
+        box(g, x + 1, y + 1, 1, 1, '#8cc86f')
+      } else {
+        const petal = ['#ffd1e6', '#fff6b0', '#ffffff', '#d9c8ff'][Math.floor(r() * 4)]
+        box(g, x - 1, y, 3, 1, petal)
+        box(g, x, y - 1, 1, 3, petal)
+        box(g, x, y, 1, 1, '#ffcf3f')
+      }
+    }
+  })
+}
+
+const TREES = [tree(11, 0), tree(23, 1), tree(37, 2)]
+const BUSHES = [bush(5), bush(9)]
+const STALLS = [stall('#f07b7b', 0), stall('#7ba8f0', 2)]
+
+const placeProps = () => {
+  const { cx, cy, rx, ry } = L
+  const list = []
+  const add = (image, x, y, scale = 1, glow = null) => list.push({ image, x: Math.round(x), y: Math.round(y), scale, glow })
+  for (const angle of [215, 325, 150, 30]) {
+    const radians = (angle * Math.PI) / 180
+    const [x, y] = [cx + (rx + 6) * Math.cos(radians), cy + (ry + 4) * Math.sin(radians)]
+    add(LAMP, x, y, 1, { x: Math.round(x), y: Math.round(y) - 22 })
+  }
+  for (const side of [-1, 1]) {
+    const [x, y] = [cx + side * rx * 0.42, cy - ry * 0.6]
+    add(BENCH, x, y)
+    L.blocks.push({ x, y: y - 2, rx: 11, ry: 4 })
+    add(STALLS[side < 0 ? 0 : 1], cx + side * rx * 0.74, cy - ry - 3)
+    add(TREES[side < 0 ? 1 : 2], cx + side * (rx + 22), cy + ry * 0.1)
+    add(BUSHES[side < 0 ? 0 : 1], cx + side * (pathHalf(H) + 22), H - 2)
+    add(TREES[0], side < 0 ? 6 : W - 6, H + 6, 2)
+  }
+  add(BOARD, cx + pathHalf(cy + ry + 12) + 12, Math.min(H - 2, cy + ry + 16))
+  props = list.filter(prop => prop.x > -40 && prop.x < W + 40)
+}
+
+const drawProp = prop => {
+  const [w, h] = [prop.image.width * prop.scale, prop.image.height * prop.scale]
+  ctx.drawImage(prop.image, prop.x - Math.round(w / 2), prop.y - h, w, h)
+}
+
+const drawFountain = () => {
+  const { x, y, rx, ry } = L.fountain
+  const [rim, shade, water, light, deep] = ['#ece6dc', '#c9bfb1', '#7fd0f0', '#d4f4ff', '#5ab3dc']
+  oval(ctx, x, y + 7, rx + 3, ry + 3, 'rgba(61,51,70,.18)')
+  oval(ctx, x, y + 5, rx + 1, ry + 1, INK)
+  for (let d = 4; d >= 1; d -= 1) oval(ctx, x, y + d, rx, ry, shade)
+  oval(ctx, x, y, rx + 1, ry + 1, INK)
+  oval(ctx, x, y, rx, ry, rim)
+  oval(ctx, x, y, rx - 3, ry - 2, deep)
+  oval(ctx, x, y + 1, rx - 4, ry - 3, water)
+  for (let i = 0; i < 5; i += 1) {
+    const angle = clock * 0.7 + i * 1.26
+    box(ctx, x + Math.cos(angle) * (rx - 8), y + 1 + Math.sin(angle) * (ry - 4), 2, 1, light)
+  }
+  box(ctx, x - 3, y - 18, 6, 18, INK)
+  box(ctx, x - 2, y - 18, 4, 18, rim)
+  box(ctx, x + 1, y - 18, 1, 18, shade)
+  oval(ctx, x, y - 17, 8, 2, shade)
+  oval(ctx, x, y - 19, 9, 3, INK)
+  oval(ctx, x, y - 19, 8, 2, rim)
+  oval(ctx, x, y - 19, 6, 1, water)
+  box(ctx, x - 1, y - 27, 2, 8, light)
+  box(ctx, x - 2, y - 28, 4, 2, light)
+}
+
+const valid = (x, y) => inside(x, y, L.walk) && L.blocks.every(block => !inside(x, y, block))
+const isClear = (from, to) => {
+  for (let t = 0.1; t <= 1; t += 0.1) if (!valid(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)) return false
+  return true
+}
+const anywhere = () => {
+  const angle = Math.random() * Math.PI * 2
+  const reach = Math.sqrt(Math.random())
+  return { x: L.walk.x + Math.cos(angle) * reach * L.walk.rx, y: L.walk.y + Math.sin(angle) * reach * L.walk.ry }
+}
+const isRoomy = (point, self) => [...pets.values()].every(other => other === self || Math.abs(other.x - point.x) > 20 || Math.abs(other.y - point.y) > 9)
+const spot = (from, pick = anywhere) => {
+  for (let tries = 0; tries < 40; tries += 1) {
+    const point = pick()
+    if (valid(point.x, point.y) && (tries > 30 || pick !== anywhere || isRoomy(point, from)) && (from === null || isClear(from, point))) return point
+  }
+  return null
+}
+const inFront = () => {
+  const point = anywhere()
+  return point.y > L.fountain.y + L.fountain.ry + 8 ? point : { x: NaN, y: NaN }
+}
+
+const say = (pet, text, seconds) => {
+  pet.say?.remove()
+  const el = document.createElement('div')
+  el.className = 'say'
+  el.textContent = text
+  labels.append(el)
+  pet.say = el
+  pet.sayUntil = clock + seconds
+}
+
+const dress = (pet, data) => {
+  pet.name = data.name
+  pet.status = data.status
+  pet.tag.className = `tag ${data.status}`
+  pet.tag.textContent = data.name
+  const state = document.createElement('i')
+  state.textContent = STATUS[data.status] ?? ''
+  pet.tag.append(state)
+  const look = JSON.stringify(data.sprite)
+  if (look !== pet.look) {
+    pet.look = look
+    pet.art = spriteOf(data.sprite)
+  }
+}
+
+const join = (data, isArriving) => {
+  const tag = document.createElement('div')
+  labels.append(tag)
+  const home = spot(null, isArriving ? inFront : anywhere) ?? { x: L.cx, y: L.cy + L.ry - 8 }
+  const pet = { key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2) }
+  dress(pet, data)
+  if (isArriving) {
+    if (!still) Object.assign(pet, { x: L.cx + between(-6, 6), y: H + pet.art.feet, route: [home], mode: 'walk' })
+    say(pet, '놀러 왔어!', 5)
+  }
+  pets.set(data.key, pet)
+}
+
+const leave = pet => {
+  const exit = { x: L.cx + between(-5, 5), y: H + pet.art.tall + 8 }
+  const isBehind = pet.y < L.fountain.y + L.fountain.ry + 4
+  pet.route = isBehind ? [{ x: L.cx + Math.sign(pet.x - L.cx || 1) * (L.fountain.rx + 16), y: L.fountain.y + L.fountain.ry + 10 }, exit] : [exit]
+  pet.mode = 'leave'
+  say(pet, '또 올게!', 3)
+}
+
+const emit = (kind, x, y, count = 1) => {
+  for (let i = 0; i < count; i += 1) {
+    const isBurst = kind === 'spark'
+    effects.push({ kind, x: x + between(-3, 3), y, vx: isBurst ? between(-18, 18) : between(-3, 3), vy: isBurst ? between(-22, -6) : between(-12, -7), age: 0, life: isBurst ? 0.6 : 1.6 })
+  }
+}
+
+const play = event => {
+  const pet = pets.get(event.from)
+  if (pet === undefined) return
+  say(pet, event.line || SAY[event.kind] || '안녕!', 6)
+  const head = pet.y - pet.art.tall - 2
+  if (event.kind === 'heart') emit('heart', pet.x, head, 3)
+  if (event.kind === 'cheer') emit('star', pet.x, head, 3)
+  if (event.kind === 'snack') emit('cookie', pet.x, head, 2)
+  if (event.kind === 'stretch-call') for (const other of pets.values()) other.hopUntil = clock + 1.2
+  const target = event.to === null ? undefined : pets.get(event.to)
+  if (target !== undefined) {
+    target.dir = target.x < pet.x ? 1 : -1
+    emit(event.kind === 'cheer' ? 'star' : 'heart', target.x, target.y - target.art.tall - 2, 2)
+  }
+}
+
+const sync = view => {
+  const keys = new Set(view.pets.map(data => data.key))
+  for (const data of view.pets) {
+    const pet = pets.get(data.key)
+    if (pet === undefined) join(data, !isFirstSync)
+    else if (pet.mode === 'leave') {
+      pet.mode = 'idle'
+      pet.route = []
+      dress(pet, data)
+    } else dress(pet, data)
+  }
+  for (const pet of pets.values()) if (!keys.has(pet.key) && pet.mode !== 'leave') leave(pet)
+  for (const event of view.events) {
+    if (seen.has(event.key)) continue
+    seen.add(event.key)
+    if (!isFirstSync || view.now - event.at < 15_000) play(event)
+  }
+  isFirstSync = false
+  $('count').textContent = `지금 ${view.pets.length}마리가 함께 쉬어 가는 중이에요`
+  $('empty').hidden = view.pets.length > 0
+}
+
+const step = (pet, dt) => {
+  if (pet.sayUntil > 0 && clock > pet.sayUntil) {
+    pet.say?.remove()
+    pet.say = null
+    pet.sayUntil = 0
+  }
+  const target = pet.route[0]
+  if (target !== undefined) {
+    const [dx, dy] = [target.x - pet.x, target.y - pet.y]
+    const distance = Math.hypot(dx, dy)
+    const speed = (pet.mode === 'idle' ? 14 : 18) * (pet.status === 'resting' ? 0.7 : 1)
+    if (Math.abs(dx) > 0.5) pet.dir = dx < 0 ? -1 : 1
+    if (distance <= speed * dt) {
+      pet.x = target.x
+      pet.y = target.y
+      pet.route.shift()
+      if (pet.route.length === 0) {
+        if (pet.mode === 'leave') return false
+        if (pet.mode === 'walk') emit('spark', pet.x, pet.y - pet.art.tall, 8)
+        const friend = target.meet === undefined ? undefined : pets.get(target.meet)
+        if (friend !== undefined) {
+          pet.dir = friend.x < pet.x ? -1 : 1
+          friend.dir = -pet.dir
+          if (Math.random() < 0.5) emit('heart', (pet.x + friend.x) / 2, Math.min(pet.y, friend.y) - pet.art.tall - 2)
+        }
+        pet.mode = 'idle'
+        pet.wait = between(2, 6)
+      }
+    } else {
+      pet.x += (dx / distance) * speed * dt
+      pet.y += (dy / distance) * speed * dt
+    }
+    return true
+  }
+  const isCrowded = [...pets.values()].some(other => other !== pet && other.route.length === 0 && Math.abs(other.x - pet.x) < 14 && Math.abs(other.y - pet.y) < 6)
+  if (isCrowded && pet.wait > 0.6) pet.wait = 0.6
+  pet.wait -= dt
+  if (pet.wait <= 0 && pet.status !== 'away' && !still) {
+    const friends = [...pets.values()].filter(other => other !== pet && other.mode === 'idle')
+    const friend = Math.random() < 0.3 ? friends[Math.floor(Math.random() * friends.length)] : undefined
+    const nearFriend = () => ({ x: friend.x + (Math.random() < 0.5 ? -1 : 1) * between(19, 24), y: friend.y + between(-2, 2) })
+    const goal = friend === undefined ? spot(pet) : spot(pet, nearFriend)
+    if (goal !== null) pet.route = [{ ...goal, meet: friend?.key }]
+    pet.wait = between(2, 6)
+  }
+  pet.nextFx -= dt
+  if (pet.nextFx <= 0) {
+    pet.nextFx = between(1.2, 2.6)
+    if (pet.status === 'away') emit('z', pet.x + 5, pet.y - pet.art.tall)
+    if (pet.status === 'resting') emit('note', pet.x + 4, pet.y - pet.art.tall)
+  }
+  return true
+}
+
+const drawPet = pet => {
+  const { image, w, feet } = pet.art
+  const isMoving = pet.route.length > 0
+  const bob = still || pet.status === 'away' ? 0 : isMoving ? Math.floor(clock * 7 + pet.phase) % 2 : Math.floor(clock * 1.6 + pet.phase) % 2
+  const hop = pet.hopUntil > clock ? Math.round(4 * Math.abs(Math.sin((pet.hopUntil - clock) * Math.PI * 2.5))) : 0
+  oval(ctx, pet.x, pet.y + 1, 6, 2, 'rgba(61,51,70,.22)')
+  const [left, top] = [Math.round(pet.x - w / 2), Math.round(pet.y) - feet - bob - hop + (pet.status === 'away' ? 1 : 0)]
+  if (pet.dir < 0) {
+    ctx.save()
+    ctx.translate(left + w, top)
+    ctx.scale(-1, 1)
+    ctx.drawImage(image, 0, 0)
+    ctx.restore()
+  } else ctx.drawImage(image, left, top)
+  if (pet.status === 'working' && !isMoving) {
+    const [bx, by] = [Math.round(pet.x + 5), Math.round(pet.y) - pet.art.tall - 7]
+    box(ctx, bx, by, 11, 6, INK)
+    box(ctx, bx + 1, by + 1, 9, 4, '#ffffff')
+    for (let i = 0; i < 3; i += 1) box(ctx, bx + 2 + i * 3, by + 2, 1, 2, Math.floor(clock * 3) % 3 === i ? INK : '#b9b2c2')
+  }
+}
+
+const drawSky = dt => {
+  const bands = { day: ['#7cc8f0', '#8fd3f4', '#a5ddf6', '#bde7f8', '#d3f0fa'], dusk: ['#f4a98a', '#f7b995', '#f9c9a2', '#fbd7b0', '#fde5c4'], night: ['#41467a', '#454c80', '#4a5286', '#50598c', '#566093'] }[phase]
+  const top = L.horizon - 10
+  for (let i = 0; i < 5; i += 1) box(ctx, 0, Math.floor((top * i) / 5), W, Math.ceil(top / 5) + 1, bands[i])
+  box(ctx, 0, top, W, H - top, bands[4])
+  if (phase === 'night') return
+  if (phase === 'day') {
+    oval(ctx, W - 34, 22, 10, 10, '#fff1b8')
+    oval(ctx, W - 34, 22, 8, 8, '#fff9df')
+  }
+  for (const c of clouds) {
+    if (!still) c.x += c.speed * dt
+    if (c.x > W + 10) c.x = -c.image.width - 10
+    ctx.drawImage(c.image, Math.round(c.x), c.y)
+  }
+}
+
+const drawEffects = dt => {
+  for (let i = effects.length - 1; i >= 0; i -= 1) {
+    const fx = effects[i]
+    fx.age += dt
+    if (fx.age > fx.life) {
+      effects.splice(i, 1)
+      continue
+    }
+    fx.x += fx.vx * dt
+    fx.y += fx.vy * dt
+    if (fx.kind === 'spark') fx.vy += 30 * dt
+    if (fx.kind === 'drop') {
+      fx.vy += 60 * dt
+      const { x, y } = L.fountain
+      if ((fx.vy > 0 && fx.y > y - 19 && Math.abs(fx.x - x) < 8) || fx.y > y) {
+        effects.splice(i, 1)
+        continue
+      }
+      box(ctx, fx.x, fx.y, 1, 1, '#d4f4ff')
+      continue
+    }
+    const image = FX[fx.kind]
+    ctx.globalAlpha = Math.min(1, (fx.life - fx.age) * 2)
+    ctx.drawImage(image, Math.round(fx.x - image.width / 2), Math.round(fx.y - image.height))
+    ctx.globalAlpha = 1
+  }
+}
+
+const drawNight = () => {
+  ctx.globalCompositeOperation = 'multiply'
+  box(ctx, 0, 0, W, H, '#7c84c4')
+  ctx.globalCompositeOperation = 'source-over'
+  const r = random(99)
+  for (let i = 0; i < 40; i += 1) {
+    const [x, y] = [r() * W, r() * (L.horizon - 34)]
+    if (Math.sin(clock * 2 + i) > -0.6) box(ctx, x, y, 1, 1, i % 5 === 0 ? '#ffffff' : '#c9d2ff')
+  }
+  for (const [x, y, w, h] of L.windows) box(ctx, x, y, w, h, '#ffd77a')
+  ctx.globalCompositeOperation = 'lighter'
+  oval(ctx, W - 34, 22, 13, 13, 'rgba(255,246,214,.10)')
+  for (const [x, y, w, h] of L.windows) box(ctx, x - 1, y - 1, w + 2, h + 2, 'rgba(255,200,110,.18)')
+  for (const prop of props) {
+    if (prop.glow === null) continue
+    for (const [radius, color] of [[18, 'rgba(255,214,120,.10)'], [11, 'rgba(255,214,120,.14)'], [5, 'rgba(255,230,160,.30)']]) oval(ctx, prop.glow.x, prop.glow.y, radius, radius * 0.8, color)
+    oval(ctx, prop.glow.x, prop.y + 1, 12, 4, 'rgba(255,214,120,.12)')
+  }
+  ctx.globalCompositeOperation = 'source-over'
+  oval(ctx, W - 34, 22, 8, 8, '#fff6d6')
+  box(ctx, W - 37, 20, 2, 2, '#ece2bf')
+  box(ctx, W - 31, 25, 2, 1, '#ece2bf')
+  for (let i = 0; i < 10; i += 1) {
+    if (Math.sin(clock * 3 + i * 2.3) < 0.2) continue
+    const [x, y] = [L.cx + Math.sin(clock * 0.3 + i * 1.7) * L.rx * 0.95, L.cy + Math.cos(clock * 0.4 + i) * L.ry * 0.9]
+    oval(ctx, x, y, 2, 2, 'rgba(234,255,138,.25)')
+    box(ctx, x, y, 1, 1, '#f4ffb0')
+  }
+}
+
+const placeLabels = () => {
+  for (const pet of pets.values()) {
+    const [x, y] = [Math.round(pet.x) * S, (Math.round(pet.y) + 3) * S]
+    pet.tag.style.transform = `translate(${x}px, ${y}px) translateX(-50%)`
+    if (pet.say !== null) pet.say.style.transform = `translate(${x}px, ${(Math.round(pet.y) - pet.art.tall - 4) * S}px) translate(-50%, -100%)`
+  }
+}
+
+const tick = now => {
+  const dt = Math.min(0.05, (now - last) / 1000 || 0)
+  last = now
+  clock += dt
+  drawSky(dt)
+  ctx.drawImage(scenery, 0, 0)
+  for (const pet of [...pets.values()]) {
+    if (!step(pet, dt)) {
+      pet.tag.remove()
+      pet.say?.remove()
+      pets.delete(pet.key)
+    }
+  }
+  if (!still && Math.random() < dt * 14) effects.push({ kind: 'drop', x: L.fountain.x + between(-1, 1), y: L.fountain.y - 28, vx: between(-20, 20), vy: between(-16, -6), age: 0, life: 1.2 })
+  const things = [...props.map(prop => ({ y: prop.y, draw: () => drawProp(prop) })), { y: L.fountain.y + L.fountain.ry, draw: drawFountain }, ...[...pets.values()].map(pet => ({ y: pet.y, draw: () => drawPet(pet) }))]
+  things.sort((a, b) => a.y - b.y)
+  for (const thing of things) thing.draw()
+  drawEffects(dt)
+  for (const fly of flyers) {
+    const t = clock * fly.speed + fly.seed
+    const [x, y] = [fly.x + Math.sin(t) * fly.reach, fly.y + Math.sin(t * 1.7) * 8]
+    if (phase === 'day') ctx.drawImage(WINGS[fly.color][Math.floor(clock * 7 + fly.seed) % 2], Math.round(x), Math.round(y))
+  }
+  if (phase === 'night') drawNight()
+  if (phase === 'dusk') {
+    ctx.globalCompositeOperation = 'multiply'
+    box(ctx, 0, 0, W, H, '#ffd9bf')
+    ctx.globalCompositeOperation = 'source-over'
+  }
+  placeLabels()
+  requestAnimationFrame(tick)
+}
+
+const hourNow = () => (forcedHour === null ? new Date().getHours() : Number(forcedHour))
+const phaseOf = hour => (hour >= 19 || hour < 6 ? 'night' : hour >= 17 ? 'dusk' : 'day')
+
+const resize = () => {
+  S = Math.max(2, Math.min(7, Math.round(Math.min(innerWidth / 320, innerHeight / 200))))
+  W = Math.ceil(innerWidth / S)
+  H = Math.ceil(innerHeight / S)
+  canvas.width = W
+  canvas.height = H
+  canvas.style.width = `${W * S}px`
+  canvas.style.height = `${H * S}px`
+  ctx.imageSmoothingEnabled = false
+  document.documentElement.style.setProperty('--u', S >= 6 ? '2' : S === 5 ? '1.27' : '1')
+  L = planLayout()
+  placeProps()
+  paintScenery()
+  clouds = [0, 1, 2, 3].map(i => ({ image: cloud(26 + i * 6, i + 3), x: (W / 4) * i + between(0, 30), y: 6 + ((i * 11) % 24), speed: 2 + i * 0.6 }))
+  flyers = [0, 1, 2].map(i => ({ x: L.cx + (i - 1) * L.rx * 0.6, y: L.cy - L.ry * 0.2 + i * 10, reach: 20 + i * 8, speed: 0.4 + i * 0.15, seed: i * 2.1, color: i }))
+  for (const pet of pets.values()) {
+    const home = spot(null) ?? { x: L.cx, y: L.cy + L.ry - 8 }
+    Object.assign(pet, { x: home.x, y: home.y, route: [] })
+  }
+}
+
+const poll = async () => {
+  try {
+    const response = await fetch('/v1/plaza', { cache: 'no-store' })
+    if (response.ok) sync(await response.json())
+  } catch {}
+}
+
+phase = phaseOf(hourNow())
+resize()
+sync(JSON.parse($('state').textContent))
+addEventListener('resize', resize)
+setInterval(poll, 4000)
+setInterval(() => {
+  phase = phaseOf(hourNow())
+}, 60_000)
+requestAnimationFrame(tick)
+</script>
+</body>
+</html>

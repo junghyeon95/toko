@@ -99,7 +99,7 @@ describe('plaza', () => {
     expect(html).not.toContain('<b>말랑')
   })
 
-  test('a pet’s own picture is drawn on the status page but not echoed to friends, and a broken one is dropped', async () => {
+  test('a pet’s own picture reaches the plaza view but not its friends, and a broken one gets a stand-in', async () => {
     const plaza = createPlaza()
     const sprite = { palette: ['332233', 'FFDD99'], rows: ['.00.', '0110', '.00.'] }
     await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), sprite }, since: 0 }))
@@ -110,19 +110,29 @@ describe('plaza', () => {
     expect(plaza.members.get('cccc3')?.sprite).toBe(undefined)
     const seen = await read(await plaza.handle(post('/v1/poll', { me: me('dddd4', '몽떡'), since: 0 })))
     expect(seen.body.friends.filter((friend: { sprite?: unknown }) => friend.sprite !== undefined)).toEqual([])
-    const html = await (await plaza.handle(new Request('http://plaza.test/'))).text()
-    expect(html).toContain('viewBox="0 0 4 3"')
-    expect(html).toContain('<path fill="#ffdd99" d="M1 1h2v1h-2z"/>')
-    expect(html.match(/<svg /g)?.length).toBe(4)
+    const view = await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))
+    expect(view.body.pets.map((pet: { name: string; sprite: { palette: string[] } }) => [pet.name, pet.sprite.palette[1]])).toEqual([
+      ['말랑', 'ffdd99'],
+      ['콩떡', 'aaeecc'],
+      ['보들', 'aaeecc'],
+      ['몽떡', 'aaeecc'],
+    ])
   })
 
-  test('the status page refreshes itself, keys pets without their plaza id, and greets an empty plaza', async () => {
+  test('the status page draws the plaza from a public view without plaza ids, and greets an empty plaza', async () => {
     const plaza = createPlaza()
     await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 }))
+    await plaza.handle(post('/v1/act', { me: me('aaaa1', '말랑'), kind: 'heart', to: 'bbbb2' }))
+    await plaza.settle()
+    const view = (await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body
+    expect(view.events.map((event: { kind: string }) => event.kind)).toEqual(['heart'])
+    expect([view.events[0].from, view.events[0].to]).toEqual(view.pets.map((pet: { key: string }) => pet.key))
     const html = await (await plaza.handle(new Request('http://plaza.test/'))).text()
-    expect(html).toContain('setInterval')
-    expect(html).toMatch(/<li class="toko working" data-key="[0-9a-z]+" data-sig="[0-9a-z]+">/)
-    expect(html).not.toContain('aaaa1')
+    expect(html).toContain("fetch('/v1/plaza'")
+    expect(html).not.toContain('{{')
+    expect(`${html}${JSON.stringify(view)}`).not.toContain('aaaa1')
+    expect(JSON.parse(html.match(/<script id="state" type="application\/json">(.*?)<\/script>/)?.[1] ?? '{}').pets.length).toBe(2)
     expect(await (await createPlaza().handle(new Request('http://plaza.test/'))).text()).toContain('아직 아무도 없어요')
   })
 

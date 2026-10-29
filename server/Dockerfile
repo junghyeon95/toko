@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV HOME=/app PORT=8080 HOST=0.0.0.0
-COPY package.json plaza.ts ./
+COPY package.json plaza.ts page.html ./
 RUN mkdir -p /app/.claude && chown -R 1000:1000 /app
 USER 1000
 EXPOSE 8080
