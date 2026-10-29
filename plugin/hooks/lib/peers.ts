@@ -103,12 +103,12 @@ export const sessionsText = (peers: readonly Peer[], now: number): string =>
 
 const clip = (text: string, length: number): string => [...text.trim()].slice(0, length).join('')
 
-export const replyText = (from: string, answer: string): string => {
+export const replyLines = (from: string, answer: string): string[] => {
   const whole = answer.trim()
   const lines = whole.split('\n').filter(line => line.trim() !== '')
   const head = clip(lines.slice(0, REPLY_LINES).join('\n'), REPLY_LENGTH)
   const isCut = head !== lines.join('\n')
-  return [`${labelName(from)} 답`, head, ...(isCut ? [`…(${[...whole].length.toLocaleString('en-US')}자 중 앞부분 · 전체는 그 세션에서)`] : [])].join('\n')
+  return [`${labelName(from)} 답`, ...head.split('\n'), ...(isCut ? [`…(${[...whole].length.toLocaleString('en-US')}자 중 앞부분 · 전체는 그 세션에서)`] : [])]
 }
 
 const recordOf = (line: string): Record<string, unknown> | null => {

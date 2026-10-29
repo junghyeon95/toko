@@ -44,7 +44,7 @@ import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
 import { addTurn, isWorked, workText } from './lib/today'
 import type { WorkedSession } from './lib/today'
-import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
@@ -2061,7 +2061,9 @@ async function deliverReplies($: $, brain: Brain): Promise<void> {
   const replies = entries.flatMap(entry => (isMessage(entry.value) ? [{ key: entry.key, message: entry.value }] : [])).sort((a, b) => a.message.at - b.message.at)
   for (const { key, message } of replies) {
     await $.store.delete(key)
-    $.ui.log(replyText(message.from, message.text))
+    for (const line of replyLines(message.from, message.text)) {
+      $.ui.log(line)
+    }
   }
 }
 

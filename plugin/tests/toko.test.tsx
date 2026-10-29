@@ -619,19 +619,19 @@ test('a message without a sender to answer sends nothing back', async ($, on) =>
   expect([...world.store.keys()].some(key => key.startsWith('toko:reply:'))).toBe(false)
 })
 
-test('an answer that comes back is shown in the chat as it was written, only its first lines when long', async ($, on) => {
+test('an answer that comes back is shown in the chat as it was written, one log line per line, only its first lines when long', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:reply:session-1:r1': { text: '로그 깨끗해요', from: '배포 확인', at: START } })
   await begin($)
   await clock.advance(3000)
-  expect(world.logs).toEqual(['「배포 확인」 답\n로그 깨끗해요'])
+  expect(world.logs.splice(0)).toEqual(['「배포 확인」 답', '로그 깨끗해요'])
   expect(replyKeys(world, 'session-1')).toEqual([])
   world.store.set('toko:reply:session-1:r2', { text: '결론\n\n1\n2\n3\n4\n5\n6', from: '', at: START + 3000 })
   await clock.advance(3000)
-  expect(world.logs.at(-1)).toBe('「이름 없는 세션」 답\n결론\n1\n2\n3\n4\n5\n…(15자 중 앞부분 · 전체는 그 세션에서)')
+  expect(world.logs.splice(0)).toEqual(['「이름 없는 세션」 답', '결론', '1', '2', '3', '4', '5', '…(15자 중 앞부분 · 전체는 그 세션에서)'])
   world.store.set('toko:reply:session-1:r3', { text: '가'.repeat(2000), from: '', at: START + 6000 })
   await clock.advance(3000)
-  expect(world.logs.at(-1)).toBe(`「이름 없는 세션」 답\n${'가'.repeat(400)}\n…(2,000자 중 앞부분 · 전체는 그 세션에서)`)
+  expect(world.logs.splice(0)).toEqual(['「이름 없는 세션」 답', '가'.repeat(400), '…(2,000자 중 앞부분 · 전체는 그 세션에서)'])
 })
 
 test('a session starting or working tells other sessions nothing, while one finishing still does', async ($, on) => {
