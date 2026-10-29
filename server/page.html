@@ -103,7 +103,12 @@ const FX = {
   z: art(['zzz', '..z', '.z.', 'z..', 'zzz'], { z: '#7f93d6' }),
   cookie: art(['.gg.', 'gGgg', 'ggGg', '.gg.'], { g: '#d8954a', G: '#7a4a2a' }),
   spark: art(['.Y.', 'YYY', '.Y.'], { Y: '#fff6b8' }),
+  crumb: art(['gG', 'Gg'], { g: '#d8954a', G: '#7a4a2a' }),
+  hand: art(['.o.o.o.', 'oyoyoyo', 'oyyyyyo', 'oyyyyyo', '.oyyyo.', '..ooo..'], { o: INK, y: '#fff1dc' }),
 }
+const TOSS = { heart: ['heart', 3], snack: ['cookie', 1], cheer: ['star', 3] }
+const VISITS = new Set(['wave', ...Object.keys(TOSS)])
+const VISIT_SPEED = 30
 const WINGS = ['#ffb3d1', '#ffe27a', '#bfe3ff'].map(color => [art(['qq.qq', 'qqaqq', '.q.q.'], { q: color, a: INK }), art(['.q.q.', '..a..', '.q.q.'], { q: color, a: INK })])
 
 const canopy = (g, blobs, leaf, light, dark, seed) => {
@@ -406,7 +411,7 @@ const join = (data, isArriving) => {
   const tag = document.createElement('div')
   labels.append(tag)
   const home = spot(null, isArriving ? inFront : anywhere) ?? { x: L.cx, y: L.cy + L.ry - 8 }
-  const pet = { key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2) }
+  const pet = { key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2), acts: [], act: null, holdUntil: 0, waveFrom: 0, waveUntil: 0 }
   dress(pet, data)
   if (isArriving) {
     if (!still) Object.assign(pet, { x: L.cx + between(-6, 6), y: H + pet.art.feet, route: [home], mode: 'walk' })
@@ -420,30 +425,136 @@ const leave = pet => {
   const isBehind = pet.y < L.fountain.y + L.fountain.ry + 4
   pet.route = isBehind ? [{ x: L.cx + Math.sign(pet.x - L.cx || 1) * (L.fountain.rx + 16), y: L.fountain.y + L.fountain.ry + 10 }, exit] : [exit]
   pet.mode = 'leave'
+  pet.acts = []
+  pet.act = null
   say(pet, '또 올게!', 3)
 }
 
 const emit = (kind, x, y, count = 1) => {
   for (let i = 0; i < count; i += 1) {
-    const isBurst = kind === 'spark'
+    const isBurst = kind === 'spark' || kind === 'crumb'
     effects.push({ kind, x: x + between(-3, 3), y, vx: isBurst ? between(-18, 18) : between(-3, 3), vy: isBurst ? between(-22, -6) : between(-12, -7), age: 0, life: isBurst ? 0.6 : 1.6 })
   }
+}
+
+const showInPlace = (pet, kind, line, target) => {
+  say(pet, line || SAY[kind] || '안녕!', 6)
+  const head = pet.y - pet.art.tall - 2
+  if (kind === 'heart') emit('heart', pet.x, head, 3)
+  if (kind === 'cheer') emit('star', pet.x, head, 3)
+  if (kind === 'snack') emit('cookie', pet.x, head, 2)
+  if (kind === 'stretch-call') for (const other of pets.values()) other.hopUntil = clock + 1.2
+  if (target !== undefined) {
+    target.dir = target.x < pet.x ? 1 : -1
+    emit(kind === 'cheer' ? 'star' : 'heart', target.x, target.y - target.art.tall - 2, 2)
+  }
+}
+
+const isBeside = (pet, friend) => Math.abs(friend.x - pet.x) < 32 && Math.abs(friend.y - pet.y) < 8
+
+const detours = () => {
+  const { x, y, rx, ry } = L.fountain
+  return Array.from({ length: 8 }, (_, i) => ({ x: x + Math.cos((i * Math.PI) / 4) * (rx + 15), y: y + 2 + Math.sin((i * Math.PI) / 4) * (ry + 10) })).filter(point => valid(point.x, point.y))
+}
+
+const routeTo = (pet, friend) => {
+  let best = null
+  for (const side of pet.x < friend.x ? [-1, 1] : [1, -1]) {
+    for (let tries = 0; tries < 12; tries += 1) {
+      const goal = { x: friend.x + side * between(25, 28), y: friend.y + between(-1.5, 1.5) }
+      if (!valid(goal.x, goal.y)) continue
+      if (isClear(pet, goal)) return [goal]
+      for (const via of detours()) {
+        if (!isClear(pet, via) || !isClear(via, goal)) continue
+        const length = Math.hypot(via.x - pet.x, via.y - pet.y) + Math.hypot(goal.x - via.x, goal.y - via.y)
+        if (best === null || length < best.length) best = { length, route: [via, goal] }
+      }
+    }
+  }
+  return best?.route ?? null
+}
+
+const perform = pet => {
+  const act = pet.act
+  const friend = pets.get(act.to)
+  pet.mode = 'idle'
+  act.stage = 'show'
+  act.until = clock + (act.kind === 'wave' ? 3.4 : 4.2)
+  if (friend === undefined || friend.mode === 'leave') {
+    say(pet, act.line || SAY[act.kind] || '안녕!', 5)
+    return
+  }
+  pet.dir = friend.x < pet.x ? -1 : 1
+  if (friend.route.length === 0) friend.dir = -pet.dir
+  friend.holdUntil = Math.max(friend.holdUntil, act.until)
+  if (act.kind === 'wave') {
+    say(pet, act.line || SAY.wave, 5)
+    Object.assign(pet, { waveFrom: clock, waveUntil: clock + 2.4 })
+    Object.assign(friend, { waveFrom: clock + 0.8, waveUntil: clock + 3 })
+    return
+  }
+  const [sprite, count] = TOSS[act.kind]
+  const from = { x: pet.x + pet.dir * 5, y: pet.y - Math.round(pet.art.tall * 0.6) }
+  const to = { x: friend.x, y: friend.y - friend.art.tall - 1 }
+  for (let i = 0; i < count; i += 1) {
+    effects.push({ kind: 'toss', sprite, from: pet.key, to: friend.key, line: i === 0 ? act.line || SAY[act.kind] : undefined, x0: from.x, y0: from.y, x1: to.x + between(-2, 2), y1: to.y, arc: 10 + i * 3, age: -i * 0.25, life: 0.8 })
+  }
+}
+
+const land = fx => {
+  const [sender, friend] = [pets.get(fx.from), pets.get(fx.to)]
+  if (sender !== undefined && fx.line !== undefined) say(sender, fx.line, 5)
+  if (friend === undefined) return
+  friend.hopUntil = clock + 0.8
+  if (fx.sprite === 'cookie') emit('crumb', fx.x1, fx.y1 + 4, 6)
+  else emit(fx.sprite, fx.x1, fx.y1, 1)
+}
+
+const begin = pet => {
+  const act = { ...pet.acts.shift(), stage: 'go', until: 0, chases: 0 }
+  const friend = pets.get(act.to)
+  if (friend === undefined || friend.mode === 'leave') {
+    showInPlace(pet, act.kind, act.line, undefined)
+    return
+  }
+  pet.act = act
+  if (friend.act === null && friend.mode === 'idle') {
+    friend.route = []
+    friend.holdUntil = clock + Math.hypot(friend.x - pet.x, friend.y - pet.y) / VISIT_SPEED + 4
+  }
+  const route = still || isBeside(pet, friend) ? null : routeTo(pet, friend)
+  if (route === null) {
+    perform(pet)
+    return
+  }
+  pet.route = route
+  pet.mode = 'visit'
+  emit('spark', pet.x, pet.y - pet.art.tall, 4)
+}
+
+const arrive = pet => {
+  const friend = pets.get(pet.act.to)
+  if (friend !== undefined && friend.mode !== 'leave' && !isBeside(pet, friend) && pet.act.chases < 3) {
+    pet.act.chases += 1
+    const route = routeTo(pet, friend)
+    if (route !== null) {
+      pet.route = route
+      return
+    }
+  }
+  perform(pet)
 }
 
 const play = event => {
   const pet = pets.get(event.from)
   if (pet === undefined) return
-  say(pet, event.line || SAY[event.kind] || '안녕!', 6)
-  const head = pet.y - pet.art.tall - 2
-  if (event.kind === 'heart') emit('heart', pet.x, head, 3)
-  if (event.kind === 'cheer') emit('star', pet.x, head, 3)
-  if (event.kind === 'snack') emit('cookie', pet.x, head, 2)
-  if (event.kind === 'stretch-call') for (const other of pets.values()) other.hopUntil = clock + 1.2
   const target = event.to === null ? undefined : pets.get(event.to)
-  if (target !== undefined) {
-    target.dir = target.x < pet.x ? 1 : -1
-    emit(event.kind === 'cheer' ? 'star' : 'heart', target.x, target.y - target.art.tall - 2, 2)
+  if (target === undefined || target === pet || !VISITS.has(event.kind) || pet.mode === 'leave') {
+    showInPlace(pet, event.kind, event.line, target)
+    return
   }
+  pet.acts = [...pet.acts, { kind: event.kind, to: event.to, line: event.line }].slice(-6)
+  if (pet.mode === 'idle' && pet.act === null) pet.route = []
 }
 
 const sync = view => {
@@ -478,7 +589,7 @@ const step = (pet, dt) => {
   if (target !== undefined) {
     const [dx, dy] = [target.x - pet.x, target.y - pet.y]
     const distance = Math.hypot(dx, dy)
-    const speed = (pet.mode === 'idle' ? 14 : 18) * (pet.status === 'resting' ? 0.7 : 1)
+    const speed = pet.mode === 'visit' ? VISIT_SPEED : (pet.mode === 'idle' ? 14 : 18) * (pet.status === 'resting' ? 0.7 : 1)
     if (Math.abs(dx) > 0.5) pet.dir = dx < 0 ? -1 : 1
     if (distance <= speed * dt) {
       pet.x = target.x
@@ -486,6 +597,10 @@ const step = (pet, dt) => {
       pet.route.shift()
       if (pet.route.length === 0) {
         if (pet.mode === 'leave') return false
+        if (pet.mode === 'visit') {
+          arrive(pet)
+          return true
+        }
         if (pet.mode === 'walk') emit('spark', pet.x, pet.y - pet.art.tall, 8)
         const friend = target.meet === undefined ? undefined : pets.get(target.meet)
         if (friend !== undefined) {
@@ -502,6 +617,19 @@ const step = (pet, dt) => {
     }
     return true
   }
+  if (pet.act !== null) {
+    if (pet.act.stage === 'go') perform(pet)
+    else if (clock >= pet.act.until) {
+      pet.act = null
+      pet.wait = between(1.5, 4)
+    }
+    return true
+  }
+  if (pet.acts.length > 0) {
+    begin(pet)
+    return true
+  }
+  if (pet.holdUntil > clock) return true
   const isCrowded = [...pets.values()].some(other => other !== pet && other.route.length === 0 && Math.abs(other.x - pet.x) < 14 && Math.abs(other.y - pet.y) < 6)
   if (isCrowded && pet.wait > 0.6) pet.wait = 0.6
   pet.wait -= dt
@@ -536,7 +664,15 @@ const drawPet = pet => {
     ctx.drawImage(image, 0, 0)
     ctx.restore()
   } else ctx.drawImage(image, left, top)
-  if (pet.status === 'working' && !isMoving) {
+  const isWaving = clock >= pet.waveFrom && clock < pet.waveUntil
+  if (isWaving) {
+    const swing = Math.floor(clock * 6) % 2
+    const hand = FX.hand
+    const [hx, hy] = [Math.round(pet.x + pet.dir * (w / 2 - 2 + swing * 2)) - Math.floor(hand.width / 2), Math.round(pet.y) - pet.art.tall - bob - hop - 3]
+    ctx.drawImage(hand, hx, hy)
+    box(ctx, swing === 1 ? hx + hand.width + 1 : hx - 2, hy + 1, 1, 2, INK)
+  }
+  if (pet.status === 'working' && !isMoving && pet.act === null && !isWaving) {
     const [bx, by] = [Math.round(pet.x + 5), Math.round(pet.y) - pet.art.tall - 7]
     box(ctx, bx, by, 11, 6, INK)
     box(ctx, bx + 1, by + 1, 9, 4, '#ffffff')
@@ -565,13 +701,25 @@ const drawEffects = dt => {
   for (let i = effects.length - 1; i >= 0; i -= 1) {
     const fx = effects[i]
     fx.age += dt
+    if (fx.kind === 'toss') {
+      if (fx.age < 0) continue
+      const t = Math.min(1, fx.age / fx.life)
+      const image = FX[fx.sprite]
+      const [x, y] = [fx.x0 + (fx.x1 - fx.x0) * t, fx.y0 + (fx.y1 - fx.y0) * t - Math.sin(Math.PI * t) * fx.arc]
+      ctx.drawImage(image, Math.round(x - image.width / 2), Math.round(y - image.height))
+      if (t >= 1) {
+        effects.splice(i, 1)
+        land(fx)
+      }
+      continue
+    }
     if (fx.age > fx.life) {
       effects.splice(i, 1)
       continue
     }
     fx.x += fx.vx * dt
     fx.y += fx.vy * dt
-    if (fx.kind === 'spark') fx.vy += 30 * dt
+    if (fx.kind === 'spark' || fx.kind === 'crumb') fx.vy += 30 * dt
     if (fx.kind === 'drop') {
       fx.vy += 60 * dt
       const { x, y } = L.fountain
