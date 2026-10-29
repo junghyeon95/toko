@@ -29,11 +29,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown> }
+type World = { submitted: string[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[] }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { submitted: [], filled: [], blits: 0, models: [], saved: {}, store: memory }
+  const world: World = { submitted: [], filled: [], blits: 0, models: [], saved: {}, store: memory, notified: [] }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -58,7 +58,10 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
   })
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.notify', () => ({ value: { isSent: true, channel: 'terminal_bell' } }))
+  on('ui.notify', (_, e) => {
+    world.notified.push(String(e.text))
+    return { value: { isSent: true, channel: 'terminal_bell' } }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('model.complete', (_, e) => {
     world.models.push(e.prompt)
@@ -370,7 +373,8 @@ test('another session’s finished turn reaches the pet as a bubble', async ($, 
   await begin($)
   await clock.advance(3000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /「배포 확인」 세션이 답을 마쳤어요/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /「배포 확인」 끝났어요/ })).toBeDefined()
+  expect((await ui.findAll({ type: 'Text' })).find(element => element.text === '배포 확인')?.props.color).toBe('suggestion')
   await ui.unmount()
 })
 
@@ -381,6 +385,7 @@ test('another session waiting on a permission reaches the pet as a bubble', asyn
   await clock.advance(3000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /다른 세션이 확인을 기다려요/ })).toBeDefined()
+  expect((await ui.findAll({ type: 'Text' })).find(element => element.text === '확인을 기다려요')?.props.color).toBe('warning')
   await ui.unmount()
 })
 
@@ -391,7 +396,7 @@ test('a finished turn and a permission request leave signals, and the session en
   await begin($)
   await $.prompt.submit({ text: 'fix   the login\nbug before lunch', origin: { kind: 'composer' } } as never)
   await runTurn($, clock, 400, 5000)
-  expect(world.saved['toko:signal:session-1']).toEqual({ kind: 'done', at: START + 5000, label: 'fix the login bu' })
+  expect(world.saved['toko:signal:session-1']).toEqual({ kind: 'done', at: START + 5000, label: 'fix the login bug before' })
   await clock.advance(1000)
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' } } as never)
   expect((world.saved['toko:signal:session-1'] as { kind: string }).kind).toBe('waiting')
@@ -560,4 +565,41 @@ test('a focus timer keeps other sessions’ news to itself too', async ($, on) =
   expect(await ui.find({ type: 'Text', text: /집중/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /배포 확인/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('a session with a title signals under its title rather than its last prompt', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  on('classic.UserPromptSubmit', () => ({}) as never)
+  await begin($)
+  await $.classic.UserPromptSubmit({ prompt: '응 진행해줘', session_title: 'toko 세션 완료 알림 기능' } as never)
+  await $.prompt.submit({ text: '응 진행해줘', origin: { kind: 'composer' } } as never)
+  await runTurn($, clock, 400, 5000)
+  expect((world.saved['toko:signal:session-1'] as { label: string }).label).toBe('toko 세션 완료 알림 기능')
+})
+
+test('a session without a name signals under the AI title its tab shows', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  const runs: string[][] = []
+  on('classic.UserPromptSubmit', () => ({}) as never)
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '{"type":"ai-title","aiTitle":"옛 제목"}\n{"type":"ai-title","aiTitle":"toko 세션 완료 알림 기능"}\n', stderr: '' } } as never
+  })
+  await begin($)
+  await $.classic.UserPromptSubmit({ prompt: '응 진행해줘', transcript_path: '/work/session-1.jsonl' } as never)
+  await $.prompt.submit({ text: '응 진행해줘', origin: { kind: 'composer' } } as never)
+  await runTurn($, clock, 400, 5000)
+  expect(runs).toEqual([['grep', '-F', '"type":"ai-title"', '/work/session-1.jsonl']])
+  expect((world.saved['toko:signal:session-1'] as { label: string }).label).toBe('toko 세션 완료 알림 기능')
+})
+
+test('a long turn ending sends no OS notification, even with notify on', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  await $.command.run({ command: 'toko', args: 'notify on' } as never)
+  await runTurn($, clock, 400, 3 * 60_000)
+  expect(world.notified).toEqual([])
 })

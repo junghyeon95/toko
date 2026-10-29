@@ -2,6 +2,7 @@ import { atom, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type {
+  TokoBubblePart,
   TokoBudget,
   TokoChoice,
   TokoCounts,
@@ -40,7 +41,7 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
-import { freshSignal, isSignal, signalText } from './lib/peers'
+import { freshSignal, isSignal, lastAiTitle, signalParts } from './lib/peers'
 import type { PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
@@ -195,6 +196,8 @@ export type Brain = {
   lastPollAt: number
   seenEvents: readonly string[]
   promptLabel: string
+  sessionTitle: string
+  transcriptPath: string
   peersSeenAt: number
   visitor: TokoVisitor | null
   visitorVisibleMs: number
@@ -263,6 +266,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   lastPollAt: 0,
   seenEvents: [],
   promptLabel: '',
+  sessionTitle: '',
+  transcriptPath: '',
   peersSeenAt: 0,
   visitor: null,
   visitorVisibleMs: 0,
@@ -535,8 +540,8 @@ export const remember = (brain: Brain, kind: string, detail = '', weight = 1): v
   brain.isDirty = true
 }
 
-export async function say($: $, brain: Brain, text: string, tone: 'say' | 'think' | 'quiet' = 'say'): Promise<void> {
-  await update($, bubbleAtom, () => ({ text, at: brain.now, tone }))
+export async function say($: $, brain: Brain, text: string, tone: 'say' | 'think' | 'quiet' = 'say', parts?: readonly TokoBubblePart[]): Promise<void> {
+  await update($, bubbleAtom, () => ({ text, at: brain.now, tone, ...(parts === undefined ? {} : { parts }) }))
   $.clock.after(5500, () => {
     void update($, bubbleAtom, current => (current !== null && current.text === text ? null : current))
   })
@@ -1360,7 +1365,6 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
   if (durationMs >= 2 * MINUTE && !wasTyping) {
     act(brain, direct.greet(), PRIORITY.reaction)
     await quietLine($, brain, 'turnDone')
-    await notifyOnce($, brain, 'Claude가 답을 마쳤어요')
   }
   if (brain.bonk !== null && brain.bonk.isTurnRunning && !brain.bonk.hasApology && !brain.bonk.isSubmitted) {
     $.clock.after(1500, () => void submitBonk($, brain))
@@ -1452,9 +1456,6 @@ export async function onMeasure($: $, brain: Brain, contextPercent: number | und
 export async function onAttention($: $, brain: Brain): Promise<void> {
   act(brain, direct.greet(), PRIORITY.reaction)
   await quietLine($, brain, 'permission')
-  if (brain.now - brain.lastTypingAt > MINUTE) {
-    await notifyOnce($, brain, 'Claude가 확인을 기다려요')
-  }
 }
 
 export async function onTyping($: $, brain: Brain): Promise<void> {
@@ -1757,8 +1758,22 @@ export async function tendVisitor($: $, brain: Brain, elapsedMs: number): Promis
 
 const signalKey = (brain: Brain): string => `${KEY.signalPrefix}${brain.sessionId}`
 
+async function aiTitleOf($: $, path: string): Promise<string> {
+  if (path === '') {
+    return ''
+  }
+  try {
+    const { stdout } = await $.process.run(['grep', '-F', '"type":"ai-title"', path], { timeoutMs: 2000 })
+    return lastAiTitle(stdout)
+  } catch {
+    return ''
+  }
+}
+
 export async function signalPeers($: $, brain: Brain, kind: PeerSignal['kind']): Promise<void> {
-  const signal: PeerSignal = { kind, at: brain.now, label: brain.promptLabel }
+  const aiTitle = brain.sessionTitle === '' ? await aiTitleOf($, brain.transcriptPath) : ''
+  const label = brain.sessionTitle !== '' ? brain.sessionTitle : aiTitle !== '' ? aiTitle : brain.promptLabel
+  const signal: PeerSignal = { kind, at: brain.now, label }
   await $.store.set(signalKey(brain), signal)
 }
 
@@ -1777,7 +1792,8 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
   if (!brain.settings.isPeersOn || isHushed(brain)) {
     return
   }
-  await say($, brain, signalText(signal))
+  const parts = signalParts(signal)
+  await say($, brain, parts.map(part => part.text).join(''), 'say', parts)
 }
 
 export async function sendPlaza($: $, brain: Brain, kind: PlazaAction, to: string | null): Promise<string> {

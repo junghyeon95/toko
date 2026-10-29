@@ -194,6 +194,13 @@ export async function typing($: $, ctx: Ctx): Promise<void> {
   await onTyping($, ctx.brain)
 }
 
+export const titled = (ctx: Ctx, title: string | undefined, transcriptPath: string): void => {
+  ctx.brain.transcriptPath = transcriptPath
+  if (title !== undefined && title.trim() !== '') {
+    ctx.brain.sessionTitle = signalLabel(title)
+  }
+}
+
 export async function submitted($: $, ctx: Ctx, text: string, isPersonTyped: boolean): Promise<void> {
   const brain = ctx.brain
   await now($, ctx)
@@ -302,7 +309,7 @@ export const HELP = [
   '/toko break 50 — 휴식 권유 간격(분)',
   '/toko off-work 19 | off-work off — 퇴근 시각',
   '/toko ai on | off — 작은 모델 쓰기',
-  '/toko notify on | off — OS 알림(하루 3회)',
+  '/toko notify on | off — 집중이 끝나면 OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
@@ -473,7 +480,7 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
     }
     case 'notify': {
       const toggle = onOff(value)
-      return toggle === null ? { text: '예: /toko notify on' } : changeSettings($, brain, { isNotifyOn: toggle }, toggle ? 'OS 알림을 하루 3번까지 보낼게요.' : 'OS 알림을 껐어요.')
+      return toggle === null ? { text: '예: /toko notify on' } : changeSettings($, brain, { isNotifyOn: toggle }, toggle ? '집중이 끝나면 OS 알림을 하루 3번까지 보낼게요.' : 'OS 알림을 껐어요.')
     }
     case 'peers': {
       const toggle = onOff(value)

@@ -43,6 +43,7 @@ import {
   stop,
   submitted,
   todayCommand,
+  titled,
   tokoCommand,
   toolRan,
   turnEnded,
@@ -107,6 +108,16 @@ export const register: Register = (on, options) => {
 
   on('prompt.edit', ($, e, next) => {
     $.clock.after(1, () => void typing($, ctx))
+    return next(e)
+  })
+
+  on('classic.SessionStart', ($, e, next) => {
+    titled(ctx, e.session_title, e.transcript_path)
+    return next(e)
+  })
+
+  on('classic.UserPromptSubmit', ($, e, next) => {
+    titled(ctx, e.session_title, e.transcript_path)
     return next(e)
   })
 
@@ -187,6 +198,7 @@ export const register: Register = (on, options) => {
       read($, meterAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
+    const spoken = bubble?.parts === undefined ? bubble?.text : bubble.parts.map((part, index) => (part.color === undefined ? part.text : <Text key={`part-${index}`} color={part.color}>{part.text}</Text>))
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(1, e.props.bodyColumns))
     const isLine = brain.isLineMode || e.surface !== 'terminal' || columns < MIN_PIXEL_COLUMNS || e.props.maxRows < BAND_TREE_ROWS
@@ -240,7 +252,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column">
           <Text wrap="truncate-end">
             {status}
-            <Text dimColor>{bubble === null ? '' : ` “${bubble.text}”`}</Text>
+            {bubble === null ? '' : <Text dimColor={bubble.parts === undefined}> “{spoken}”</Text>}
           </Text>
           {controls}
         </Box>
@@ -261,7 +273,8 @@ export const register: Register = (on, options) => {
           {status}
         </Text>
         <Text dimColor={bubble?.tone === 'quiet'} wrap="truncate-end">
-          {`${' '.repeat(indent)}${said}`}
+          {' '.repeat(indent)}
+          {bubble === null ? '' : <Text>“{spoken}”</Text>}
         </Text>
         <Raster key={SCENE_KEY} columns={columns} rows={BAND_ROWS} cells={band.lastCells} />
         {controls}

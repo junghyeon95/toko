@@ -83,7 +83,9 @@ export type TokoSettings = {
 
 export type TokoChoice = { key: string; label: string; hotkey: string }
 
-export type TokoBubble = { text: string; at: number; tone: 'say' | 'think' | 'quiet' }
+export type TokoBubblePart = { text: string; color?: string }
+
+export type TokoBubble = { text: string; at: number; tone: 'say' | 'think' | 'quiet'; parts?: readonly TokoBubblePart[] }
 
 export type TokoOffer = {
   id: string

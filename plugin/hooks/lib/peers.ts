@@ -1,8 +1,22 @@
+import type { TokoBubblePart } from '../../types'
+
 export type PeerSignal = { kind: 'done' | 'waiting'; at: number; label: string }
 
-const LABEL_LENGTH = 16
+const LABEL_LENGTH = 24
 
-export const signalLabel = (prompt: string): string => [...prompt.replace(/\s+/g, ' ').trim()].slice(0, LABEL_LENGTH).join('')
+export const signalLabel = (prompt: string): string => [...prompt.replace(/\s+/g, ' ').trim()].slice(0, LABEL_LENGTH).join('').trim()
+
+export const lastAiTitle = (lines: string): string => {
+  for (const line of lines.split('\n').reverse()) {
+    try {
+      const record = JSON.parse(line) as { aiTitle?: unknown }
+      if (typeof record.aiTitle === 'string' && record.aiTitle.trim() !== '') {
+        return signalLabel(record.aiTitle)
+      }
+    } catch {}
+  }
+  return ''
+}
 
 export const isSignal = (value: unknown): value is PeerSignal => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -20,7 +34,7 @@ export const freshSignal = (entries: readonly { key: string; value: unknown }[],
     .filter(signal => signal.at > seenAt)
     .reduce<PeerSignal | null>((latest, signal) => (latest === null || signal.at > latest.at ? signal : latest), null)
 
-export const signalText = (signal: PeerSignal): string => {
-  const verb = signal.kind === 'done' ? '답을 마쳤어요' : '확인을 기다려요'
-  return signal.label === '' ? `다른 세션이 ${verb}` : `「${signal.label}」 세션이 ${verb}`
+export const signalParts = (signal: PeerSignal): readonly TokoBubblePart[] => {
+  const verb: TokoBubblePart = signal.kind === 'done' ? { text: '끝났어요' } : { text: '확인을 기다려요', color: 'warning' }
+  return signal.label === '' ? [{ text: '다른 세션이 ' }, verb] : [{ text: '「' }, { text: signal.label, color: 'suggestion' }, { text: '」 ' }, verb]
 }
