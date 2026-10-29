@@ -885,6 +885,26 @@ test('saying just the answer to an offer is taken by the pet without asking Clau
   expect((await $.command.run({ command: 'toko', args: '나중에' } as never)).text).toBe('나중에(으)로 대답했어요.')
 })
 
+test('while an offer is up, typing just its own action answers it without the name, but everyday replies and longer asks still go to Claude', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET }, '하는 일: 배포 확인\n어디까지: 롤아웃 OK')
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '{"type":"user","message":{"role":"user","content":"배포 확인해 줘"}}\n', stderr: '' } }) as never)
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  world.store.set('toko:signal:session-2', PEER_DONE)
+  await clock.advance(3000)
+  await $.prompt.submit({ text: '이 PR 요약해줘', origin: { kind: 'composer' } } as never)
+  expect(world.submitted).toEqual(['이 PR 요약해줘'])
+  world.store.set('toko:signal:session-2', { ...PEER_DONE, at: START + 8000, aliveAt: START + 8000 })
+  await clock.advance(3000)
+  expect(await $.prompt.submit({ text: '요약 보여줘', origin: { kind: 'composer' } } as never)).toMatchObject({ drop: '요약 보기(으)로 대답했어요.' })
+  expect(world.logs.slice(-2)).toEqual(['하는 일: 배포 확인', '어디까지: 롤아웃 OK'])
+  await ui.unmount()
+  await $.command.run({ command: 'toko', args: 'event stretch' } as never)
+  await $.prompt.submit({ text: '좋아', origin: { kind: 'composer' } } as never)
+  expect(world.submitted).toEqual(['이 PR 요약해줘', '좋아'])
+})
+
 test('Claude cannot send into other sessions through the toko tool: it only fills the person’s prompt box with the command', async ($, on) => {
   mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })

@@ -593,6 +593,25 @@ async function choiceAnswer($: $, ctx: Ctx, words: string): Promise<{ text: stri
   return { text: `${choice.label}(으)로 대답했어요.` }
 }
 
+const CUES: Readonly<Record<string, RegExp>> = {
+  'peer:summary': /^요약(?:좀)?(?:보기|보여줘|보여줄래|볼래|봐|해줘|줘)?$/,
+  'peer:next': /^(?:다음일)?(?:보내기|보내|보내줘|보낼래|보내자)$/,
+  'gift:accept': /^(?:열기|열어|열어줘|열어봐|열래|열자)$/,
+  'bonk-end:breathe': /^숨(?:고르기|고를래|고르자|골라)$/,
+  'bonk-end:tell': /^(?:전하기|전해|전해줘|전할래)$/,
+  'memo:accept': /^입력창에?(?:넣기|넣어|넣어줘|넣을래)$/,
+  'memo:drop': /^(?:지우기|지워|지워줘|지울래)$/,
+  'cc-tip:accept': /^(?:써보기|써볼래|써볼게|써봐)$/,
+  'cc-news:accept': /^(?:알려줘|알려|알려줄래)$/,
+  'name:accept': /^이름(?:지어주기|지어줄게|지을래|지을게)$/,
+  'name:auto': /^네가지어(?:줘)?$/,
+}
+
+export const cuedChoice = (offer: Brain['offer'], text: string): TokoChoice | null => {
+  const words = text.replace(/[\s.!~?,]+/g, '')
+  return offer?.choices.find(choice => CUES[`${offer.kind}:${choice.key}`]?.test(words) === true) ?? null
+}
+
 async function naturalSend($: $, ctx: Ctx, words: string): Promise<{ text: string } | null> {
   const parsed = parseSendWords(words)
   if (parsed === null || (await peerMatches($, ctx.brain, parsed.query)).length !== 1) {

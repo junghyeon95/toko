@@ -26,10 +26,12 @@ import {
   calledWords,
   chatAnswered,
   chatStarted,
+  choose,
   commandTool,
   commandUsed,
   comeHomeFromRoom,
   createCtx,
+  cuedChoice,
   cycleRoomSlot,
   guestBye,
   guestPlay,
@@ -147,7 +149,12 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const isPersonTyped = e.origin.kind === 'composer' && e.command === undefined && e.isMeta !== true
     const words = isPersonTyped ? calledWords(e.text, nameOf(ctx.brain.pet)) : null
-    await submitted($, ctx, e.text, isPersonTyped && words === null)
+    const cued = isPersonTyped && words === null ? cuedChoice(ctx.brain.offer, e.text) : null
+    await submitted($, ctx, e.text, isPersonTyped && words === null && cued === null)
+    if (cued !== null) {
+      await choose($, ctx, cued)
+      return { drop: `${cued.label}(으)로 대답했어요.` }
+    }
     if (words !== null) {
       const heard = await heardByName($, ctx, words)
       return 'drop' in heard ? heard : next({ ...e, text: heard.text, context: [...(e.context ?? []), ...heard.context] })
