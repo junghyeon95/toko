@@ -297,7 +297,7 @@ export async function toolRan($: $, ctx: Ctx, tool: string, command: string | un
     await onTest($, brain, outcome.kind, outcome.key, outcome.summary, outcome.kind === 'test-fail' ? failedCount(text) : null)
   }
   const operation = isError ? undefined : (result as { gitOperation?: GitOperation } | undefined)?.gitOperation
-  for (const event of readGitEvents(operation)) {
+  for (const event of readGitEvents(operation, isError ? '' : command)) {
     await onGit($, brain, event.kind, event.detail)
   }
 }

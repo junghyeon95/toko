@@ -33,13 +33,16 @@ export type GitOperation = {
 
 export type GitEvent = { kind: 'commit' | 'push' | 'pr'; detail: string }
 
-export const readGitEvents = (operation: GitOperation | undefined): readonly GitEvent[] => {
-  if (operation === undefined) {
-    return []
-  }
-  const commit: GitEvent[] = operation.commit === undefined ? [] : [{ kind: 'commit', detail: `${operation.commit.sha.slice(0, 7)} ${operation.commit.branch ?? ''}`.trim() }]
-  const push: GitEvent[] = operation.push === undefined ? [] : [{ kind: 'push', detail: operation.push.branch }]
-  const pr: GitEvent[] = operation.pr === undefined ? [] : [{ kind: 'pr', detail: `#${operation.pr.number} ${operation.pr.action}` }]
+const gitCommand = (verb: 'commit' | 'push'): RegExp => new RegExp(`(^|[\\s;&|(])git\\s+(-C\\s+\\S+\\s+)*${verb}\\b(?![^;&|\\n]*--dry-run)`)
+
+const GIT_COMMIT = gitCommand('commit')
+const GIT_PUSH = gitCommand('push')
+
+export const readGitEvents = (operation: GitOperation | undefined, command = ''): readonly GitEvent[] => {
+  const commit: GitEvent[] =
+    operation?.commit !== undefined ? [{ kind: 'commit', detail: `${operation.commit.sha.slice(0, 7)} ${operation.commit.branch ?? ''}`.trim() }] : GIT_COMMIT.test(command) ? [{ kind: 'commit', detail: '' }] : []
+  const push: GitEvent[] = operation?.push !== undefined ? [{ kind: 'push', detail: operation.push.branch }] : GIT_PUSH.test(command) ? [{ kind: 'push', detail: '' }] : []
+  const pr: GitEvent[] = operation?.pr === undefined ? [] : [{ kind: 'pr', detail: `#${operation.pr.number} ${operation.pr.action}` }]
   return [...commit, ...push, ...pr]
 }
 

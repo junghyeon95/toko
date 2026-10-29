@@ -290,6 +290,12 @@ test('the perceiver reads tests and git from shell results', async () => {
   expect(readTestOutcome('cd app && pnpm run test -- -u', false, '')?.kind).toBe('test-pass')
   expect(readTestOutcome('ls -la', true, '')).toBe(null)
   expect(readGitEvents({ commit: { sha: 'abcdef123', kind: 'committed', branch: 'main' }, push: { branch: 'main' } }).map(event => event.kind)).toEqual(['commit', 'push'])
+  expect(readGitEvents(undefined, "git add -A && git commit -q -F - <<'EOF'\nADD: x\nEOF\ngit push -q origin main").map(event => event.kind)).toEqual(['commit', 'push'])
+  expect(readGitEvents(undefined, 'git -C ~/work/app commit -qm "fix"').map(event => event.kind)).toEqual(['commit'])
+  expect(readGitEvents({ commit: { sha: 'abcdef123', kind: 'committed', branch: 'main' } }, 'git commit -m x').map(event => event.detail)).toEqual(['abcdef1 main'])
+  expect(readGitEvents(undefined, 'git commit --dry-run')).toEqual([])
+  expect(readGitEvents(undefined, 'git log --oneline -3 && git status')).toEqual([])
+  expect(readGitEvents(undefined, 'grep -rn "git commit" docs')).toEqual([])
   const events = [
     { kind: 'test-fail', detail: 'npm test :: x' },
     { kind: 'test-pass', detail: 'npm test' },
