@@ -6,4 +6,10 @@ Claude Code 프롬프트 위에 사는 픽셀 펫입니다. Claude가 일하는 
 
 `/toko 안녕!`, `/toko 오늘의 퀘스트는 뭐야?`처럼 정해진 명령이 아닌 말을 쓰면 지금 세션의 Claude가 토코가 되어 답합니다. 따로 모델을 부르지 않고 세션과 같은 토큰을 씁니다.
 
-설치 · 명령 · 광장 서버 설정은 레포 루트의 README를 보세요. `/toko help`로 명령 목록을 볼 수 있습니다.
+Claude Code 터미널 세션의 프롬프트에서 설치합니다.
+
+```text
+/plugin install toko --marketplace junghyeon95/toko
+```
+
+명령 · 광장 서버 설정은 레포 루트의 README를 보세요. `/toko help`로 명령 목록을 볼 수 있습니다.
