@@ -32,7 +32,7 @@ export const idlePlan = (scene: Scene, random: Random, weights: readonly { item:
 
 const spawnCoins = (scene: Scene, count: number): void => {
   for (let index = 0; index < count; index += 1) {
-    spawn(scene, 'coin', scene.x + 9 + index * 2, 10, (index - count / 2) * 3, -14, 900, 30)
+    spawn(scene, 'coin', scene.x + 6 + index * 2, 6, (index - count / 2) * 3, -14, 900, 30)
   }
 }
 
@@ -41,7 +41,7 @@ export const hatch = (onDone: () => void): Step[] => [
   { pose: 'egg', ms: 400 },
   { pose: 'egg-wobble', ms: 1200 },
   { pose: 'egg-crack', ms: 900 },
-  { pose: 'egg-crack', ms: 300, enter: scene => spawn(scene, 'sparkle', scene.x + 10, 8, 0, 0, 600) },
+  { pose: 'egg-crack', ms: 300, enter: scene => spawn(scene, 'sparkle', scene.x + 6, 3, 0, 0, 600) },
   { pose: 'jump', ms: 650, enter: () => onDone() },
   { pose: 'wave', ms: 1600 },
 ]
@@ -67,13 +67,13 @@ export const perk = (): Step[] => [{ pose: 'look', ms: 1200, dir: 1 }]
 
 export const feed = (): Step[] => [
   { pose: 'look', ms: 300 },
-  { pose: 'eat', ms: 1800, enter: scene => spawn(scene, 'crumb', scene.x + 12, 17, 2, -4, 700, 20) },
+  { pose: 'eat', ms: 1800, enter: scene => spawn(scene, 'crumb', scene.x + 8, 9, 2, -4, 700, 20) },
   { pose: 'jump', ms: 650 },
   { pose: 'idle', ms: 800 },
 ]
 
 export const play = (): Step[] => [
-  { pose: 'jump', ms: 650, enter: scene => spawn(scene, 'bubble', scene.x + 26, 6, 2, -2, 1400) },
+  { pose: 'jump', ms: 650, enter: scene => spawn(scene, 'bubble', scene.x + 17, 3, 2, -2, 1400) },
   { pose: 'run', ms: 0, toX: 0 },
   { pose: 'jump', ms: 650 },
   { pose: 'dance', ms: 1800 },
@@ -81,12 +81,12 @@ export const play = (): Step[] => [
 ]
 
 export const celebrate = (): Step[] => [
-  { pose: 'jump', ms: 650, enter: scene => spawn(scene, 'star', scene.x + 10, 0, 0, -3, 900) },
+  { pose: 'jump', ms: 650, enter: scene => spawn(scene, 'star', scene.x + 6, 0, 0, -3, 900) },
   { pose: 'jump', ms: 650 },
   { pose: 'dance', ms: 1500 },
 ]
 
-export const flag = (): Step[] => [{ pose: 'wave', ms: 2200, enter: scene => spawn(scene, 'star', scene.x + 26, 4, 0, -2, 1000) }, { pose: 'idle', ms: 600 }]
+export const flag = (): Step[] => [{ pose: 'wave', ms: 2200, enter: scene => spawn(scene, 'star', scene.x + 17, 2, 0, -2, 1000) }, { pose: 'idle', ms: 600 }]
 
 export const worry = (): Step[] => [{ pose: 'cower', ms: 900 }, { pose: 'look', ms: 1500, dir: 1 }]
 
@@ -99,7 +99,7 @@ export const stretch = (): Step[] => [{ pose: 'stretch', ms: 4000 }, { pose: 'ju
 export const eyeRest = (ms: number): Step[] => [{ pose: 'look', ms, dir: -1 }]
 
 export const water = (): Step[] => [
-  { pose: 'idle', ms: 200, enter: scene => placeProp(scene, 'cup', 'cup', scene.x + 25, 22, 4000) },
+  { pose: 'idle', ms: 200, enter: scene => placeProp(scene, 'cup', 'cup', scene.x + 16, 10, 4000) },
   { pose: 'eat', ms: 2500 },
   { pose: 'idle', ms: 800, enter: scene => removeProp(scene, 'cup') },
 ]
@@ -113,18 +113,18 @@ export const breathe = (rounds: number): Step[] =>
   ]).flat()
 
 export const giftDrop = (): Step[] => [
-  { pose: 'look', ms: 600, enter: scene => placeProp(scene, 'gift', 'gift', scene.x + 27, 24, 120_000) },
+  { pose: 'look', ms: 600, enter: scene => placeProp(scene, 'gift', 'gift', scene.x + 18, 12, 120_000) },
   { pose: 'jump', ms: 650 },
 ]
 
 export const giftOpen = (): Step[] => [
-  { pose: 'idle', ms: 500, enter: scene => placeProp(scene, 'gift', 'gift-open', scene.x + 27, 24, 1500) },
+  { pose: 'idle', ms: 500, enter: scene => placeProp(scene, 'gift', 'gift-open', scene.x + 18, 12, 1500) },
   {
     pose: 'jump',
     ms: 650,
     enter: scene => {
-      spawn(scene, 'sparkle', scene.x + 28, 16, -2, -3, 700)
-      spawn(scene, 'sparkle', scene.x + 31, 17, 2, -3, 700)
+      spawn(scene, 'sparkle', scene.x + 19, 6, -2, -3, 700)
+      spawn(scene, 'sparkle', scene.x + 22, 7, 2, -3, 700)
     },
   },
   { pose: 'proud', ms: 1200 },
@@ -137,9 +137,9 @@ export const apologyAccepted = (): Step[] => [
     ms: 1500,
     dir: 1,
     enter: scene => {
-      spawn(scene, 'heart', scene.x + 5, 3, -1, -3, 1500)
-      spawn(scene, 'heart', scene.x + 11, 0, 0, -3, 1500)
-      spawn(scene, 'heart', scene.x + 17, 3, 1, -3, 1500)
+      spawn(scene, 'heart', scene.x + 3, 2, -1, -3, 1500)
+      spawn(scene, 'heart', scene.x + 7, 0, 0, -3, 1500)
+      spawn(scene, 'heart', scene.x + 11, 2, 1, -3, 1500)
     },
   },
 ]
@@ -155,7 +155,7 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
       speed: 30,
       enter: s => {
         if (!isTurnRunning) {
-          placeProp(s, 'doll', 'doll', dollX, 21, 9000)
+          placeProp(s, 'doll', 'doll', dollX, 9, 9000)
         }
       },
     },
@@ -166,10 +166,10 @@ export const bonk = (scene: Scene, isTurnRunning: boolean, onHit: () => void): S
       enter: s => {
         onHit()
         if (!isTurnRunning) {
-          placeProp(s, 'doll', 'doll-squashed', dollX, 21, 6000)
+          placeProp(s, 'doll', 'doll-squashed', dollX, 9, 6000)
         }
         for (let index = 0; index < 3; index += 1) {
-          spawn(s, 'star', dollX - 2 + index * 3, 15 - index, (index - 1) * 6, -6, 1100)
+          spawn(s, 'star', dollX - 2 + index * 3, 3 - index, (index - 1) * 6, -6, 1100)
         }
       },
     },
@@ -185,7 +185,7 @@ export const encounter = (scene: Scene, kind: EncounterKind, random: Random): St
   switch (kind) {
     case 'butterfly':
       return [
-        { pose: 'look', ms: 800, enter: s => spawn(s, 'butterfly', -5, 6, 9, 0.6, 9000) },
+        { pose: 'look', ms: 800, enter: s => spawn(s, 'butterfly', -5, 2, 9, 0.6, 9000) },
         { pose: 'walk', ms: 0, toX: Math.min(width - PET_WIDTH, Math.round(width * 0.6)) },
         { pose: 'jump', ms: 650 },
         { pose: 'idle', ms: 1200 },
@@ -221,7 +221,7 @@ export const encounter = (scene: Scene, kind: EncounterKind, random: Random): St
           ms: 3000,
           enter: s => {
             for (let index = 0; index < 4; index += 1) {
-              spawn(s, 'bubble', s.x + 22, 14, 3 + index * 1.5, -1.5 - index * 0.4, 5000)
+              spawn(s, 'bubble', s.x + 15, 8, 3 + index * 1.5, -1.5 - index * 0.4, 5000)
             }
           },
         },
@@ -245,13 +245,13 @@ export const encounter = (scene: Scene, kind: EncounterKind, random: Random): St
             }
           },
         },
-        { pose: 'idle', ms: 5000, enter: s => placeProp(s, 'umbrella', 'umbrella', s.x + 21, 0, 5500) },
+        { pose: 'idle', ms: 5000, enter: s => placeProp(s, 'umbrella', 'umbrella', s.x + 14, 0, 5500) },
         { pose: 'idle', ms: 800 },
       ]
     case 'sprout':
       return [
-        { pose: 'walk', ms: 0, toX: Math.max(0, width - PET_WIDTH - 12), enter: s => placeProp(s, 'sprout', 'sprout', width - 9, 23, 12_000) },
-        { pose: 'idle', ms: 5000, dir: 1, enter: s => placeProp(s, 'can', 'can', s.x + 21, 14, 5000) },
+        { pose: 'walk', ms: 0, toX: Math.max(0, width - PET_WIDTH - 12), enter: s => placeProp(s, 'sprout', 'sprout', width - 9, 11, 12_000) },
+        { pose: 'idle', ms: 5000, dir: 1, enter: s => placeProp(s, 'can', 'can', s.x + 14, 6, 5000) },
         { pose: 'jump', ms: 650 },
       ]
     case 'firefly':
@@ -261,7 +261,7 @@ export const encounter = (scene: Scene, kind: EncounterKind, random: Random): St
           ms: 600,
           enter: s => {
             for (let index = 0; index < 3; index += 1) {
-              spawn(s, 'firefly', random() * width, 2 + random() * 18, (random() - 0.5) * 3, (random() - 0.5) * 1.5, 8000)
+              spawn(s, 'firefly', random() * width, 2 + random() * 8, (random() - 0.5) * 3, (random() - 0.5) * 1.5, 8000)
             }
           },
         },
@@ -286,7 +286,7 @@ export const friendVisit = (friendId: string, species: TokoSpecies): Step[] => [
   { pose: 'look', ms: 600, enter: s => addVisitor(s, friendId, species, 14_000, 2500) },
   { pose: 'idle', ms: 1800 },
   { pose: 'wave', ms: 2000 },
-  { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 11, 0, 0, -3, 1400) },
+  { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 7, 0, 0, -3, 1400) },
   { pose: 'idle', ms: 1500 },
 ]
 
@@ -312,5 +312,5 @@ export const groupStretch = (species: readonly TokoSpecies[]): Step[] => [
       }
     },
   },
-  { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 11, 0, 0, -3, 1200) },
+  { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 7, 0, 0, -3, 1200) },
 ]

@@ -1138,7 +1138,7 @@ async function stepGame($: $, brain: Brain): Promise<void> {
   if (scene !== null && brain.now - brain.gameSpawnAt >= 1400) {
     brain.gameSpawnAt = brain.now
     const fromLeft = brain.random() < 0.5
-    placeProp(scene, `bug-${brain.now}`, 'bug', fromLeft ? -3 : scene.width, 25, 9000, (fromLeft ? 1 : -1) * (5 + brain.random() * 6))
+    placeProp(scene, `bug-${brain.now}`, 'bug', fromLeft ? -3 : scene.width, 13, 9000, (fromLeft ? 1 : -1) * (5 + brain.random() * 6))
   }
 }
 

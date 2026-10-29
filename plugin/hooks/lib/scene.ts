@@ -44,16 +44,13 @@ import {
   UMBRELLA,
   WATERING_CAN,
   ZZZ,
-  bodyOf,
-  eyeMark,
+  eyeGrids,
   hex,
   paletteOf,
 } from './sprites'
 
-export const PET_WIDTH = 24
-export const BAND_ROWS = 14
-export const PET_Y = 2
-export const BODY_ROWS = 23
+export const PET_WIDTH = 16
+export const BAND_ROWS = 8
 
 export type Pose =
   | 'idle'
@@ -309,14 +306,14 @@ const follow = (scene: Scene, dt: number): void => {
 const ambientEffects = (scene: Scene, random: Random): void => {
   const pose = scene.current?.pose
   if (pose === 'sleep' && random() < 0.04) {
-    spawn(scene, 'z', scene.x + 20, 6, 2, -2.5, 1800)
+    spawn(scene, 'z', scene.x + 13, 4, 2, -2.5, 1800)
   }
   const rarityChance = { normal: 0, rare: 0.03 }[rarityOf(scene.look.bones)]
   if (pose !== 'hidden' && random() < rarityChance) {
-    spawn(scene, 'sparkle', scene.x - 2 + random() * (PET_WIDTH + 4), 2 + random() * 18, 0, 0, 500)
+    spawn(scene, 'sparkle', scene.x - 2 + random() * (PET_WIDTH + 4), 1 + random() * 10, 0, 0, 500)
   }
   if (pose === 'dance' && random() < 0.05) {
-    spawn(scene, 'note', scene.x + (random() < 0.5 ? -3 : PET_WIDTH), 8, 0, -3, 1200)
+    spawn(scene, 'note', scene.x + (random() < 0.5 ? -3 : PET_WIDTH), 4, 0, -3, 1200)
   }
 }
 
@@ -340,7 +337,7 @@ export const tick = (scene: Scene, dt: number, random: Random): void => {
   stepEffects(scene, dt)
 }
 
-type Frame = { dy: number; feet: keyof typeof FEET; isBreathing?: boolean; eyes?: 'happy' | 'closed' | 'lidded' | 'open'; mouth?: MouthShape; arms?: 'up' | 'wave-a' | 'wave-b'; hammer?: 'up' | 'down' | 'side'; shakeX: number }
+type Frame = { dy: number; feet: keyof typeof FEET; eyes?: 'happy' | 'closed' | 'lidded' | 'open'; mouth?: MouthShape; arms?: 'up' | 'wave-a' | 'wave-b'; hammer?: 'up' | 'down' | 'side'; shakeX: number }
 
 const cycle = (elapsed: number, frameMs: number, count: number): number => Math.floor(elapsed / frameMs) % count
 
@@ -349,18 +346,18 @@ export const frameOf = (pose: Pose, elapsed: number): Frame => {
   switch (pose) {
     case 'idle':
     case 'look':
-      return { ...base, isBreathing: cycle(elapsed, 600, 2) === 1 }
+      return { ...base, dy: cycle(elapsed, 700, 2) }
     case 'walk':
     case 'run': {
       const index = cycle(elapsed, pose === 'run' ? 80 : 140, 4)
-      return { ...base, dy: -(index % 2), isBreathing: index % 2 === 0, feet: index === 0 ? 'stepA' : index === 2 ? 'stepB' : 'stand' }
+      return { ...base, dy: index % 2, feet: index === 0 ? 'stepA' : index === 2 ? 'stepB' : 'stand' }
     }
     case 'sit':
       return { ...base, dy: 1, feet: 'tuck' }
     case 'sleep':
       return { ...base, dy: 1, feet: 'tuck', eyes: 'closed', mouth: 'flat' }
     case 'yawn':
-      return { ...base, isBreathing: cycle(elapsed, 500, 2) === 1, eyes: 'closed', mouth: 'open' }
+      return { ...base, dy: cycle(elapsed, 500, 2), eyes: 'closed', mouth: 'open' }
     case 'eat':
       return { ...base, mouth: cycle(elapsed, 160, 2) === 0 ? 'open' : 'small', eyes: 'happy' }
     case 'jump': {
@@ -402,17 +399,14 @@ const drawFace = (canvas: Canvas, scene: Scene, frame: Frame, x: number, y: numb
   const art = SPECIES_ART[scene.look.bones.species]
   const face = art.face
   const eyeShape = isBlinking && (frame.eyes ?? mood.eyes) === 'open' ? 'closed' : (frame.eyes ?? mood.eyes)
-  const eye = eyeMark(art.eyes, eyeShape)
+  const [left, right] = eyeGrids(art.eyes, eyeShape)
   const options: DrawOptions = { scale }
-  for (const [ex, ey] of [face.leftEye, face.rightEye]) {
-    drawGrid(canvas, eye.grid, x + (ex + eye.dx) * scale, y + (ey + eye.dy) * scale, scene.palette, options)
-  }
+  drawGrid(canvas, left, x + face.leftEye[0] * scale, y + face.leftEye[1] * scale, scene.palette, options)
+  drawGrid(canvas, right, x + face.rightEye[0] * scale, y + face.rightEye[1] * scale, scene.palette, options)
   const blush = scene.palette.get('p') ?? 0
   const eyeColor = scene.palette.get('e') ?? 0
   for (const [bx, by] of [face.leftBlush, face.rightBlush]) {
-    for (const dx of [0, 1, 2]) {
-      fillBlock(canvas, x + (bx + dx) * scale, y + by * scale, scale, blush)
-    }
+    fillBlock(canvas, x + bx * scale, y + by * scale, scale, blush)
   }
   if (mood.hasBrows && frame.eyes === undefined) {
     fillBlock(canvas, x + (face.leftEye[0] + 1) * scale, y + (face.leftEye[1] - 1) * scale, scale, eyeColor)
@@ -440,10 +434,10 @@ const drawArms = (canvas: Canvas, scene: Scene, arms: Frame['arms'], x: number, 
   const outline = scene.palette.get('o') ?? 0
   const spots: readonly (readonly [number, number, number])[] =
     arms === 'up'
-      ? [[1, 5, outline], [0, 6, outline], [1, 6, body], [0, 7, outline], [1, 7, body], [22, 5, outline], [22, 6, body], [23, 6, outline], [22, 7, body], [23, 7, outline]]
+      ? [[-1, 3, outline], [-1, 4, body], [-1, 5, outline], [16, 3, outline], [16, 4, body], [16, 5, outline]]
       : arms === 'wave-a'
-        ? [[22, 6, outline], [23, 6, outline], [22, 7, body], [23, 7, outline], [22, 8, body], [23, 8, outline]]
-        : [[22, 12, body], [23, 12, outline], [22, 13, body], [23, 13, outline], [22, 14, outline]]
+        ? [[16, 4, outline], [16, 5, body], [17, 4, outline]]
+        : [[16, 7, outline], [16, 8, body], [17, 8, outline]]
   for (const [ax, ay, color] of spots) {
     fillBlock(canvas, x + ax * scale, y + ay * scale, scale, color)
   }
@@ -454,13 +448,13 @@ const drawHammer = (canvas: Canvas, scene: Scene, hammer: Frame['hammer'], x: nu
     return
   }
   const options: DrawOptions = { scale, overrides: scene.hammerPalette, isFlipped: scene.dir < 0 && hammer === 'side' }
-  const front = scene.dir > 0 ? x + 21 * scale : x - 5 * scale
+  const front = scene.dir > 0 ? x + 14 * scale : x - 5 * scale
   if (hammer === 'up') {
-    drawGrid(canvas, HAMMER_UP, scene.dir > 0 ? x - 4 * scale : x + 23 * scale, y + 1 * scale, scene.palette, options)
+    drawGrid(canvas, HAMMER_UP, scene.dir > 0 ? x - 4 * scale : x + 15 * scale, y - 1 * scale, scene.palette, options)
   } else if (hammer === 'down') {
-    drawGrid(canvas, HAMMER_DOWN, front, y + 12 * scale, scene.palette, options)
+    drawGrid(canvas, HAMMER_DOWN, front, y + 6 * scale, scene.palette, options)
   } else {
-    drawGrid(canvas, HAMMER_SIDE, scene.dir > 0 ? x + 21 * scale : x - 7 * scale, y + 13 * scale, scene.palette, options)
+    drawGrid(canvas, HAMMER_SIDE, scene.dir > 0 ? x + 14 * scale : x - 7 * scale, y + 7 * scale, scene.palette, options)
   }
 }
 
@@ -478,7 +472,7 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   if (look.stage === 'egg' || pose === 'egg' || pose === 'egg-wobble' || pose === 'egg-crack') {
     const wobble = pose === 'egg-wobble' ? (cycle(elapsed, 120, 4) % 2 === 0 ? -1 : 1) : 0
     const grid = pose === 'egg-crack' ? EGG_CRACK : EGG
-    drawGrid(canvas, grid, x + (4 + wobble) * scale, baseY + (BODY_ROWS + 2 - grid.length) * scale, scene.palette, { scale })
+    drawGrid(canvas, grid, x + (3 + wobble) * scale, baseY + 4 * scale, scene.palette, { scale })
     return
   }
   const frame = frameOf(pose, elapsed)
@@ -492,9 +486,10 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   if ((look.stage === 'child' || look.stage === 'adult') && art.child !== undefined) {
     drawMark(canvas, scene, art.child, px, py, scale, isFlipped)
   }
-  drawGrid(canvas, bodyOf(look.bones.species, frame.isBreathing === true), px, py, scene.palette, { scale })
+  drawGrid(canvas, art.body, px, py, scene.palette, { scale })
   if (art.isFloating !== true) {
-    drawGrid(canvas, FEET[frame.feet], px, baseY + BODY_ROWS * scale, scene.palette, { scale, isFlipped })
+    const feetY = frame.feet === 'tuck' ? py : baseY
+    drawGrid(canvas, [FEET[frame.feet]], px, feetY + 14 * scale, scene.palette, { scale, isFlipped })
   }
   drawFace(canvas, scene, frame, px, py, scale, scene.clock < scene.blinkUntil)
   const hat = look.hat === undefined ? undefined : HATS[look.hat]
@@ -566,15 +561,15 @@ const drawVisitor = (canvas: Canvas, scene: Scene, visitor: Visitor): void => {
   const art = SPECIES_ART[species]
   const palette = visitor.species === 'shadow' ? scene.palette : paletteOf(species)
   const options: DrawOptions = visitor.species === 'shadow' ? { tint: SHADOW_TINT, isFlipped: visitor.dir < 0 } : { isFlipped: visitor.dir < 0 }
-  const y = PET_Y + frame.dy
-  drawGrid(canvas, bodyOf(species, frame.isBreathing === true), visitor.x, y, palette, options)
+  const y = 1 + frame.dy
+  drawGrid(canvas, art.body, visitor.x, y, palette, options)
   if (art.isFloating !== true) {
-    drawGrid(canvas, FEET[frame.feet], visitor.x, PET_Y + BODY_ROWS, palette, options)
+    drawGrid(canvas, [FEET[frame.feet]], visitor.x, 15, palette, options)
   }
   if (visitor.species !== 'shadow') {
-    drawGrid(canvas, ['we', 'ee', 'ee'], visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
-    drawGrid(canvas, ['we', 'ee', 'ee'], visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
-    drawGrid(canvas, ['m..m', '.mm.'], visitor.x + art.face.mouth[0] - 1, y + art.face.mouth[1], palette)
+    drawGrid(canvas, ['we', 'ee'], visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
+    drawGrid(canvas, ['we', 'ee'], visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
+    drawGrid(canvas, ['mm'], visitor.x + art.face.mouth[0], y + art.face.mouth[1], palette)
   }
 }
 
@@ -588,7 +583,7 @@ export const paint = (scene: Scene, canvas: Canvas): void => {
   }
   const pose = scene.current?.pose ?? 'idle'
   paintCritter(canvas, scene, pose, Math.round(scene.follower.x), canvas.height, scene.follower.dir, scene.follower.isMoving, 1)
-  paintPet(canvas, scene, pose, scene.clock - scene.stepAt, Math.round(scene.x), PET_Y, 1)
+  paintPet(canvas, scene, pose, scene.clock - scene.stepAt, Math.round(scene.x), 1, 1)
   for (const effect of scene.effects) {
     drawGrid(canvas, EFFECT_GRIDS[effect.kind](scene.clock - effect.born), effect.x, effect.y, scene.palette)
   }
@@ -612,6 +607,6 @@ export const paintRoom = (scene: Scene, canvas: Canvas, items: readonly string[]
   }
   const pose = scene.current?.pose === 'sleep' ? 'sleep' : scene.look.mood === 'excited' ? 'dance' : 'idle'
   const petX = Math.round(canvas.width / 2 - PET_WIDTH)
-  paintPet(canvas, scene, pose, scene.clock, petX, floor - (BODY_ROWS + 2) * 2, 2)
+  paintPet(canvas, scene, pose, scene.clock, petX, floor - 30, 2)
   paintCritter(canvas, scene, pose === 'sleep' ? 'sleep' : 'sit', petX + PET_WIDTH * 2 + 4, floor + 2, -1, false, 2)
 }
