@@ -92,11 +92,23 @@ export const sessionLine = (signal: PeerSignal, now: number): string => {
   }
 }
 
+const URGENCY: Readonly<Record<PeerSignal['kind'], number>> = { waiting: 2, done: 1, working: 0, idle: 0 }
+
+const firstToSee = (peers: readonly Peer[], now: number): readonly string[] => {
+  const ranked = peers
+    .map(({ signal }, index) => ({ signal, index }))
+    .filter(({ signal }) => URGENCY[signal.kind] > 0)
+    .sort((a, b) => URGENCY[b.signal.kind] - URGENCY[a.signal.kind] || a.signal.at - b.signal.at)
+  const first = ranked[0]
+  return peers.length < 2 || first === undefined ? [] : [`먼저 볼 것: ${first.index + 1}. ${sessionLine(first.signal, now)}`]
+}
+
 export const sessionsText = (peers: readonly Peer[], now: number): string =>
   peers.length === 0
     ? '옆 세션이 없어요.'
     : [
         `옆 세션 ${peers.length}개`,
+        ...firstToSee(peers, now),
         ...peers.flatMap(({ signal }, index) => [`${index + 1}. ${sessionLine(signal, now)}`, ...(signal.prompt === undefined || signal.prompt === '' ? [] : [`   마지막 질문: ${signal.prompt}`])]),
         '/toko sessions <이름|번호> 요약 · /toko send <이름|번호> <내용> 보내기',
       ].join('\n')

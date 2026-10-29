@@ -559,7 +559,27 @@ test('/toko sessions lists live sessions in the order they started, without itse
   await begin($)
   world.store.set('toko:signal:session-4', { kind: 'done', at: START - 10 * 60_000, label: '닫힌 세션', since: START - 100 * 60_000, aliveAt: START - 4 * 60_000 })
   const listed = await $.command.run({ command: 'toko', args: 'sessions' } as never)
-  expect(listed.text).toBe(['옆 세션 2개', '1. 「A」 작업 중 · 2분째', '   마지막 질문: 배포 로그 봐 줘', '2. 「B」 끝남 · 5분 전', '/toko sessions <이름|번호> 요약 · /toko send <이름|번호> <내용> 보내기'].join('\n'))
+  expect(listed.text).toBe(['옆 세션 2개', '먼저 볼 것: 2. 「B」 끝남 · 5분 전', '1. 「A」 작업 중 · 2분째', '   마지막 질문: 배포 로그 봐 줘', '2. 「B」 끝남 · 5분 전', '/toko sessions <이름|번호> 요약 · /toko send <이름|번호> <내용> 보내기'].join('\n'))
+})
+
+test('/toko sessions points first at the session waiting longest for permission, keeping the numbers in start order', async ($, on) => {
+  mock.clock(on, { now: START })
+  const waitingLong = { kind: 'waiting', at: START - 12 * 60_000, label: '배포', since: START - 50 * 60_000, aliveAt: START - 10_000 }
+  const waitingShort = { kind: 'waiting', at: START - 1 * 60_000, label: '리뷰', since: START - 40 * 60_000, aliveAt: START - 10_000 }
+  engine(on, { 'toko:pet': PET, 'toko:signal:session-2': PEER_B, 'toko:signal:session-3': waitingShort, 'toko:signal:session-4': waitingLong })
+  await begin($)
+  const lines = (await $.command.run({ command: 'toko', args: 'sessions' } as never)).text?.split('\n') ?? []
+  expect(lines.slice(0, 5)).toEqual(['옆 세션 3개', '먼저 볼 것: 2. 「배포」 허락 대기 · 12분째', '1. 「B」 끝남 · 5분 전', '2. 「배포」 허락 대기 · 12분째', '3. 「리뷰」 허락 대기 · 1분째'])
+})
+
+test('/toko sessions leaves out what to see first when only one session is open or none needs a person', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-2': PEER_B })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'sessions' } as never)).text).not.toContain('먼저 볼 것')
+  world.store.set('toko:signal:session-2', PEER_A)
+  world.store.set('toko:signal:session-3', { ...PEER_A, label: 'C', since: START - 80 * 60_000 })
+  expect((await $.command.run({ command: 'toko', args: 'sessions' } as never)).text).not.toContain('먼저 볼 것')
 })
 
 test('/toko sessions with no other session says so', async ($, on) => {
