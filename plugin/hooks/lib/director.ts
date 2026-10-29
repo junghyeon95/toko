@@ -2,7 +2,7 @@ import type { TokoSpecies } from '../../types'
 
 import type { Random } from './random'
 import { pickWeighted } from './random'
-import type { Scene, Step } from './scene'
+import type { Scene, Step, VisitTiming } from './scene'
 import { PET_WIDTH, addVisitor, centerX, placeProp, removeProp, rightX, spawn } from './scene'
 import type { EncounterKind, IdleAction } from './sim'
 
@@ -280,10 +280,11 @@ export const shimmer = (): Step[] => [
   },
 ]
 
-export const friendVisit = (friendId: string, species: TokoSpecies): Step[] => [
-  { pose: 'look', ms: 600, enter: s => addVisitor(s, friendId, species, 14_000, 2500) },
-  { pose: 'idle', ms: 1800 },
-  { pose: 'wave', ms: 2000 },
+const VISIT_WAVE_MS = 2500
+
+export const friendVisit = (friendId: string, species: TokoSpecies, timing: VisitTiming): Step[] => [
+  { pose: 'look', ms: timing.arrivalMs, dir: timing.faceDir, enter: s => addVisitor(s, friendId, species, timing.arrivalMs * 2 + VISIT_WAVE_MS + 2000, VISIT_WAVE_MS) },
+  { pose: 'wave', ms: VISIT_WAVE_MS },
   { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 7, 0, 0, -3, 1400) },
   { pose: 'idle', ms: 1500 },
 ]
@@ -306,7 +307,7 @@ export const groupStretch = (species: readonly TokoSpecies[]): Step[] => [
     ms: 5000,
     enter: s => {
       for (const [index, kind] of species.slice(0, 2).entries()) {
-        addVisitor(s, `stretch-${index}`, kind, 9000, 5000)
+        addVisitor(s, `stretch-${index}`, kind, 9000, 5000, 'stretch')
       }
     },
   },

@@ -53,7 +53,7 @@ import type { PlazaAction, PlazaEvent, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
-import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook } from './lib/scene'
+import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook, visitTiming } from './lib/scene'
 import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
 import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
 import type { QuestsPaid } from './lib/quests'
@@ -1747,7 +1747,7 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   remember(brain, 'friend-wave', event.from.name, 1)
   brain.needs = restore(brain.needs, { social: 8, hunger: event.kind === 'snack' ? 15 : 0 })
   if (brain.scene !== null && !isBusy(brain.scene) && canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
-    act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.species), PRIORITY.encounter)
+    act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.species, visitTiming(brain.scene)), PRIORITY.encounter)
   }
   if (!isHushed(brain)) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')

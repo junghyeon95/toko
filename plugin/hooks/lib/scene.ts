@@ -96,7 +96,7 @@ export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' |
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
-export type Visitor = { id: string; species: TokoSpecies | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number }
+export type Visitor = { id: string; species: TokoSpecies | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number; pausePose: Pose }
 
 export type Look = {
   bones: TokoBones
@@ -201,17 +201,33 @@ export const removeProp = (scene: Scene, id: string): void => {
   scene.props = scene.props.filter(prop => prop.id !== id)
 }
 
-export const addVisitor = (scene: Scene, id: string, species: TokoSpecies | 'shadow', lifeMs: number, pauseMs = 0): void => {
-  const fromLeft = scene.x > scene.width / 2
+const VISITOR_SPEED = 10
+const VISITOR_GAP = 4
+
+const visitorPath = (scene: Scene): { dir: 1 | -1; startX: number; pauseAt: number } =>
+  scene.x > scene.width / 2
+    ? { dir: 1, startX: -PET_WIDTH, pauseAt: scene.x - PET_WIDTH - VISITOR_GAP }
+    : { dir: -1, startX: scene.width, pauseAt: scene.x + PET_WIDTH + VISITOR_GAP }
+
+export type VisitTiming = { arrivalMs: number; faceDir: 1 | -1 }
+
+export const visitTiming = (scene: Scene): VisitTiming => {
+  const path = visitorPath(scene)
+  return { arrivalMs: (Math.abs(path.pauseAt - path.startX) / VISITOR_SPEED) * 1000, faceDir: path.dir === 1 ? -1 : 1 }
+}
+
+export const addVisitor = (scene: Scene, id: string, species: TokoSpecies | 'shadow', lifeMs: number, pauseMs = 0, pausePose: Pose = 'wave'): void => {
+  const path = visitorPath(scene)
   const visitor: Visitor = {
     id,
     species,
-    x: fromLeft ? -PET_WIDTH : scene.width,
-    dir: fromLeft ? 1 : -1,
-    speed: 10,
+    x: path.startX,
+    dir: path.dir,
+    speed: VISITOR_SPEED,
     until: scene.clock + lifeMs,
-    pauseAt: pauseMs > 0 ? scene.x + (fromLeft ? -PET_WIDTH - 4 : PET_WIDTH + 4) : null,
+    pauseAt: pauseMs > 0 ? path.pauseAt : null,
     pauseMs,
+    pausePose,
   }
   scene.visitors = [...scene.visitors.filter(other => other.id !== id), visitor].slice(-3)
 }
@@ -266,7 +282,7 @@ const stepEffects = (scene: Scene, dt: number): void => {
 
 const moveVisitor = (visitor: Visitor, scene: Scene, seconds: number): Visitor => {
   if (visitor.pauseAt !== null && Math.abs(visitor.x - visitor.pauseAt) < 1) {
-    return visitor.pauseMs > 0 ? { ...visitor, pauseMs: visitor.pauseMs - seconds * 1000 } : { ...visitor, pauseAt: null }
+    return visitor.pauseMs > 0 ? { ...visitor, pauseMs: visitor.pauseMs - seconds * 1000 } : { ...visitor, pauseAt: null, dir: visitor.dir === 1 ? -1 : 1 }
   }
   if (visitor.pauseAt !== null) {
     const distance = visitor.pauseAt - visitor.x
@@ -410,10 +426,12 @@ const drawFace = (canvas: Canvas, scene: Scene, frame: Frame, x: number, y: numb
     fillBlock(canvas, x + (face.leftEye[0] + 1) * scale, y + (face.leftEye[1] - 1) * scale, scale, eyeColor)
     fillBlock(canvas, x + face.rightEye[0] * scale, y + (face.rightEye[1] - 1) * scale, scale, eyeColor)
   }
-  const shape = frame.mouth ?? mood.mouth
-  const mouth = MOUTHS[art.mouths?.[shape] ?? shape]
-  for (const [mx, my, key] of mouth) {
-    fillBlock(canvas, x + (face.mouth[0] + mx) * scale, y + (face.mouth[1] + my) * scale, scale, scene.palette.get(key) ?? 0)
+  drawMouth(canvas, scene.palette, art, frame.mouth ?? mood.mouth, x, y, scale)
+}
+
+const drawMouth = (canvas: Canvas, palette: Palette, art: SpeciesArt, shape: MouthShape, x: number, y: number, scale: number): void => {
+  for (const [mx, my, key] of MOUTHS[art.mouths?.[shape] ?? shape]) {
+    fillBlock(canvas, x + (art.face.mouth[0] + mx) * scale, y + (art.face.mouth[1] + my) * scale, scale, palette.get(key) ?? 0)
   }
 }
 
@@ -425,12 +443,12 @@ const fillBlock = (canvas: Canvas, x: number, y: number, scale: number, color: n
   }
 }
 
-const drawArms = (canvas: Canvas, scene: Scene, arms: Frame['arms'], x: number, y: number, scale: number): void => {
+const drawArms = (canvas: Canvas, palette: Palette, arms: Frame['arms'], x: number, y: number, scale: number, isFlipped: boolean): void => {
   if (arms === undefined) {
     return
   }
-  const body = scene.palette.get('b') ?? 0
-  const outline = scene.palette.get('o') ?? 0
+  const body = palette.get('b') ?? 0
+  const outline = palette.get('o') ?? 0
   const spots: readonly (readonly [number, number, number])[] =
     arms === 'up'
       ? [[-1, 3, outline], [-1, 4, body], [-1, 5, outline], [16, 3, outline], [16, 4, body], [16, 5, outline]]
@@ -438,7 +456,7 @@ const drawArms = (canvas: Canvas, scene: Scene, arms: Frame['arms'], x: number, 
         ? [[16, 4, outline], [16, 5, body], [17, 4, outline]]
         : [[16, 7, outline], [16, 8, body], [17, 8, outline]]
   for (const [ax, ay, color] of spots) {
-    fillBlock(canvas, x + ax * scale, y + ay * scale, scale, color)
+    fillBlock(canvas, x + (isFlipped ? PET_WIDTH - 1 - ax : ax) * scale, y + ay * scale, scale, color)
   }
 }
 
@@ -547,7 +565,7 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   if (neck !== undefined) {
     drawGrid(canvas, neck.grid, px + neck.dx * scale, py + neck.dy * scale - 3 * scale, scene.palette, { scale })
   }
-  drawArms(canvas, scene, frame.arms, px, py, scale)
+  drawArms(canvas, scene.palette, frame.arms, px, py, scale, scene.dir < 0)
   drawHammer(canvas, scene, frame.hammer, px, py, scale)
 }
 
@@ -608,10 +626,11 @@ const PROP_GRIDS: Readonly<Record<PropKind, (age: number) => Grid>> = {
 }
 
 const SHADOW_TINT = hex('#888899')
+const VISITOR_EYE: Grid = ['we', 'ee']
 
 const drawVisitor = (canvas: Canvas, scene: Scene, visitor: Visitor): void => {
   const isPaused = visitor.pauseAt !== null && Math.abs(visitor.x - visitor.pauseAt) < 1
-  const frame = frameOf(isPaused ? 'wave' : 'walk', scene.clock)
+  const frame = frameOf(isPaused ? visitor.pausePose : 'walk', scene.clock)
   const species = visitor.species === 'shadow' ? scene.look.bones.species : visitor.species
   const art = SPECIES_ART[species]
   const palette = visitor.species === 'shadow' ? scene.palette : paletteOf(species)
@@ -621,11 +640,14 @@ const drawVisitor = (canvas: Canvas, scene: Scene, visitor: Visitor): void => {
   if (art.isFloating !== true) {
     drawGrid(canvas, [FEET[frame.feet]], visitor.x, 15, palette, options)
   }
-  if (visitor.species !== 'shadow') {
-    drawGrid(canvas, ['we', 'ee'], visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
-    drawGrid(canvas, ['we', 'ee'], visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
-    drawGrid(canvas, ['mm'], visitor.x + art.face.mouth[0], y + art.face.mouth[1], palette)
+  if (visitor.species === 'shadow') {
+    return
   }
+  const [left, right] = frame.eyes === undefined || frame.eyes === 'open' ? [VISITOR_EYE, VISITOR_EYE] : eyeGrids(art.eyes, frame.eyes)
+  drawGrid(canvas, left, visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
+  drawGrid(canvas, right, visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
+  drawMouth(canvas, palette, art, frame.mouth ?? 'small', visitor.x, y, 1)
+  drawArms(canvas, palette, frame.arms, visitor.x, y, 1, visitor.dir < 0)
 }
 
 export const paint = (scene: Scene, canvas: Canvas): void => {
