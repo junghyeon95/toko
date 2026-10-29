@@ -708,8 +708,8 @@ test('/toko draw spends coins, shelves the current pet and hatches a new egg', a
   const drawn = await $.command.run({ command: 'toko', args: 'draw' } as never)
   await clock.advance(9000)
   expect((world.saved['toko:earn:session-1'] as { spent: number }).spent).toBe(200)
-  const pet = world.saved['toko:pet'] as { id: string; bones: { species: string }; growth: { stage: string } }
-  const shelf = (world.saved['toko:shelf'] as { id: string }[]).map(shelved => shelved.id)
+  const pet = world.store.get('toko:pet') as { id: string; bones: { species: string }; growth: { stage: string } }
+  const shelf = ((world.store.get('toko:shelf') ?? []) as { id: string }[]).map(shelved => shelved.id)
   if (String(drawn.text).startsWith('꽝')) {
     expect(drawn.text).toContain('펭귄')
     expect([pet.id, shelf]).toEqual([PET.id, []])
@@ -727,7 +727,7 @@ test('a drawn pet survives an old terminal that writes back the pet it had befor
   await begin($)
   await $.command.run({ command: 'toko', args: 'draw' } as never)
   await clock.advance(9000)
-  const drawn = (world.saved['toko:pet'] as { id: string }).id
+  const drawn = (world.store.get('toko:pet') as { id: string }).id
   world.store.set('toko:pet', PET)
   world.store.set('toko:shelf', [])
   await clock.advance(9000)
