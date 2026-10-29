@@ -44,6 +44,7 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { FEATURE_REWARD, asFeatureDex, featureDef, featureLine, featureViews, featuresUsed, mergeFeatureDex } from './lib/features'
 import type { FeatureDex } from './lib/features'
+import { MEMORY_ASK, addBonk, asBonks, isSimilarReason, parseRepeat, repeatPrompt, repeatSystem } from './lib/bonks'
 import { meterOf } from './lib/meter'
 import { CHECK_TIP_PROMPTS, CHECK_TIP_WINDOW_MS, COMPACT_TIP_PERCENT, KNOWN, PERMISSION_TIP_ASKS, TIPS, asTips, isTipWanted } from './lib/tips'
 import type { Tips } from './lib/tips'
@@ -120,6 +121,7 @@ export const KEY = {
   news: 'toko:news',
   features: 'toko:features',
   tips: 'toko:tips',
+  bonks: 'toko:bonks',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -216,6 +218,7 @@ export type Brain = {
   focus: TokoFocus | null
   focusDoneMinutes: number | null
   bonk: Bonk | null
+  bonkRepeat: Promise<boolean> | null
   game: TokoGame | null
   gameSpawnAt: number
   earnings: readonly TokoEarning[]
@@ -304,6 +307,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   focus: null,
   focusDoneMinutes: null,
   bonk: null,
+  bonkRepeat: null,
   game: null,
   gameSpawnAt: 0,
   earnings: [],
@@ -1637,6 +1641,7 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
     brain.earn = { ...brain.earn, spent: brain.earn.spent + SPEND.bonk }
   }
   brain.bonk = { reason, isTurnRunning: brain.isTurnRunning, hasApology: false, isSubmitted: false, isDone: false }
+  brain.bonkRepeat = judgeRepeat($, brain, reason)
   remember(brain, 'bonk', reason, 2)
   await closeOffer($, brain)
   const isRunning = brain.isTurnRunning
@@ -1655,6 +1660,26 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
   return reason
 }
 
+async function judgeRepeat($: $, brain: Brain, reason: string): Promise<boolean> {
+  const text = reason.trim()
+  if (text === '') {
+    return false
+  }
+  const bonks = asBonks(await $.store.get(KEY.bonks))
+  await $.store.set(KEY.bonks, addBonk(bonks, text, brain.now))
+  const past = bonks.map(bonk => bonk.reason)
+  if (past.length === 0) {
+    return false
+  }
+  const reply = await ask($, brain, repeatPrompt(text, past), 40, 4000, repeatSystem)
+  return (reply === null ? null : parseRepeat(reply)) ?? isSimilarReason(text, past)
+}
+
+export async function memoryAskOf(brain: Brain): Promise<string> {
+  const isRepeat = await (brain.bonkRepeat ?? Promise.resolve(false)).catch(() => false)
+  return isRepeat ? MEMORY_ASK : ''
+}
+
 async function afterBonk($: $, brain: Brain): Promise<void> {
   const bonk = brain.bonk
   if (bonk === null) {
@@ -1663,7 +1688,12 @@ async function afterBonk($: $, brain: Brain): Promise<void> {
   if (!bonk.isTurnRunning && !brain.isTurnRunning) {
     await submitBonk($, brain)
   }
-  await openOffer($, brain, 'bonk-end', fallbackLine(brain.random, REACTION_FALLBACK, 'bonkEnd', speciesOf(brain)))
+  const line = fallbackLine(brain.random, REACTION_FALLBACK, 'bonkEnd', speciesOf(brain))
+  const isRemembered = (await memoryAskOf(brain)) !== ''
+  if (isRemembered) {
+    remember(brain, 'bonk-memory', bonk.reason, 1)
+  }
+  await openOffer($, brain, 'bonk-end', isRemembered ? `또 같은 일이라 기억해 두라고 했어. ${line}` : line)
 }
 
 export async function submitBonk($: $, brain: Brain): Promise<void> {
@@ -1672,7 +1702,7 @@ export async function submitBonk($: $, brain: Brain): Promise<void> {
     return
   }
   brain.bonk = { ...bonk, isSubmitted: true }
-  await $.prompt.submit({ text: persona.bonkMessage(nameOf(brain.pet) ?? '토코', bonk.reason), asUser: true })
+  await $.prompt.submit({ text: persona.bonkMessage(nameOf(brain.pet) ?? '토코', bonk.reason, await memoryAskOf(brain)), asUser: true })
 }
 
 async function finishBonk($: $, brain: Brain, choice: string): Promise<void> {

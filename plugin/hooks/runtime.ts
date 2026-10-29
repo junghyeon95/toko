@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -795,10 +795,11 @@ export async function bonkCommand($: $, ctx: Ctx, args: string): Promise<{ text:
   if (!wasRunning) {
     return { text: `${name}(이)가 뿅망치를 들었어요. 삑!` }
   }
+  const memoryAsk = await memoryAskOf(brain)
   return {
     text: `${name}(이)가 뿅망치를 들었어요. 삑!`,
     context: [
-      `(사용자의 펫이 방금 장난스럽게 뿅망치로 너를 때렸다. 이유: ${reason || '없음'}. 이 턴의 답 첫머리에 "아야…"를 짧게 붙이고, 이유에 맞게 바로잡을 게 있으면 바로잡아 줘. 그리고 mcp__toko__apologize 도구를 한 번 불러 줘.)`,
+      `(사용자의 펫이 방금 장난스럽게 뿅망치로 너를 때렸다. 이유: ${reason || '없음'}. 이 턴의 답 첫머리에 "아야…"를 짧게 붙이고, 이유에 맞게 바로잡을 게 있으면 바로잡아 줘.${memoryAsk === '' ? '' : ` ${memoryAsk}`} 그리고 mcp__toko__apologize 도구를 한 번 불러 줘.)`,
     ],
   }
 }

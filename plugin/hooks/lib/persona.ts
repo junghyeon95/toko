@@ -445,9 +445,10 @@ export const workDayPrompt = (sessions: readonly { label: string; turns: readonl
     ...sessions.flatMap(({ label, turns }) => [`## 「${label || '이름 없는 세션'}」`, ...turns.map(turn => `- 질문: ${turn.prompt || '(이어서)'}\n  답: ${turn.answer}`), '']),
   ].join('\n')
 
-export const bonkMessage = (petName: string, reason: string): string =>
+export const bonkMessage = (petName: string, reason: string, memoryAsk = ''): string =>
   [
     `${calling(petName)}가 뿅망치로 너를 콩 때렸어. 이유: ${reason.trim() || '그냥 기분이 그랬어'}`,
     '가벼운 장난이야. 첫 줄은 "아야…"로 시작해서 짧게 받아 주고, 이유를 보고 고칠 게 있으면 바로 고쳐 줘.',
+    ...(memoryAsk === '' ? [] : [memoryAsk]),
     `그다음 mcp__toko__apologize 도구를 한 번 불러서 ${calling(petName)}한테 사과해 줘.`,
   ].join('\n')

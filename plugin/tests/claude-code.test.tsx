@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { MEMORY_ASK, isSimilarReason } from '../hooks/lib/bonks'
 import { CHANGELOG_URL, compareVersions, freshAdditions, parseChangelog } from '../hooks/lib/news'
 
 const PET = {
@@ -46,11 +47,11 @@ const NEWS_REPLY = '{"pick":0,"title":"/auto-mode-setup","what":"프로젝트와
 
 const PICK = { version: VERSION, title: '/auto-mode-setup', what: '프로젝트를 읽고 auto mode를 가르쳐 줘', when: '', tryIt: '/auto-mode-setup', source: 'Added `/auto-mode-setup`' }
 
-type World = { fetched: string[]; models: string[]; logs: string[]; filled: string[]; saved: Record<string, unknown> }
+type World = { fetched: string[]; models: string[]; logs: string[]; filled: string[]; submitted: string[]; saved: Record<string, unknown>; repeatReply: string }
 
 const engine = (on: On, store: Record<string, unknown>): World => {
   const memory = new Map(Object.entries(store))
-  const world: World = { fetched: [], models: [], logs: [], filled: [], saved: {} }
+  const world: World = { fetched: [], models: [], logs: [], filled: [], submitted: [], saved: {}, repeatReply: '{"same":true}' }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -83,7 +84,7 @@ const engine = (on: On, store: Record<string, unknown>): World => {
   })
   on('model.complete', (_, e) => {
     world.models.push(e.prompt)
-    const text = e.prompt.includes('새로 생긴 기능 목록') ? NEWS_REPLY : '{"intent":"stay_quiet"}'
+    const text = e.prompt.includes('새로 생긴 기능 목록') ? NEWS_REPLY : e.prompt.includes('새 불만') ? world.repeatReply : '{"intent":"stay_quiet"}'
     return { value: { isAnswered: true, text, usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   on('prompt.read', () => ({ value: { text: '', cursor: 0 } }) as never)
@@ -95,7 +96,10 @@ const engine = (on: On, store: Record<string, unknown>): World => {
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('command.run', () => ({ text: '' }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
-  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('prompt.submit', (_, e) => {
+    world.submitted.push(e.text)
+    return { text: e.text }
+  })
   on('prompt.mention', () => ({ type: 'file' }) as never)
   return world
 }
@@ -367,4 +371,58 @@ test('a repository without CLAUDE.md brings the /init tip, and one with it does 
   await clock.advance(34_000)
   expect(await said($, /이 레포엔 CLAUDE\.md가 없네\. \/init 으로 만들어 볼래/)).toBe(true)
   expect(tipsOf(world)).toEqual({ init: '2026-10-29' })
+})
+
+const OLD_BONK = [{ reason: '테스트 지우지 말랬잖아', at: START - 86_400_000 }]
+
+const bonk = async ($: Engine, clock: { advance: (ms: number) => Promise<void> }, reason: string) => {
+  await clock.advance(2000)
+  const result = await $.command.run({ command: 'bonk', args: reason } as never)
+  await clock.advance(3300)
+  return result
+}
+
+test('a /bonk for the same kind of mistake as before asks Claude to keep it in auto memory, not CLAUDE.md', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:bonks': OLD_BONK })
+  await begin($)
+  await bonk($, clock, '또 테스트를 지웠네')
+  expect(world.models.find(text => text.includes('새 불만'))).toContain('1. 테스트 지우지 말랬잖아')
+  expect(world.submitted.at(-1)).toContain(MEMORY_ASK)
+  expect(await said($, /또 같은 일이라 기억해 두라고 했어/)).toBe(true)
+  expect((world.saved['toko:bonks'] as { reason: string }[]).map(entry => entry.reason)).toEqual(['테스트 지우지 말랬잖아', '또 테스트를 지웠네'])
+})
+
+test('a first or a different complaint is fixed and forgiven without touching memory', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS })
+  await begin($)
+  await bonk($, clock, '테스트 지우지 말랬잖아')
+  expect(world.models.some(text => text.includes('새 불만'))).toBe(false)
+  await answer($, 'choice-later')
+  world.repeatReply = '{"same":false}'
+  await bonk($, clock, '커밋 메시지를 영어로 써 줘')
+  expect(world.submitted.length).toBe(2)
+  expect(world.submitted.some(text => text.includes('auto memory'))).toBe(false)
+  expect(await said($, /기억해 두라고 했어/)).toBe(false)
+})
+
+test('with the small model off, a near-identical reason still counts as the same mistake', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:settings': { isAiOn: false }, 'toko:bonks': OLD_BONK })
+  await begin($)
+  await bonk($, clock, '테스트 지우지 말라고')
+  expect(world.models.some(text => text.includes('새 불만'))).toBe(false)
+  expect(world.submitted.at(-1)).toContain(MEMORY_ASK)
+  expect([isSimilarReason('테스트 지우지 마', ['테스트 지우지 말랬잖아']), isSimilarReason('커밋 메시지 영어로', ['테스트 지우지 말랬잖아'])]).toEqual([true, false])
+})
+
+test('a repeat /bonk during a running turn carries the memory ask in the turn’s context', OFFLINE, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:news': SEEN_NEWS, 'toko:bonks': OLD_BONK })
+  await begin($)
+  await $.turn.start({ text: 'fix it', turnId: 't1' } as never)
+  await clock.advance(1000)
+  const result = (await $.command.run({ command: 'bonk', args: '또 테스트 지웠어' } as never)) as { context?: readonly string[] }
+  expect(result.context?.[0]).toContain(MEMORY_ASK)
 })
