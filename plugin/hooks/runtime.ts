@@ -255,7 +255,7 @@ export async function turnStarted($: $, ctx: Ctx, text: string): Promise<void> {
   brain.typedDuringTurn = false
   brain.longTurnStage = 0
   await signalPeers($, brain, 'working')
-  if (brain.offer !== null && brain.offer.kind !== 'bonk-end' && brain.offer.kind !== 'name') {
+  if (brain.offer !== null && ctx.chat === null && brain.offer.kind !== 'bonk-end' && brain.offer.kind !== 'name') {
     await answerOffer($, brain, 'ignored')
   }
 }
@@ -384,6 +384,7 @@ export const HELP = [
   '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   `/toko draw — 펫 뽑기(${SPEND.draw}코인, 알부터 키워요)`,
+  '/toko answer <선택지> — 토코가 물어본 것에 대답하기 (예: /toko answer 숨 고르기)',
   `/toko gacha fashion | gacha pet — 패션 아이템 · 애완동물 랜덤 뽑기(각 ${GACHA.fashion.price}코인, 안 가진 것만 나와요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
@@ -615,6 +616,8 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       await namePet($, brain, name, line)
       return { text: `이름을 "${name}"(으)로 지었어요.` }
     }
+    case 'answer':
+      return { text: await answerCommand($, ctx, rest.join(' ')) }
     case 'gacha': {
       const kind = value === 'pet' || value === '애완동물' ? 'pet' : value === 'fashion' || value === '패션' ? 'fashion' : null
       if (kind === null) {
@@ -690,6 +693,7 @@ const chatBrief = (brain: Brain): string => {
     questText(progressOf(brain).quests),
     todayText(todayTally(brain), brain.now, brain.memos.length),
     '',
+    ...(brain.offer === null ? [] : ['[토코가 물어본 것]', `${brain.offer.line} — 대답하려면 answer <선택지>: ${brain.offer.choices.map(choice => `${choice.label}(${choice.key})`).join(' · ')}`, '']),
     '[명령]',
     HELP,
   ].join('\n')
@@ -829,6 +833,21 @@ export async function playCommand($: $, ctx: Ctx): Promise<string> {
   return text
 }
 
+const sameWords = (a: string, b: string): boolean => a.replace(/\s+/g, '') === b.replace(/\s+/g, '')
+
+async function answerCommand($: $, ctx: Ctx, words: string): Promise<string> {
+  const offer = ctx.brain.offer
+  if (offer === null) {
+    return '지금 토코가 물어본 게 없어요.'
+  }
+  const choice = offer.choices.find(candidate => sameWords(candidate.key, words) || sameWords(candidate.label, words))
+  if (choice === undefined) {
+    return `대답은 이 중에서 골라요: ${offer.choices.map(candidate => `${candidate.label}(${candidate.key})`).join(' · ')}`
+  }
+  await choose($, ctx, choice)
+  return `${choice.label}(으)로 대답했어요.`
+}
+
 export async function choose($: $, ctx: Ctx, choice: TokoChoice): Promise<void> {
   await now($, ctx)
   await answerOffer($, ctx.brain, choice.key)
@@ -875,6 +894,3 @@ export async function gameCatch($: $, ctx: Ctx): Promise<void> {
   await catchInGame($, ctx.brain)
 }
 
-export async function roomOpenedFromBand($: $, ctx: Ctx): Promise<void> {
-  await openRoom($, ctx)
-}

@@ -144,9 +144,7 @@ const untilTip = async (clock: { advance: (ms: number) => Promise<void> }, world
 }
 
 const answer = async ($: Engine, key: string) => {
-  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  await band.press({ key })
-  await band.unmount()
+  await $.command.run({ command: 'toko', args: `answer ${key}` } as never)
 }
 
 const newsOf = (world: World) => world.saved['toko:news'] as { seen: string; shownAt: number; notBefore: number; picks: readonly { title: string }[] }
@@ -173,7 +171,7 @@ test('after a Claude Code update the pet picks one new feature, explains it in t
   expect(prompt).not.toContain('vim mode')
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /2\.1\.304에 새 기능이 생겼어: \/auto-mode-setup/ })).toBeDefined()
-  await band.press({ key: 'choice-accept' })
+  await $.command.run({ command: 'toko', args: 'answer accept' } as never)
   await band.unmount()
   expect(world.logs.slice(-5)).toEqual([
     'Claude Code 2.1.304 새 기능 · /auto-mode-setup',
@@ -215,7 +213,7 @@ test('later puts the intro off for thirty minutes, and a put-off intro waits unt
   await clock.advance(15_000)
   expect(newsOf(world).shownAt).toBeGreaterThanOrEqual(START + 50_000)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  await band.press({ key: 'choice-later' })
+  await $.command.run({ command: 'toko', args: 'answer later' } as never)
   await band.unmount()
   expect([newsOf(world).shownAt, newsOf(world).notBefore >= START + 30 * 60_000 + 50_000]).toEqual([0, true])
   expect(world.fetched).toEqual([])
@@ -294,7 +292,7 @@ test('a context past 80% brings a /compact tip once a day, and 써 보기 puts t
   await measure($, 82)
   await clock.advance(34_000)
   expect(await said($, /컨텍스트가 80% 넘었어\. \/compact 로 요약해서 비울래/)).toBe(true)
-  await answer($, 'choice-accept')
+  await answer($, 'accept')
   expect(world.filled).toEqual(['/compact'])
   expect(tipsOf(world)).toEqual({ compact: '2026-10-29' })
   await clock.advance(6000)
@@ -315,7 +313,7 @@ test('no tip for a feature already in the dex, and 알아 stops a tip for good',
   }
   await clock.advance(34_000)
   expect(await said($, /같은 확인을 세 번째 눌렀어\. \/permissions/)).toBe(true)
-  await answer($, 'choice-drop')
+  await answer($, 'drop')
   expect(tipsOf(world)).toEqual({ permissions: 'known' })
 })
 
@@ -326,7 +324,7 @@ test('once a /bonk is over the pet speaks up again, and the next gap offers /rew
   await clock.advance(2000)
   await $.command.run({ command: 'bonk', args: '테스트 지우지 말랬잖아' } as never)
   await clock.advance(4000)
-  await answer($, 'choice-later')
+  await answer($, 'later')
   await untilTip(clock, world, 'rewind')
   expect(await said($, /되돌리고 싶으면 \/rewind 로 아까 시점에 돌아갈 수 있어/)).toBe(true)
   expect(tipsOf(world)).toEqual({ rewind: '2026-10-29' })
@@ -359,7 +357,7 @@ test('asking for the same check three times within an hour brings the /loop tip'
   }
   await untilTip(clock, world, 'loop')
   expect(await said($, /같은 확인을 계속 부탁하네\. \/loop 로 맡겨 볼래/)).toBe(true)
-  await answer($, 'choice-accept')
+  await answer($, 'accept')
   expect(world.filled).toEqual(['/loop 5m '])
 })
 
@@ -401,7 +399,7 @@ test('a first or a different complaint is fixed and forgiven without touching me
   await begin($)
   await bonk($, clock, '테스트 지우지 말랬잖아')
   expect(world.models.some(text => text.includes('새 불만'))).toBe(false)
-  await answer($, 'choice-later')
+  await answer($, 'later')
   world.repeatReply = '{"same":false}'
   await bonk($, clock, '커밋 메시지를 영어로 써 줘')
   expect(world.submitted.length).toBe(2)

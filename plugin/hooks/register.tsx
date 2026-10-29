@@ -24,7 +24,6 @@ import {
   buyItem,
   chatAnswered,
   chatStarted,
-  choose,
   commandTool,
   commandUsed,
   createCtx,
@@ -45,7 +44,6 @@ import {
   pickPet,
   playCommand,
   plazaAct,
-  roomOpenedFromBand,
   siteFor,
   start,
   stop,
@@ -250,32 +248,19 @@ export const register: Register = (on, options) => {
       ...(game === null ? [] : [`벌레 ${game.caught}마리 · ${seconds(game.endsAt)}초`]),
     ].join(' · ')
     const buttons =
-      game !== null
-        ? [
+      game === null
+        ? []
+        : [
             <Button key="left" label="◀" hotkey="a" onPress={press(() => gameMove($, ctx, -8))} />,
             <Button key="catch" label="잡기" hotkey="s" variant="primary" onPress={press(() => gameCatch($, ctx))} />,
             <Button key="right" label="▶" hotkey="d" onPress={press(() => gameMove($, ctx, 8))} />,
           ]
-        : offer !== null
-          ? offer.choices.map(choice => (
-              <Button
-                key={`choice-${choice.key}`}
-                label={choice.label}
-                hotkey={choice.hotkey}
-                variant={choice.key === 'accept' || choice.key === 'breathe' ? 'primary' : 'secondary'}
-                onPress={press(() => choose($, ctx, choice))}
-              />
-            ))
-          : [
-              <Button key="feed" label="먹이" hotkey="f" onPress={press(() => feedCommand($, ctx))} />,
-              <Button key="play" label="놀기" hotkey="p" onPress={press(() => playCommand($, ctx))} />,
-              <Button key="room" label="방" hotkey="r" onPress={press(() => roomOpenedFromBand($, ctx))} />,
-            ]
+    const answers = game === null && offer !== null ? `대답: ${offer.choices.map(choice => choice.label).join(' · ')} — /toko 로 말해 줘` : ''
     const gauge = settings?.isMeterOn === false || meter === null ? '' : meterText(meter)
     const level = meter === null ? 'normal' : meterLevel(meter)
     const controls = (
       <Box justifyContent="space-between">
-        <Box gap={1}>{buttons}</Box>
+        {buttons.length > 0 ? <Box gap={1}>{buttons}</Box> : <Text key="answers" dimColor wrap="truncate-end">{answers}</Text>}
         {gauge.length > 0 && (
           <Text color={level === 'alert' ? 'red' : level === 'warn' ? 'yellow' : undefined} dimColor={level === 'normal'} wrap="truncate-end">
             {gauge}
