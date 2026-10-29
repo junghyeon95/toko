@@ -13,7 +13,7 @@ import { isCheckPrompt, permissionKey } from './lib/tips'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { parseSendWords, signalLabel } from './lib/peers'
-import { bubbleLine, chatRules, nameProblem } from './lib/persona'
+import { RESERVED_AI_CALLS, bubbleLine, chatRules, nameProblem } from './lib/persona'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
@@ -367,7 +367,7 @@ export const HELP = [
   '/toko quiet 22-09 | quiet off — 방해 금지 시간',
   '/toko break 50 — 휴식 권유 간격(분)',
   '/toko off-work 19 | off-work off — 퇴근 시각',
-  '/toko ai on | off — 작은 모델 쓰기',
+  '/toko ai on | off | 60 — 작은 모델 쓰기 · 하루 호출 한도(기본 30)',
   '/toko notify on | off — 집중이 끝나면 OS 알림(하루 3회)',
   '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
   '/toko sessions [이름|번호] — 옆 세션 목록 · 탭 이름 일부나 번호를 주면 그 세션 요약',
@@ -615,7 +615,15 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       const hour = Number(value)
       return Number.isInteger(hour) && hour >= 0 && hour < 24 ? changeSettings($, brain, { offWorkHour: hour }, `${hour}시가 지나면 마무리 정리를 권할게요.`) : { text: '예: /toko off-work 19' }
     }
-    case 'ai':
+    case 'ai': {
+      if (onOff(value) !== null) {
+        return toggleSetting($, brain, sub, value)
+      }
+      const calls = Number(value)
+      return Number.isInteger(calls) && calls >= 10 && calls <= 200
+        ? changeSettings($, brain, { aiDailyCalls: calls }, `작은 모델을 하루 ${calls}번까지 부를게요. ${RESERVED_AI_CALLS}번은 직접 부른 일에 남겨 둬요.`)
+        : { text: '예: /toko ai off · 하루 호출 한도는 10~200 사이로 /toko ai 60' }
+    }
     case 'notify':
     case 'peers':
     case 'meter':

@@ -137,6 +137,7 @@ export const DEFAULT_SETTINGS: TokoSettings = {
   breakMinutes: 50,
   offWorkHour: null,
   isAiOn: true,
+  aiDailyCalls: DAILY_AI_CALLS,
   isNotifyOn: false,
   isMoodSensing: false,
   isPlazaOn: true,
@@ -757,11 +758,11 @@ async function askWithin($: $, brain: Brain, limit: number, prompt: string, maxT
 }
 
 async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs?: number, system?: string): Promise<string | null> {
-  return askWithin($, brain, DAILY_AI_CALLS - RESERVED_AI_CALLS, prompt, maxTokens, timeoutMs, system)
+  return askWithin($, brain, brain.settings.aiDailyCalls - RESERVED_AI_CALLS, prompt, maxTokens, timeoutMs, system)
 }
 
 async function askForUser($: $, brain: Brain, prompt: string, maxTokens: number, timeoutMs?: number, system?: string): Promise<string | null> {
-  return askWithin($, brain, DAILY_AI_CALLS, prompt, maxTokens, timeoutMs, system)
+  return askWithin($, brain, brain.settings.aiDailyCalls, prompt, maxTokens, timeoutMs, system)
 }
 
 export async function reactLine($: $, brain: Brain, key: string): Promise<void> {

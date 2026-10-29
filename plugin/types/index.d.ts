@@ -76,6 +76,7 @@ export type TokoSettings = {
   breakMinutes: number
   offWorkHour: number | null
   isAiOn: boolean
+  aiDailyCalls: number
   isNotifyOn: boolean
   isMoodSensing: boolean
   isPlazaOn: boolean

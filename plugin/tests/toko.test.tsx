@@ -1139,6 +1139,22 @@ test('/toko today falls back to each session’s last question once the whole da
   expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n(작은 모델을 쓸 수 없어서 세션별 마지막 질문만 보여요)')
 })
 
+test('/toko ai 60 raises the day’s limit so /toko today keeps the small model past 30 calls', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:budget': { day: '2026-10-29', aiCalls: 30 }, 'toko:worked:a': WORKED_A }, '한 일\n- 배포 확인했어요')
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'ai 60' } as never)).text).toBe('작은 모델을 하루 60번까지 부를게요. 5번은 직접 부른 일에 남겨 둬요.')
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 배포 확인했어요')
+})
+
+test('/toko ai keeps the limit between 10 and 200', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'ai 5' } as never)).text).toBe('예: /toko ai off · 하루 호출 한도는 10~200 사이로 /toko ai 60')
+  expect((await $.command.run({ command: 'toko', args: 'ai 500' } as never)).text).toBe('예: /toko ai off · 하루 호출 한도는 10~200 사이로 /toko ai 60')
+})
+
 test('looking at sessions, sending to one and writing up the day are counted', async ($, on) => {
   mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:signal:session-3': PEER_A })
