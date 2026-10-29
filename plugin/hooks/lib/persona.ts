@@ -431,12 +431,18 @@ export const peerSummaryPrompt = (label: string, kind: PeerSignal['kind'], excer
     excerpt,
   ].join('\n')
 
-export const sessionDayPrompt = (sessions: readonly { label: string; excerpt: string }[]): string =>
+export const workDayPrompt = (sessions: readonly { label: string; turns: readonly { prompt: string; answer: string }[] }[]): string =>
   [
-    '오늘 사용자가 Claude Code 세션 여러 개에서 한 일이다. 세션마다 대화 끝부분을 붙였다.',
-    `정확히 ${sessions.length}줄로 답한다. 줄마다 "번호. " 로 시작하고, 그 세션에서 한 일을 40자 안팎 한 문장으로 쓴다. 끝난 일은 "~했어요", 아직 하는 일은 "~하는 중이에요"로 끝낸다. 이름·숫자·파일은 대화에 나온 그대로 쓴다.`,
+    '오늘 사용자가 Claude Code 세션 여러 개에서 주고받은 질문과 Claude 답의 앞부분이다(세션 시작 순).',
+    '이걸로 오늘 한 일을 일 단위로 정리한다. 세션이 달라도 같은 일이면 한 줄로 합치고, 한 세션에서 여러 일을 했으면 나눈다.',
+    '줄마다 결과를 쓴다(무엇이 됐는지). PR 번호·버전·티켓·파일 이름은 답에 나온 그대로 끝에 붙인다. 인사·잡담·펫과의 대화는 뺀다.',
+    '아래 형식 그대로만 답한다. 아직 끝나지 않은 일이 없으면 "진행 중" 절은 뺀다.',
+    '한 일',
+    '- (끝난 일, 50자 안팎)',
+    '진행 중',
+    '- (아직 하는 일)',
     '',
-    ...sessions.flatMap(({ label, excerpt }, index) => [`## ${index + 1}. 「${label || '이름 없는 세션'}」`, excerpt, '']),
+    ...sessions.flatMap(({ label, turns }) => [`## 「${label || '이름 없는 세션'}」`, ...turns.map(turn => `- 질문: ${turn.prompt || '(이어서)'}\n  답: ${turn.answer}`), '']),
   ].join('\n')
 
 export const bonkMessage = (petName: string, reason: string): string =>

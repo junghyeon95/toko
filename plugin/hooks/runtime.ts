@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, noteTurnText, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todaySessions, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, noteTurnText, noteWorked, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, replyToPeer, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, todayWork, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -249,6 +249,7 @@ export async function turnEnded($: $, ctx: Ctx, durationMs: number, reason: stri
   await now($, ctx)
   await onTurnComplete($, ctx.brain, durationMs, reason, usage)
   await replyToPeer($, ctx.brain, answer)
+  await noteWorked($, ctx.brain, answer)
   $.clock.after(1500, () => void thinkLater($, ctx))
 }
 
@@ -661,7 +662,7 @@ export async function todayCommand($: $, ctx: Ctx): Promise<string> {
   await now($, ctx)
   const brain = ctx.brain
   await refreshShared($, brain, true)
-  const summary = todayText(todayTally(brain), brain.now, brain.memos.length, await todaySessions($, brain))
+  const summary = await todayWork($, brain)
   const copied = await $.ui.copy({ text: summary }).catch(() => ({ isCopied: false as const, reason: 'refused' as const }))
   return `${summary}\n\n${copied.isCopied ? '클립보드에 복사했어요.' : `클립보드에 복사하지 못했어요(${copied.reason}). 위 글을 그대로 쓰세요.`}`
 }

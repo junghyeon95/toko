@@ -42,7 +42,9 @@ import type { Answer } from './lib/gate'
 import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
-import { dayLines, freshSignal, inboxParts, isAlive, isMessage, isSignal, isWorked, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { addTurn, isWorked, workText } from './lib/today'
+import type { WorkedSession } from './lib/today'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, peerList, replyText, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
@@ -213,6 +215,8 @@ export type Brain = {
   peersSeenAt: number
   peerTurn: { text: string; to: string } | null
   replyTo: string | null
+  turnText: string
+  worked: WorkedSession | null
   visitor: TokoVisitor | null
   visitorVisibleMs: number
   isDirty: boolean
@@ -288,6 +292,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   peersSeenAt: 0,
   peerTurn: null,
   replyTo: null,
+  turnText: '',
+  worked: null,
   visitor: null,
   visitorVisibleMs: 0,
   isDirty: false,
@@ -1441,7 +1447,6 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
     await update($, countdownAtom, () => null)
   }
   await signalPeers($, brain, reason === 'aborted' ? 'idle' : 'done')
-  await noteWorked($, brain)
   if (reason !== 'answer' || usage === undefined) {
     act(brain, direct.flinch(), PRIORITY.reaction)
     return
@@ -1906,28 +1911,26 @@ async function excerptOf($: $, path: string): Promise<string> {
   return transcriptExcerpt(tail)
 }
 
-async function noteWorked($: $, brain: Brain): Promise<void> {
-  if (brain.transcriptPath === '') {
+export async function noteWorked($: $, brain: Brain, answer: string): Promise<void> {
+  if (answer.trim() === '') {
     return
   }
-  await $.store.set(`${KEY.workedPrefix}${brain.sessionId}`, { day: today(brain), label: brain.signal?.label ?? '', path: brain.transcriptPath, since: brain.signal?.since ?? brain.now })
+  const key = `${KEY.workedPrefix}${brain.sessionId}`
+  const day = today(brain)
+  const stored = brain.worked ?? (await $.store.get(key))
+  const session = isWorked(stored) && stored.day === day ? stored : { day, label: '', since: brain.now, turns: [] }
+  brain.worked = addTurn({ ...session, label: brain.signal?.label ?? session.label }, brain.turnText, answer)
+  await $.store.set(key, brain.worked)
 }
 
-export async function todaySessions($: $, brain: Brain): Promise<readonly string[]> {
+export async function todayWork($: $, brain: Brain): Promise<string> {
   const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.workedPrefix))
-  const worked = (await Promise.all(keys.map(key => $.store.get(key))))
+  const sessions = (await Promise.all(keys.map(key => $.store.get(key))))
     .filter(isWorked)
-    .filter(session => session.day === today(brain))
+    .filter(session => session.day === today(brain) && session.turns.length > 0)
     .sort((a, b) => a.since - b.since)
-  const sessions = (await Promise.all(worked.map(async ({ label, path }) => ({ label, excerpt: await excerptOf($, path) })))).filter(session => session.excerpt !== '')
-  if (sessions.length === 0) {
-    return []
-  }
-  const reply = await ask($, brain, persona.sessionDayPrompt(sessions), 80 * sessions.length + 100, 15000, persona.peerSummarySystem)
-  return dayLines(
-    sessions.map(session => session.label),
-    reply ?? '',
-  )
+  const reply = sessions.length === 0 ? null : await ask($, brain, persona.workDayPrompt(sessions), 900, 20000, persona.peerSummarySystem)
+  return workText(brain.now, sessions, reply)
 }
 
 export async function summarizePeer($: $, brain: Brain, index: number): Promise<string> {
@@ -1966,6 +1969,7 @@ export async function sendToPeer($: $, brain: Brain, index: number, text: string
 }
 
 export function noteTurnText(brain: Brain, text: string): void {
+  brain.turnText = text
   brain.replyTo = brain.peerTurn !== null && brain.peerTurn.text === text ? brain.peerTurn.to : null
   brain.peerTurn = null
 }
