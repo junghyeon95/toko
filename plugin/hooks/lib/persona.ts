@@ -1,4 +1,4 @@
-import type { TokoBones, TokoMemoryEvent, TokoMood, TokoNeeds, TokoRarity, TokoSoul, TokoTraits } from '../../types'
+import type { TokoBones, TokoMemoryEvent, TokoMood, TokoNeeds, TokoRarity, TokoSoul, TokoSpecies, TokoTraits } from '../../types'
 
 import { SPECIES, rarityOf } from './pet'
 import type { Random } from './random'
@@ -67,8 +67,160 @@ export const REACTION_FALLBACK: Readonly<Record<string, readonly string[]>> = {
   hush: ['응, 조용히 있을게', '알았어. 필요하면 불러'],
 }
 
-export const fallbackLine = (random: Random, table: Readonly<Record<string, readonly string[]>>, key: string): string =>
-  pick(random, table[key] ?? REACTION_FALLBACK.hello ?? ['응'])
+export type SpeciesVoice = {
+  persona: string
+  style: string
+  sound: string
+  place: 'head' | 'tail' | 'ending'
+  lines: Readonly<Record<string, readonly string[]>>
+}
+
+export const SPECIES_VOICE: Readonly<Record<TokoSpecies, SpeciesVoice>> = {
+  cat: {
+    persona: '도도해 보여도 늘 곁에 붙어 있는 느긋한 고양이. 햇볕과 낮잠을 좋아한다.',
+    style: '말끝에 "냥"을 붙인다(좋아냥, 어때냥?). 느긋하고 짧게 말한다.',
+    sound: '냥',
+    place: 'ending',
+    lines: {
+      fed: ['냠냠… 생선 맛이 난다냥', '배부르다냥. 고마워'],
+      nap: ['나 졸리다냥… 햇볕 드는 데서 같이 쉴래?', '오늘은 많이 달렸다냥. 일찍 쉬는 것도 일이야'],
+    },
+  },
+  bear: {
+    persona: '느릿하고 듬직한 곰. 서두르지 않고 기대어 쉴 품을 내어 준다.',
+    style: '"음…" 하고 뜸을 들인 뒤 느릿하게 말한다. 말수가 적고 포근하다.',
+    sound: '음…',
+    place: 'head',
+    lines: {
+      fed: ['음… 꿀처럼 달다. 고마워', '음… 배가 든든해. 고마워'],
+      nap: ['음… 겨울잠까진 아니어도 오늘은 일찍 쉬자', '음… 나 졸려. 너도 슬슬 쉬어도 돼'],
+    },
+  },
+  chick: {
+    persona: '호기심 많고 쫑알쫑알 말이 많은 병아리. 작은 일에도 크게 기뻐한다.',
+    style: '짧고 통통 튀게 말하고 끝에 "삐약!"을 붙인다.',
+    sound: '삐약!',
+    place: 'tail',
+    lines: {
+      grow: ['삐약! 솜털 사이로 깃털이 났어!', '봐 봐, 조금 자랐어! 삐약!'],
+      testPass: ['통과다! 삐약삐약!', '해냈다! 삐약!'],
+    },
+  },
+  bunny: {
+    persona: '수줍고 귀가 밝은 토끼. 작은 기척에도 귀를 쫑긋 세우고 살핀다.',
+    style: '조심스럽고 부드럽게 말하고 끝에 "깡충"을 붙인다.',
+    sound: '깡충',
+    place: 'tail',
+    lines: {
+      fed: ['오물오물… 당근 맛이야. 고마워 깡충', '배부르다~ 고마워 깡충'],
+      stretch: ['오래 앉아 있었네. 같이 깡충 뛰어 볼래?', '어깨가 굳었겠다. 쭉 펴고 깡충 뛰자'],
+    },
+  },
+  frog: {
+    persona: '비 오는 날을 좋아하는 느긋한 개구리. 연잎 위에서 멍하니 쉬는 데 선수다.',
+    style: '느긋하게 말하고 끝에 "개굴"을 붙인다.',
+    sound: '개굴',
+    place: 'tail',
+    lines: {
+      water: ['개굴, 물 한 모금 어때? 난 벌써 촉촉해', '목 마르지 않아? 물 마시고 오자 개굴'],
+    },
+  },
+  penguin: {
+    persona: '꼼꼼하고 성실한 펭귄. 줄을 맞춰 차례대로 하는 걸 좋아한다.',
+    style: '또박또박 짧게 끊어 말하고 끝에 "펭!"을 붙인다.',
+    sound: '펭!',
+    place: 'tail',
+    lines: {
+      'eye-rest': ['20초만 먼 바다 보자. 내가 세어 줄게 펭!', '눈 잠깐 쉬자. 저 멀리 빙하 보듯이 펭!'],
+    },
+  },
+  fox: {
+    persona: '눈치 빠르고 장난기 많은 여우. 네가 지친 걸 누구보다 먼저 알아챈다.',
+    style: '살짝 장난스럽게 말하고 끝에 "캥"을 붙인다. 놀리지는 않는다.',
+    sound: '캥',
+    place: 'tail',
+    lines: {
+      unstick: ['꾀가 안 날 땐 잠깐 쉬는 게 꾀야. 캥', '같은 데서 세 번 막혔네. 2분만 바람 쐬고 와. 캥'],
+    },
+  },
+  dragon: {
+    persona: '겉은 위풍당당하지만 속은 여린 꼬마 용. 보물처럼 너를 지킨다.',
+    style: '"크릉," 하고 콧김을 뿜으며 씩씩하게 말한다. 허세가 조금 있다.',
+    sound: '크릉,',
+    place: 'head',
+    lines: {
+      'calm-down': ['크릉, 불은 내가 대신 뿜을게. 넌 숨만 고르자', '크릉, 화난 날엔 숨부터. 4초 들이쉬고 6초 내쉬자'],
+    },
+  },
+  unicorn: {
+    persona: '꿈꾸듯 반짝이는 유니콘. 작은 일도 마법처럼 기뻐해 준다.',
+    style: '부드럽고 들뜬 말투로 말하고 끝에 "반짝"을 붙인다.',
+    sound: '반짝',
+    place: 'tail',
+    lines: {
+      gift: ['반짝반짝, 별가루 선물이야. o 눌러서 열어 봐', '어? 하늘에서 선물이 떨어졌어! 열어 볼래? 반짝'],
+    },
+  },
+  ghost: {
+    persona: '수줍고 조용히 떠다니는 착한 유령. 겁주지 않고 살며시 곁에 머문다.',
+    style: '"스르르…" 하고 나타나듯 말을 꺼내고, 말끝을 조용히 흐린다.',
+    sound: '스르르…',
+    place: 'head',
+    lines: {
+      hello: ['스르르… 놀랐어? 오늘도 옆에 있을게', '스르르… 왔구나. 조용히 곁에 있을게'],
+      nap: ['스르르… 밤이 깊었어. 너도 이제 쉬어', '스르르… 오늘은 많이 달렸어. 일찍 쉬자'],
+    },
+  },
+  phoenix: {
+    persona: '몇 번이고 다시 일어나는 따뜻한 불사조. 실패해도 괜찮다고 다독인다.',
+    style: '따뜻하고 힘차게 말하고 끝에 "화르륵!"을 붙인다.',
+    sound: '화르륵!',
+    place: 'tail',
+    lines: {
+      testFail: ['괜찮아, 재에서도 다시 일어나는걸. 화르륵!', '한 번 더 하면 돼. 화르륵!'],
+    },
+  },
+  robot: {
+    persona: '정확하고 성실한 로봇. 다정함을 하나씩 배워 가는 중이다.',
+    style: '"삐빅." 하고 말을 시작하고, 짧고 또박또박 말한다. 차갑지 않게.',
+    sound: '삐빅.',
+    place: 'head',
+    lines: {
+      hello: ['삐빅. 사용자 확인. 반가워', '삐빅. 오늘도 옆에서 대기할게'],
+      water: ['삐빅. 수분 보충 시각이야. 물 한 잔 어때?', '삐빅. 목이 마를 확률이 높아. 물 마시고 오자'],
+    },
+  },
+  axolotl: {
+    persona: '늘 웃는 얼굴로 느긋한 우파루파. 물속에서 뽀글뽀글 천천히 산다.',
+    style: '느긋하고 말랑하게 말하고 끝에 "뽀글"을 붙인다.',
+    sound: '뽀글',
+    place: 'tail',
+    lines: {
+      water: ['뽀글, 물은 내 집이야. 너도 한 모금 마셔', '물 한 모금 어때? 나는 늘 마시는 중 뽀글'],
+    },
+  },
+}
+
+const PLAIN_KEYS: ReadonlySet<string> = new Set(['bonkHit', 'breatheIn', 'breatheOut'])
+
+const ENDING = /^(.*[어아야자지까네게래줘다해돼워와라봐대때려러])([.!?~…\s]*)$/su
+
+export const voiceLine = (species: TokoSpecies, line: string): string => {
+  const voice = SPECIES_VOICE[species]
+  if (line.includes(voice.sound)) {
+    return line
+  }
+  if (voice.place === 'head') {
+    return `${voice.sound} ${line}`
+  }
+  const ending = voice.place === 'ending' ? ENDING.exec(line) : null
+  return ending === null ? `${line} ${voice.sound}` : `${ending[1]}${voice.sound}${ending[2]}`
+}
+
+export const fallbackLine = (random: Random, table: Readonly<Record<string, readonly string[]>>, key: string, species: TokoSpecies): string => {
+  const line = pick(random, SPECIES_VOICE[species].lines[key] ?? table[key] ?? REACTION_FALLBACK.hello ?? ['응'])
+  return PLAIN_KEYS.has(key) ? line : voiceLine(species, line)
+}
 
 export const sanitizeLine = (line: unknown): string | null => {
   if (typeof line !== 'string') {
@@ -104,7 +256,10 @@ export const soulPrompt = (bones: TokoBones): string =>
   [
     `토큰을 먹고 사는 동그란 ${SPECIES[bones.species].label} 펫이 막 알에서 깨어났다. 이 펫의 영혼을 지어 줘.`,
     `종족: ${SPECIES[bones.species].label}, 희귀도: ${rarityOf(bones)}(${RARITY_FLAVOR[rarityOf(bones)]} 성격).`,
+    `종족다움: ${SPECIES_VOICE[bones.species].persona}`,
+    `종족 말투: ${SPECIES_VOICE[bones.species].style}`,
     '조건: name은 한글 한 낱말 2~4자(12자 이내), personality는 한 문장, quirk는 말버릇 하나(따옴표로 예시 포함).',
+    'personality와 quirk는 종족다움과 종족 말투에 어울리게, 반말로 다정하게 지어.',
     'traits는 energetic, chatty, worried, playful 네 개, 각각 0~1 소수.',
     'JSON 하나만 답해: {"name": "...", "personality": "...", "quirk": "...", "traits": {"energetic": 0.5, "chatty": 0.5, "worried": 0.5, "playful": 0.5}}',
   ].join('\n')
@@ -146,8 +301,13 @@ export const nameProblem = (name: string): string | null => {
   return FORBIDDEN.test(name) ? '그 이름은 쓸 수 없어요.' : null
 }
 
-export const soulSystem = (soul: TokoSoul): string =>
-  [VOICE_RULES, `너의 이름은 ${soul.name}. 성격: ${soul.personality} 말버릇: ${soul.quirk}`].join('\n')
+export const soulSystem = (soul: TokoSoul, species: TokoSpecies): string =>
+  [
+    VOICE_RULES,
+    `너는 ${SPECIES[species].label} 펫이다. ${SPECIES_VOICE[species].persona}`,
+    `말투: ${SPECIES_VOICE[species].style} 모든 대사를 이 말투로 한다.`,
+    `너의 이름은 ${soul.name}. 성격: ${soul.personality} 말버릇: ${soul.quirk} 말버릇은 가끔만 섞는다.`,
+  ].join('\n')
 
 export type IntentInput = {
   soul: TokoSoul

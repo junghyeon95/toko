@@ -22,6 +22,7 @@ import type {
   TokoProgress,
   TokoSettings,
   TokoSoul,
+  TokoSpecies,
   TokoStats,
   TokoTally,
   TokoWallet,
@@ -582,6 +583,8 @@ const isHushed = (brain: Brain): boolean => isQuietNow(brain.settings, hourOf(br
 export const canTalk = (brain: Brain): boolean =>
   canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now)) && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4 && !isFocusing(brain)
 
+const speciesOf = (brain: Brain): TokoSpecies => brain.pet?.bones.species ?? 'cat'
+
 const presenceOf = (brain: Brain) => ({
   now: brain.now,
   isTurnRunning: brain.isTurnRunning,
@@ -597,7 +600,7 @@ async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeou
   brain.budget = { ...brain.budget, aiCalls: brain.budget.aiCalls + 1 }
   brain.isDirty = true
   try {
-    const reply = await $.model.complete({ model: 'haiku', prompt, system: persona.soulSystem(brain.pet.soul), maxTokens, effort: 'low', timeoutMs })
+    const reply = await $.model.complete({ model: 'haiku', prompt, system: persona.soulSystem(brain.pet.soul, brain.pet.bones.species), maxTokens, effort: 'low', timeoutMs })
     return reply.isAnswered ? reply.text : null
   } catch {
     return null
@@ -607,13 +610,13 @@ async function ask($: $, brain: Brain, prompt: string, maxTokens: number, timeou
 export async function reactLine($: $, brain: Brain, key: string): Promise<void> {
   if (canTalk(brain)) {
     brain.budget = recordBubble(brain.budget, brain.now)
-    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, key))
+    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, key, speciesOf(brain)))
   }
 }
 
 async function quietLine($: $, brain: Brain, key: string): Promise<void> {
   if (!isHushed(brain)) {
-    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, key), 'quiet')
+    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, key, speciesOf(brain)), 'quiet')
   }
 }
 
@@ -667,7 +670,7 @@ export async function greet($: $, brain: Brain): Promise<void> {
 
 export async function askName($: $, brain: Brain): Promise<void> {
   if (canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now))) {
-    await openOffer($, brain, 'name', fallbackLine(brain.random, OFFER_FALLBACK, 'name'))
+    await openOffer($, brain, 'name', fallbackLine(brain.random, OFFER_FALLBACK, 'name', speciesOf(brain)))
   }
 }
 
@@ -817,7 +820,7 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
     if (brain.scene !== null) {
       act(brain, [...direct.greet(), ...direct.exit(brain.scene)], PRIORITY.event)
     }
-    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'stop'))
+    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'stop', speciesOf(brain)))
     return
   }
   if (answer === 'later' || answer === 'ignored') {
@@ -828,7 +831,7 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
       }
     }
     if (answer === 'later') {
-      await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'later'))
+      await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'later', speciesOf(brain)))
     } else {
       await hush($)
     }
@@ -900,7 +903,7 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
       await startGame($, brain)
       return
     case 'chat': {
-      const line = persona.parseLine((await ask($, brain, persona.linePrompt('오래 말이 없던 사용자에게 오늘 있었던 일에 대해 다정한 한마디를 건넨다.', workMemoryFacts(brain)), 120)) ?? '') ?? fallbackLine(brain.random, OFFER_FALLBACK, 'chat')
+      const line = persona.parseLine((await ask($, brain, persona.linePrompt('오래 말이 없던 사용자에게 오늘 있었던 일에 대해 다정한 한마디를 건넨다.', workMemoryFacts(brain)), 120)) ?? '') ?? fallbackLine(brain.random, OFFER_FALLBACK, 'chat', speciesOf(brain))
       brain.needs = restore(brain.needs, { social: 20 })
       brain.marks = { ...brain.marks, lastChatAt: now }
       await say($, brain, line)
@@ -1043,7 +1046,7 @@ export async function finishCountdown($: $, brain: Brain): Promise<void> {
     const summary = failures.at(-1)?.detail ?? ''
     await say($, brain, summary ? `잘 다녀왔어? 실패 요약: ${summary.slice(0, 44)}` : '잘 다녀왔어? 이제 한 번에 하나씩 보자')
   } else {
-    await say($, brain, `${fallbackLine(brain.random, REACTION_FALLBACK, 'praise')} +${countdown.reward} 코인`)
+    await say($, brain, `${fallbackLine(brain.random, REACTION_FALLBACK, 'praise', speciesOf(brain))} +${countdown.reward} 코인`)
   }
   await growIfReady($, brain)
 }
@@ -1057,7 +1060,7 @@ async function growIfReady($: $, brain: Brain): Promise<void> {
     brain.pet = { ...brain.pet, growth: { ...brain.pet.growth, stage } }
     remember(brain, 'grow', stage, 3)
     act(brain, direct.celebrate(), PRIORITY.event)
-    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'grow'))
+    await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'grow', speciesOf(brain)))
   }
 }
 
@@ -1144,7 +1147,7 @@ export async function feed($: $, brain: Brain): Promise<string> {
   if (taken === null) {
     const bought = buy(brain.wallet, balance(brain), 'cookie')
     if ('reason' in bought) {
-      await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'noSnack'))
+      await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'noSnack', speciesOf(brain)))
       return '간식이 없고 코인도 모자라요. 쉬기를 받아들이면 코인이 생겨요.'
     }
     brain.wallet = bought.wallet
@@ -1159,7 +1162,7 @@ export async function feed($: $, brain: Brain): Promise<string> {
   remember(brain, 'fed', taken.snack.id)
   count(brain, 'fed')
   act(brain, direct.feed(), PRIORITY.reaction)
-  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'fed'))
+  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'fed', speciesOf(brain)))
   return `${taken.snack.name}을(를) 줬어요.`
 }
 
@@ -1168,7 +1171,7 @@ export async function play($: $, brain: Brain): Promise<string> {
   remember(brain, 'played')
   count(brain, 'played')
   act(brain, direct.play(), PRIORITY.reaction)
-  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'played'))
+  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'played', speciesOf(brain)))
   return '같이 놀았어요.'
 }
 
@@ -1276,7 +1279,7 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
   const isRunning = brain.isTurnRunning
   const onHit = (): void => {
     void update($, ouchAtom, () => true)
-    void say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'bonkHit'))
+    void say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'bonkHit', speciesOf(brain)))
     $.clock.after(3000, () => void update($, ouchAtom, () => false))
   }
   if (brain.scene !== null && !brain.isReducedMotion) {
@@ -1284,7 +1287,7 @@ export async function startBonk($: $, brain: Brain, reason: string): Promise<str
   } else {
     onHit()
   }
-  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'bonkStart'))
+  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'bonkStart', speciesOf(brain)))
   $.clock.after(3200, () => void afterBonk($, brain))
   return reason
 }
@@ -1297,7 +1300,7 @@ async function afterBonk($: $, brain: Brain): Promise<void> {
   if (!bonk.isTurnRunning && !brain.isTurnRunning) {
     await submitBonk($, brain)
   }
-  await openOffer($, brain, 'bonk-end', fallbackLine(brain.random, REACTION_FALLBACK, 'bonkEnd'))
+  await openOffer($, brain, 'bonk-end', fallbackLine(brain.random, REACTION_FALLBACK, 'bonkEnd', speciesOf(brain)))
 }
 
 export async function submitBonk($: $, brain: Brain): Promise<void> {
@@ -1333,7 +1336,7 @@ export async function apologize($: $, brain: Brain): Promise<string> {
   remember(brain, 'apologize', '', 2)
   brain.mood = 'excited'
   act(brain, direct.apologyAccepted(), PRIORITY.event)
-  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'apology'))
+  await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'apology', speciesOf(brain)))
   await sync($, brain)
   return `${nameOf(brain.pet) ?? '토코'}(이)가 사과를 받아 줬어요. 하트를 띄웠어요.`
 }
@@ -1525,16 +1528,16 @@ export async function decide($: $, brain: Brain, candidates: readonly Candidate[
       ? null
       : await ask($, brain, persona.intentPrompt({ soul, candidates, mood: brain.mood, needs: brain.needs, events: brain.memory.events, lessons: brain.memory.lessons, clock: clockText(brain.now) }), 120)
   if (reply === null) {
-    return { kind: top.kind, line: fallbackLine(brain.random, OFFER_FALLBACK, top.kind) }
+    return { kind: top.kind, line: fallbackLine(brain.random, OFFER_FALLBACK, top.kind, speciesOf(brain)) }
   }
   const intent = persona.parseIntent(reply, candidates)
   if (intent === null) {
-    return { kind: top.kind, line: fallbackLine(brain.random, OFFER_FALLBACK, top.kind) }
+    return { kind: top.kind, line: fallbackLine(brain.random, OFFER_FALLBACK, top.kind, speciesOf(brain)) }
   }
   if (intent.intent === 'stay_quiet') {
     return null
   }
-  return { kind: intent.intent, line: intent.line ?? fallbackLine(brain.random, OFFER_FALLBACK, intent.intent) }
+  return { kind: intent.intent, line: intent.line ?? fallbackLine(brain.random, OFFER_FALLBACK, intent.intent, speciesOf(brain)) }
 }
 
 export async function think($: $, brain: Brain): Promise<void> {
@@ -1846,7 +1849,7 @@ const ruleLesson = (brain: Brain): string | null => {
   return busiest === undefined ? null : `${busiest.hour}시엔 몰입하는 편이라 그 시간엔 권유를 줄인다`
 }
 
-export const offerLine = (brain: Brain, kind: string): string => fallbackLine(brain.random, OFFER_FALLBACK, kind)
+export const offerLine = (brain: Brain, kind: string): string => fallbackLine(brain.random, OFFER_FALLBACK, kind, speciesOf(brain))
 
 export async function resetDayIfNeeded($: $, brain: Brain): Promise<void> {
   const day = today(brain)

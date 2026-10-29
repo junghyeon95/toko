@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { DAILY_TOKEN_CAP, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, turnIncome, wear, wornOf } from '../hooks/lib/economy'
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
-import { bonkMessage, parseIntent, parseSoul, sanitizeLine } from '../hooks/lib/persona'
+import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
 import { freshSignal, lastAiTitle, signalLabel, signalParts } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
 import { parseSnapshot, plazaEndpoint } from '../hooks/lib/plaza'
@@ -221,6 +221,36 @@ test('model replies are parsed defensively', async () => {
   expect(parseIntent('잘 모르겠어요', candidates)).toBe(null)
   expect(sanitizeLine('바보야 쉬어')).toBe(null)
   expect(bonkMessage('말랑', '테스트 지우지 말랬잖아')).toContain('mcp__toko__apologize')
+})
+
+test('every species speaks fallback lines in its own voice, within the line rules', async () => {
+  const keys = [...Object.keys(OFFER_FALLBACK).map(key => ({ table: OFFER_FALLBACK, key })), ...Object.keys(REACTION_FALLBACK).map(key => ({ table: REACTION_FALLBACK, key }))]
+  for (const species of SPECIES_IDS) {
+    const random = createRandom(3)
+    const lines = keys.flatMap(({ table, key }) => [fallbackLine(random, table, key, species), fallbackLine(random, table, key, species)])
+    expect([species, lines.filter(line => sanitizeLine(line) !== line || [...line].length > MAX_LINE)]).toEqual([species, []])
+    expect([species, fallbackLine(createRandom(1), REACTION_FALLBACK, 'hello', species).includes(SPECIES_VOICE[species].sound)]).toEqual([species, true])
+  }
+})
+
+test('species voices change the ending, lead in or trail off without breaking the sentence', async () => {
+  expect(voiceLine('cat', '물 한 모금 어때?')).toBe('물 한 모금 어때냥?')
+  expect(voiceLine('cat', '한 걸음 저장 완료')).toBe('한 걸음 저장 완료 냥')
+  expect(voiceLine('robot', '끝났어!')).toBe('삐빅. 끝났어!')
+  expect(voiceLine('frog', '끝났어!')).toBe('끝났어! 개굴')
+  expect(voiceLine('bear', '음… 어디가 걸렸을까')).toBe('음… 어디가 걸렸을까')
+  expect(SPECIES_VOICE.robot.lines.water).toContain(fallbackLine(createRandom(1), OFFER_FALLBACK, 'water', 'robot'))
+  expect(REACTION_FALLBACK.bonkHit).toContain(fallbackLine(createRandom(1), REACTION_FALLBACK, 'bonkHit', 'chick'))
+})
+
+test('the soul prompt and every model call carry the species persona', async () => {
+  const prompt = soulPrompt({ seed: 7, species: 'fox' })
+  expect(prompt).toContain(SPECIES_VOICE.fox.persona)
+  expect(prompt).toContain(SPECIES_VOICE.fox.style)
+  const system = soulSystem(createFallbackSoul(7, 'now'), 'ghost')
+  expect(system).toContain('유령')
+  expect(system).toContain(SPECIES_VOICE.ghost.style)
+  expect(system).toContain(createFallbackSoul(7, 'now').name)
 })
 
 test('cells encode half blocks: top pixel is the foreground, transparent is the terminal default', async () => {
