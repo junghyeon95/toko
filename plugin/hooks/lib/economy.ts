@@ -81,6 +81,8 @@ export const GACHA: Readonly<Record<GachaKind, { name: string; price: number; ki
   pet: { name: '애완동물 뽑기', price: 50, kinds: ['pet'] },
 }
 
+export const isGachaOnly = (item: ShopItem): boolean => GACHA.fashion.kinds.includes(item.kind)
+
 export const gachaPool = (wallet: TokoWallet, kind: GachaKind): ShopItem[] => SHOP.filter(item => GACHA[kind].kinds.includes(item.kind) && !wallet.items.includes(item.id))
 
 export type GachaPull = { wallet: TokoWallet; item: ShopItem; spent: number } | { reason: string }
@@ -109,6 +111,9 @@ export const buy = (wallet: TokoWallet, balance: number, id: string): Purchase =
   const item = shopItem(id)
   if (item === undefined) {
     return { reason: '그런 물건은 없어' }
+  }
+  if (isGachaOnly(item)) {
+    return { reason: '패션 아이템은 뽑기로만 나와' }
   }
   if (item.kind !== 'snack' && wallet.items.includes(id)) {
     return { reason: '이미 갖고 있어' }

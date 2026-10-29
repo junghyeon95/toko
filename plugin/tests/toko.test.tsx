@@ -375,7 +375,8 @@ test('the room pane draws the pet card, the shop and the plaza', async ($, on) =
     })
     expect(await ui.find({ type: 'Text', text: /상점/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'wear-beanie' })).toBeDefined()
-    await ui.press({ key: 'buy-crown' })
+    expect(await ui.find({ type: 'Button', key: 'buy-crown' })).toBeUndefined()
+    await ui.press({ key: 'buy-lamp' })
     await ui.unmount()
   }
 })

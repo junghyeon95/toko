@@ -5,7 +5,7 @@ import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
 import { closestBadges } from './lib/badges'
-import { GACHA, SHOP, SPEND, shopItem } from './lib/economy'
+import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
 import { meterLevel, meterText } from './lib/meter'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
 import { ACTION_LABEL, visitorText } from './lib/plaza'
@@ -88,7 +88,7 @@ const displayWidth = (text: string): number => [...text].reduce((width, char) =>
 const MOOD_LABEL: Readonly<Record<TokoMood, string>> = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
 
 const SHELVES = [
-  ['상점', SHOP.filter(item => item.kind !== 'pet')],
+  ['상점', SHOP.filter(item => item.kind !== 'pet' && !isGachaOnly(item))],
   ['애완동물', SHOP.filter(item => item.kind === 'pet')],
 ] as const
 

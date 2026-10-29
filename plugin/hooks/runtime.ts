@@ -6,7 +6,7 @@ import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, c
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
-import { GACHA, SHOP, SPEND, shopItem } from './lib/economy'
+import { GACHA, SHOP, SPEND, isGachaOnly, shopItem } from './lib/economy'
 import { featureOfCommand, featureOfTool, featureText } from './lib/features'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
@@ -451,10 +451,10 @@ const shopLine = (brain: Brain, item: ShopItem): string =>
 const shopText = (brain: Brain): string =>
   [
     '상점 (/toko buy <id>):',
-    ...SHOP.filter(item => item.kind !== 'pet').map(item => shopLine(brain, item)),
+    ...SHOP.filter(item => item.kind !== 'pet' && !isGachaOnly(item)).map(item => shopLine(brain, item)),
     '애완동물:',
     ...SHOP.filter(item => item.kind === 'pet').map(item => shopLine(brain, item)),
-    `뽑기: /toko gacha fashion (모자 · 안경 · 목도리, ${GACHA.fashion.price}코인) · /toko gacha pet (애완동물, ${GACHA.pet.price}코인)`,
+    `뽑기: /toko gacha fashion (모자 · 안경 · 목도리는 뽑기로만, ${GACHA.fashion.price}코인) · /toko gacha pet (애완동물, ${GACHA.pet.price}코인)`,
     `코인 ${balance(brain)}`,
   ].join('\n')
 

@@ -74,19 +74,18 @@ test('token income stops at the daily cap, health rewards do not', async () => {
   expect(balanceOf(wallet, [{ ...emptyEarn('d'), earned: 120, health: 35, spent: 5 }])).toBe(160)
 })
 
-test('the shop sells, refuses a second hat and swaps worn hats', async () => {
+test('the shop sells room things once, leaves fashion to the gacha and swaps worn hats', async () => {
   const wallet = { coins: 0, items: [] as string[], worn: [] as string[] }
-  const short = buy(wallet, 10, 'beanie')
-  expect('reason' in short).toBe(true)
-  const bought = buy(wallet, 100, 'beanie')
+  expect(buy(wallet, 999, 'beanie')).toEqual({ reason: '패션 아이템은 뽑기로만 나와' })
+  expect('reason' in buy(wallet, 10, 'lamp')).toBe(true)
+  const bought = buy(wallet, 100, 'lamp')
   if ('reason' in bought) {
     throw new Error(bought.reason)
   }
-  expect(bought.spent).toBe(40)
-  expect('reason' in buy(bought.wallet, 100, 'beanie')).toBe(true)
-  const withCrown = { ...bought.wallet, items: [...bought.wallet.items, 'crown'] }
-  const worn = wear(wear(withCrown, 'beanie'), 'crown')
-  expect(worn.worn).toEqual(['crown'])
+  expect(bought.spent).toBe(90)
+  expect('reason' in buy(bought.wallet, 100, 'lamp')).toBe(true)
+  const withHats = { ...wallet, items: ['beanie', 'crown'] }
+  expect(wear(wear(withHats, 'beanie'), 'crown').worn).toEqual(['crown'])
 })
 
 test('the shop sells pets, and only one comes along at a time', async () => {
