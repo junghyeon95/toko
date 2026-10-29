@@ -377,3 +377,28 @@ test('/toko today sums up every terminal’s day and copies it, and the room but
   await room.unmount()
   expect(world.copied.length).toBe(2)
 })
+
+test('a name and a hide another terminal set reach this terminal, and its own save keeps them', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  world.memory.set('toko:pet', { ...PET, soul: { ...PET.soul, name: '토뀌' } })
+  world.memory.set('toko:settings', { isHidden: true })
+  await clock.advance(6000)
+  expect((await $.command.run({ command: 'toko', args: 'card' } as never)).text).toContain('토뀌')
+  await $.command.run({ command: 'toko', args: 'mute' } as never)
+  expect((world.memory.get('toko:pet') as typeof PET).soul.name).toBe('토뀌')
+  expect(world.memory.get('toko:settings')).toMatchObject({ isHidden: true, isMuted: true })
+  await end($)
+  expect((world.memory.get('toko:pet') as typeof PET).soul.name).toBe('토뀌')
+})
+
+test('coins and items another terminal saved stay when this terminal buys something', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 50, items: [], worn: [] } })
+  await begin($)
+  world.memory.set('toko:wallet', { coins: 300, items: ['lamp'], worn: [] })
+  await $.command.run({ command: 'toko', args: 'buy cookie' } as never)
+  expect(world.memory.get('toko:wallet')).toMatchObject({ coins: 300, items: ['lamp', 'cookie'] })
+  await end($)
+})

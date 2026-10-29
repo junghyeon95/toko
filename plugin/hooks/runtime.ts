@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, peersText, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, sendToPeer, signalPeers, startBonk, startFocus, startHatch, stopFocus, summarizePeer, switchPet, sync, syncShared, tendVisitor, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -29,6 +29,7 @@ type $ = EngineInterface
 
 export const TICK_MS = 100
 export const THINK_EVERY = 20
+export const SYNC_EVERY = 40
 export const SAVE_EVERY = 300
 export const BLIT_DENY_LIMIT = 6
 export const ROOM_ID = 'toko-room'
@@ -111,6 +112,9 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
       await now($, ctx)
       await resetDayIfNeeded($, brain)
       await refreshShared($, brain)
+      if (ctx.ticks % SYNC_EVERY === 0) {
+        await syncShared($, brain)
+      }
       await think($, brain)
       await pollPlaza($, brain)
       await pollPeers($, brain)

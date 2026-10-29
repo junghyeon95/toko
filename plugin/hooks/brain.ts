@@ -54,6 +54,7 @@ import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
 import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook, visitTiming } from './lib/scene'
+import { mergeShared, same } from './lib/shared'
 import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
 import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
 import type { QuestsPaid } from './lib/quests'
@@ -133,6 +134,10 @@ const emptyMemory = (): TokoMemory => ({
 
 type Marks = { wrappedDay: string; calmedDay: string; firstCommitDay: string; lastEyeRestAt: number; lastWaterAt: number; lastChatAt: number }
 
+const EMPTY_MARKS: Marks = { wrappedDay: '', calmedDay: '', firstCommitDay: '', lastEyeRestAt: 0, lastWaterAt: 0, lastChatAt: 0 }
+
+const EMPTY_WALLET: TokoWallet = { coins: 0, items: [], worn: [] }
+
 type Countdown = { kind: string; label: string; endsAt: number; reward: number; then: 'praise' | 'unstick' | 'quiet' }
 
 type Bonk = { reason: string; isTurnRunning: boolean; hasApology: boolean; isSubmitted: boolean }
@@ -206,6 +211,7 @@ export type Brain = {
   visitor: TokoVisitor | null
   visitorVisibleMs: number
   isDirty: boolean
+  synced: Partial<Record<SharedField, unknown>>
 }
 
 export const createBrain = (seed: number, serverUrl: string): Brain => ({
@@ -215,10 +221,10 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   shelf: [],
   needs: fullNeeds(0),
   memory: emptyMemory(),
-  wallet: { coins: 0, items: [], worn: [] },
+  wallet: EMPTY_WALLET,
   settings: DEFAULT_SETTINGS,
   budget: emptyBudget(''),
-  marks: { wrappedDay: '', calmedDay: '', firstCommitDay: '', lastEyeRestAt: 0, lastWaterAt: 0, lastChatAt: 0 },
+  marks: EMPTY_MARKS,
   sessionId: 'local',
   earn: emptyEarn(''),
   otherEarns: [],
@@ -277,6 +283,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   visitor: null,
   visitorVisibleMs: 0,
   isDirty: false,
+  synced: {},
 })
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -288,6 +295,24 @@ const isPet = (value: unknown): value is TokoPet => isRecord(value) && isRecord(
 const isEarn = (value: unknown): value is TokoEarn => isRecord(value) && typeof value.day === 'string' && typeof value.earned === 'number'
 
 export const today = (brain: Brain): string => dayKey(brain.now)
+
+type SharedField = 'pet' | 'shelf' | 'needs' | 'memory' | 'wallet' | 'budget' | 'settings' | 'marks' | 'plazaId'
+
+const newPlazaId = (brain: Brain): string => `p${Math.floor(brain.random() * 2 ** 32).toString(36)}${Math.floor(brain.now % 1e6).toString(36)}`
+
+const SHARED: { readonly [K in SharedField]: (stored: unknown, brain: Brain) => Brain[K] } = {
+  pet: (stored, brain) => (isPet(stored) ? upgradePet({ ...stored, growth: advanceDay(stored.growth, today(brain)) }) : null),
+  shelf: stored => (Array.isArray(stored) ? stored.filter(isPet).map(upgradePet) : []),
+  needs: (stored, brain) => merge(fullNeeds(brain.now), stored),
+  memory: stored => merge(emptyMemory(), stored),
+  wallet: stored => merge(EMPTY_WALLET, stored),
+  budget: (stored, brain) => rollBudget(isRecord(stored) ? merge(emptyBudget(today(brain)), stored) : null, today(brain)),
+  settings: stored => merge(DEFAULT_SETTINGS, stored),
+  marks: stored => merge(EMPTY_MARKS, stored),
+  plazaId: (stored, brain) => (typeof stored === 'string' && stored.length > 0 ? stored : newPlazaId(brain)),
+}
+
+const SHARED_FIELDS = Object.keys(SHARED) as readonly SharedField[]
 
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
@@ -309,15 +334,16 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.memos),
     $.store.keys(),
   ])
-  brain.pet = isPet(pet) ? upgradePet({ ...pet, growth: advanceDay(pet.growth, day) }) : null
-  brain.shelf = Array.isArray(shelf) ? shelf.filter(isPet).map(upgradePet) : []
-  brain.needs = merge(fullNeeds(now), needs)
-  brain.memory = merge(emptyMemory(), memory)
-  brain.wallet = merge(brain.wallet, wallet)
-  brain.settings = merge(DEFAULT_SETTINGS, settings)
-  brain.marks = merge(brain.marks, marks)
-  brain.budget = rollBudget(isRecord(budget) ? merge(emptyBudget(day), budget) : null, day)
-  brain.plazaId = typeof plazaId === 'string' && plazaId.length > 0 ? plazaId : `p${Math.floor(brain.random() * 2 ** 32).toString(36)}${Math.floor(now % 1e6).toString(36)}`
+  brain.pet = SHARED.pet(pet, brain)
+  brain.shelf = SHARED.shelf(shelf, brain)
+  brain.needs = SHARED.needs(needs, brain)
+  brain.memory = SHARED.memory(memory, brain)
+  brain.wallet = SHARED.wallet(wallet, brain)
+  brain.settings = SHARED.settings(settings, brain)
+  brain.marks = SHARED.marks(marks, brain)
+  brain.budget = SHARED.budget(budget, brain)
+  brain.plazaId = SHARED.plazaId(plazaId, brain)
+  brain.synced = { pet: brain.pet, shelf: brain.shelf, needs: brain.needs, memory: brain.memory, wallet: brain.wallet, budget: brain.budget, settings: brain.settings, marks: brain.marks, plazaId }
   const earnKeys = keys.filter(key => key.startsWith(KEY.earnPrefix))
   const earns = await Promise.all(earnKeys.map(async key => ({ key, value: await $.store.get(key) })))
   await settleEarnings($, brain, earns, day)
@@ -349,7 +375,7 @@ async function settleEarnings($: $, brain: Brain, earns: readonly { key: string;
     await $.store.delete(entry.key)
   }
   if (stale.length > 0) {
-    await $.store.set(KEY.wallet, brain.wallet)
+    await syncField($, brain, 'wallet')
   }
 }
 
@@ -497,23 +523,34 @@ export async function checkProgress($: $, brain: Brain): Promise<void> {
   await announce($, brain, phrases)
 }
 
+async function syncField<K extends SharedField>($: $, brain: Brain, field: K): Promise<void> {
+  const stored = await $.store.get(KEY[field])
+  const merged = SHARED[field](mergeShared(brain.synced[field], brain[field], stored, field === 'wallet' ? ['coins'] : []), brain)
+  brain[field] = merged
+  brain.synced[field] = merged
+  if (!same(merged, stored)) {
+    await $.store.set(KEY[field], merged)
+  }
+}
+
+export async function syncShared($: $, brain: Brain): Promise<void> {
+  if (!brain.isLoaded) {
+    return
+  }
+  for (const field of SHARED_FIELDS) {
+    await syncField($, brain, field)
+  }
+  if (brain.scene !== null) {
+    setLook(brain.scene, lookOf(brain))
+  }
+}
+
 export async function save($: $, brain: Brain): Promise<void> {
   if (!brain.isLoaded) {
     return
   }
-  await Promise.all([
-    $.store.set(KEY.pet, brain.pet),
-    $.store.set(KEY.shelf, brain.shelf),
-    $.store.set(KEY.needs, brain.needs),
-    $.store.set(KEY.memory, brain.memory),
-    $.store.set(KEY.wallet, brain.wallet),
-    $.store.set(KEY.budget, brain.budget),
-    $.store.set(KEY.settings, brain.settings),
-    $.store.set(KEY.marks, brain.marks),
-    $.store.set(KEY.plazaId, brain.plazaId),
-    $.store.set(`${KEY.earnPrefix}${brain.sessionId}`, brain.earn),
-    $.store.set(tallyKey(brain), brain.tally),
-  ])
+  await syncShared($, brain)
+  await Promise.all([$.store.set(`${KEY.earnPrefix}${brain.sessionId}`, brain.earn), $.store.set(tallyKey(brain), brain.tally)])
   brain.isDirty = false
 }
 

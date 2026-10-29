@@ -12,6 +12,7 @@ import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
 import { BAND_ROWS, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
+import { mergeShared } from '../hooks/lib/shared'
 import { hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
 import { SPECIES_ART } from '../hooks/lib/sprites'
@@ -32,6 +33,30 @@ test('turn income grows on a log scale, so heavy token use pays less per token',
 
 test('a cache-heavy turn earns the efficiency bonus', async () => {
   expect(turnIncome(usage(1500, 9000))).toBe(Math.round(9 * Math.log2(4) * 1.2))
+})
+
+test('a shared value keeps what this terminal changed and takes what another terminal changed', async () => {
+  const base = { isHidden: false, isMuted: false, breakMinutes: 50 }
+  expect(mergeShared(base, { ...base, isMuted: true }, { ...base, isHidden: true })).toEqual({ isHidden: true, isMuted: true, breakMinutes: 50 })
+  expect(Object.keys(mergeShared(base, { ...base, isMuted: true }, { isHidden: true }))).toEqual(['isHidden', 'isMuted'])
+  const pet = { soul: { name: '곰도리' }, growth: { stage: 'baby', breaksAccepted: 1 } }
+  const renamedThere = { ...pet, soul: { name: '토뀌' } }
+  const restedHere = { ...pet, growth: { stage: 'baby', breaksAccepted: 2 } }
+  expect(mergeShared(pet, restedHere, renamedThere)).toEqual({ soul: { name: '토뀌' }, growth: { stage: 'baby', breaksAccepted: 2 } })
+  expect(mergeShared(pet, pet, renamedThere)).toEqual(renamedThere)
+  expect(mergeShared(null, restedHere, null)).toEqual(restedHere)
+})
+
+test('coins and items two terminals add at the same time both count', async () => {
+  const base = { coins: 100, items: ['cookie'], worn: [] as string[] }
+  const here = { coins: 130, items: ['cookie', 'cookie'], worn: [] }
+  const there = { coins: 150, items: ['cookie', 'ribbon'], worn: ['ribbon'] }
+  const merged = mergeShared(base, here, there, ['coins'])
+  expect(merged.coins).toBe(180)
+  expect([...merged.items].sort()).toEqual(['cookie', 'cookie', 'ribbon'])
+  expect(merged.worn).toEqual(['ribbon'])
+  const ate = { coins: 100, items: [], worn: [] }
+  expect(mergeShared(base, ate, there, ['coins']).items).toEqual(['ribbon'])
 })
 
 test('token income stops at the daily cap, health rewards do not', async () => {
