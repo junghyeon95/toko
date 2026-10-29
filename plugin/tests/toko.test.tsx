@@ -69,7 +69,7 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
   })
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
-    world.submittedAsUser.push(e.origin?.asUser === true)
+    world.submittedAsUser.push(e.origin?.kind === 'plugin' && e.origin.asUser === true)
     return { text: e.text }
   })
   on('prompt.fill', (_, e) => {
