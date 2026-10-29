@@ -342,10 +342,11 @@ test('the freshest signal of another session is picked, own and seen ones are no
   expect(freshSignal(entries, 'toko:signal:me', 300)).toBe(null)
 })
 
-test('a signal names its session in the accent color, and a wait in the warning color', async () => {
+test('a signal names its session in the accent color, a wait in the warning color, and speaks in the species voice', async () => {
   expect(signalLabel('  배포   확인\n해 줘, 그리고 로그도 같이 한 번 봐 줘  ')).toBe('배포 확인 해 줘, 그리고 로그도 같이 한')
-  expect(signalParts({ kind: 'done', at: 0, label: '배포 확인' })).toEqual([{ text: '「' }, { text: '배포 확인', color: 'suggestion' }, { text: '」 ' }, { text: '끝났어요' }])
-  expect(signalParts({ kind: 'waiting', at: 0, label: '' })).toEqual([{ text: '다른 세션이 ' }, { text: '확인을 기다려요', color: 'warning' }])
+  expect(signalParts({ kind: 'done', at: 0, label: '배포 확인' }, 'cat')).toEqual([{ text: '「' }, { text: '배포 확인', color: 'suggestion' }, { text: '」 ' }, { text: '끝났어냥' }])
+  expect(signalParts({ kind: 'waiting', at: 0, label: '' }, 'cat')).toEqual([{ text: '다른 세션이 ' }, { text: '확인을 기다려냥', color: 'warning' }])
+  expect(signalParts({ kind: 'done', at: 0, label: '배포 확인' }, 'bear')).toEqual([{ text: '음… ' }, { text: '「' }, { text: '배포 확인', color: 'suggestion' }, { text: '」 ' }, { text: '끝났어' }])
 })
 
 test('the latest AI title in the transcript lines names the session', async () => {

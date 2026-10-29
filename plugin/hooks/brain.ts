@@ -1803,7 +1803,7 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
   if (!brain.settings.isPeersOn || isHushed(brain)) {
     return
   }
-  const parts = signalParts(signal)
+  const parts = signalParts(signal, speciesOf(brain))
   await say($, brain, parts.map(part => part.text).join(''), 'say', parts)
 }
 

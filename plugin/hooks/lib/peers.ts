@@ -1,4 +1,6 @@
-import type { TokoBubblePart } from '../../types'
+import type { TokoBubblePart, TokoSpecies } from '../../types'
+
+import { SPECIES_VOICE, voiceLine } from './persona'
 
 export type PeerSignal = { kind: 'done' | 'waiting'; at: number; label: string }
 
@@ -34,7 +36,12 @@ export const freshSignal = (entries: readonly { key: string; value: unknown }[],
     .filter(signal => signal.at > seenAt)
     .reduce<PeerSignal | null>((latest, signal) => (latest === null || signal.at > latest.at ? signal : latest), null)
 
-export const signalParts = (signal: PeerSignal): readonly TokoBubblePart[] => {
-  const verb: TokoBubblePart = signal.kind === 'done' ? { text: '끝났어요' } : { text: '확인을 기다려요', color: 'warning' }
-  return signal.label === '' ? [{ text: '다른 세션이 ' }, verb] : [{ text: '「' }, { text: signal.label, color: 'suggestion' }, { text: '」 ' }, verb]
+export const signalParts = (signal: PeerSignal, species: TokoSpecies): readonly TokoBubblePart[] => {
+  const voice = SPECIES_VOICE[species]
+  const isHead = voice.place === 'head'
+  const said = signal.kind === 'done' ? '끝났어' : '확인을 기다려'
+  const text = isHead ? said : voiceLine(species, said)
+  const verb: TokoBubblePart = signal.kind === 'done' ? { text } : { text, color: 'warning' }
+  const subject: readonly TokoBubblePart[] = signal.label === '' ? [{ text: '다른 세션이 ' }] : [{ text: '「' }, { text: signal.label, color: 'suggestion' }, { text: '」 ' }]
+  return isHead ? [{ text: `${voice.sound} ` }, ...subject, verb] : [...subject, verb]
 }
