@@ -119,6 +119,15 @@ export const parseSendWords = (words: string): { query: string; text: string } |
   return query === undefined || text === '' ? null : { query, text }
 }
 
+export const sendTarget = (peers: readonly Peer[], peer: Peer): string =>
+  peer.signal.label
+    .split(/\s+/)
+    .filter(word => word !== '')
+    .find(word => {
+      const matches = matchPeers(peers, word)
+      return matches.length === 1 && matches[0]?.key === peer.key
+    }) ?? String(peers.findIndex(candidate => candidate.key === peer.key) + 1)
+
 export const missText = (matches: readonly Peer[]): string =>
   matches.length === 0
     ? '그런 옆 세션이 없어요. /toko sessions 로 이름과 번호를 확인해 주세요.'

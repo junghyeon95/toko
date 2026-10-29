@@ -5,7 +5,7 @@ import { DAILY_TOKEN_CAP, GACHA, SHOP, balanceOf, buy, capTokenIncome, emptyEarn
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage, fallbackLine, parseIntent, parseSoul, sanitizeLine, soulPrompt, soulSystem, voiceLine } from '../hooks/lib/persona'
-import { freshSignal, lastAiTitle, parseSendWords, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
+import { freshSignal, lastAiTitle, parseSendWords, sendTarget, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
 import { BONK_KINDS, guessKind, kindPrompt, parseKind } from '../hooks/lib/bonks'
 import { bonkBoardText, lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf } from '../hooks/lib/plaza'
@@ -530,4 +530,10 @@ test('a sentence naming the session first reads as who to send to and what to se
     parseSendWords('오늘 하루 잘 보내자'),
     parseSendWords('로그 봐 달라고 배포한테 보내줘'),
   ]).toEqual([{ query: '배포', text: '로그 봐 줘' }, { query: '배포', text: '테스트 돌려 달라고' }, { query: '리뷰', text: '코멘트 확인해요' }, null, null])
+})
+
+test('the next task names the session by the first word only it has, or by its number', () => {
+  const peer = (key: string, label: string) => ({ key, signal: { kind: 'done' as const, at: 0, label } })
+  const peers = [peer('a', '배포 확인'), peer('b', '배포 롤백'), peer('c', '')]
+  expect(peers.map(one => sendTarget(peers, one))).toEqual(['확인', '롤백', '3'])
 })

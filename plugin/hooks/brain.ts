@@ -55,7 +55,7 @@ import type { Addition } from './lib/news'
 import type { Limit } from './lib/meter'
 import { addTurn, isWorked, workText } from './lib/today'
 import type { WorkedSession } from './lib/today'
-import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, matchPeers, missText, peerList, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
+import { freshSignal, inboxParts, isAlive, isMessage, isSignal, lastAiTitle, matchPeers, missText, peerList, sendTarget, replyLines, sessionLine, sessionName, sessionsText, signalParts, transcriptExcerpt } from './lib/peers'
 import type { Peer, PeerSignal } from './lib/peers'
 import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
@@ -896,6 +896,13 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
       { key: 'drop', label: '알아', hotkey: '3' },
     ]
   }
+  if (kind === 'peer') {
+    return [
+      { key: 'summary', label: '요약 보기', hotkey: '1' },
+      { key: 'next', label: '다음 일 보내기', hotkey: '2' },
+      { key: 'later', label: '괜찮아', hotkey: '3' },
+    ]
+  }
   if (kind === 'cc-news') {
     return [
       { key: 'accept', label: '알려 줘', hotkey: '1' },
@@ -906,9 +913,9 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
   return CHOICES
 }
 
-export async function openOffer($: $, brain: Brain, kind: string, line: string): Promise<void> {
-  brain.offer = { id: `${kind}-${brain.now}`, kind, line, choices: choicesFor(kind), at: brain.now, expiresAt: brain.now + OFFER_TIMEOUT_MS }
-  if (kind !== 'bonk-end' && kind !== 'name') {
+export async function openOffer($: $, brain: Brain, kind: string, line: string, parts?: readonly TokoBubblePart[], peer?: string): Promise<void> {
+  brain.offer = { id: `${kind}-${brain.now}`, kind, line, choices: choicesFor(kind), at: brain.now, expiresAt: brain.now + OFFER_TIMEOUT_MS, ...(peer === undefined ? {} : { peer }) }
+  if (kind !== 'bonk-end' && kind !== 'name' && kind !== 'peer') {
     brain.budget = recordBubble(brain.budget, brain.now)
   }
   if (BREAK_KINDS.has(kind)) {
@@ -920,7 +927,7 @@ export async function openOffer($: $, brain: Brain, kind: string, line: string):
   }
   brain.isDirty = true
   await update($, offerAtom, () => brain.offer)
-  await say($, brain, line)
+  await say($, brain, line, 'say', parts)
 }
 
 async function closeOffer($: $, brain: Brain): Promise<void> {
@@ -989,6 +996,10 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
   }
   if (offer.kind === 'cc-tip') {
     await answerTip($, brain, choice)
+    return
+  }
+  if (offer.kind === 'peer') {
+    await answerPeer($, brain, choice, offer.peer ?? '')
     return
   }
   const answer: Answer = choice === 'accept' ? 'accept' : choice === 'stop' ? 'stop' : choice === 'ignored' ? 'ignored' : 'later'
@@ -2523,6 +2534,10 @@ export async function summarizePeer($: $, brain: Brain, query: string): Promise<
   if (matches.length !== 1 || peer === undefined) {
     return missText(matches)
   }
+  return summarizeOne($, brain, peer)
+}
+
+async function summarizeOne($: $, brain: Brain, peer: Peer): Promise<string> {
   count(brain, 'sessions')
   const header = sessionLine(peer.signal, brain.now)
   const path = peer.signal.path ?? ''
@@ -2639,7 +2654,34 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
     return
   }
   const parts = signalParts(signal, speciesOf(brain))
-  await say($, brain, parts.map(part => part.text).join(''), 'say', parts)
+  const line = parts.map(part => part.text).join('')
+  if (brain.offer === null) {
+    await openOffer($, brain, 'peer', line, parts, entries.find(entry => entry.value === signal)?.key)
+    return
+  }
+  await say($, brain, line, 'say', parts)
+}
+
+async function answerPeer($: $, brain: Brain, choice: string, key: string): Promise<void> {
+  if (choice !== 'summary' && choice !== 'next') {
+    return
+  }
+  const peers = await listPeers($, brain)
+  const peer = peers.find(candidate => candidate.key === key)
+  if (peer === undefined) {
+    await say($, brain, '그 세션이 이제 안 보여')
+    return
+  }
+  if (choice === 'summary') {
+    for (const line of (await summarizeOne($, brain, peer)).split('\n')) {
+      $.ui.log(line)
+    }
+    return
+  }
+  const box = await $.prompt.read()
+  const command = `/toko send ${sendTarget(peers, peer)} `
+  const filled = box.text.trim() === '' ? await $.prompt.fill({ text: command, mode: 'replace' }) : { isFilled: false }
+  await say($, brain, filled.isFilled ? '입력창에 넣어 뒀어. 보낼 말만 이어서 써' : `${command}뒤에 보낼 말을 써서 보내`)
 }
 
 export async function sendPlaza($: $, brain: Brain, kind: PlazaAction, to: string | null): Promise<string> {

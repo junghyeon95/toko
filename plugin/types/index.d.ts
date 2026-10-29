@@ -96,6 +96,7 @@ export type TokoOffer = {
   choices: readonly TokoChoice[]
   at: number
   expiresAt: number
+  peer?: string
 }
 
 export type TokoEarning = { durationMs: number; coins: number; at: number }

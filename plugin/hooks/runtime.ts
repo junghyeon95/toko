@@ -517,13 +517,13 @@ export async function openRoom($: $, ctx: Ctx): Promise<string> {
 }
 
 export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<CommandRunResult> {
-  return (await subcommand($, ctx, args)) ?? (await naturalSend($, ctx, args.trim())) ?? chatCommand($, ctx, args.trim())
+  return (await subcommand($, ctx, args)) ?? (await choiceAnswer($, ctx, args.trim())) ?? (await naturalSend($, ctx, args.trim())) ?? chatCommand($, ctx, args.trim())
 }
 
 export type Heard = { drop: string } | { text: string; context: readonly string[] }
 
 export async function heardByName($: $, ctx: Ctx, words: string): Promise<Heard> {
-  const done = (await subcommand($, ctx, words)) ?? (await naturalSend($, ctx, words))
+  const done = (await subcommand($, ctx, words)) ?? (await choiceAnswer($, ctx, words)) ?? (await naturalSend($, ctx, words))
   if (done !== null) {
     return { drop: done.text }
   }
@@ -544,6 +544,15 @@ const SEND = /^\s*(?:send|보내|보내줘)\s+(\S+)\s+([\s\S]+)$/
 const SEND_WORD = /^\s*(?:send|보내|보내줘)(?:\s|$)/
 
 const SEND_EXAMPLE = '예: /toko send 배포 로그도 같이 봐 줘'
+
+async function choiceAnswer($: $, ctx: Ctx, words: string): Promise<{ text: string } | null> {
+  const choice = ctx.brain.offer?.choices.find(candidate => sameWords(candidate.key, words) || sameWords(candidate.label, words))
+  if (choice === undefined) {
+    return null
+  }
+  await choose($, ctx, choice)
+  return { text: `${choice.label}(으)로 대답했어요.` }
+}
 
 async function naturalSend($: $, ctx: Ctx, words: string): Promise<{ text: string } | null> {
   const parsed = parseSendWords(words)
@@ -882,7 +891,7 @@ export async function playCommand($: $, ctx: Ctx): Promise<string> {
   return text
 }
 
-const sameWords = (a: string, b: string): boolean => a.replace(/\s+/g, '') === b.replace(/\s+/g, '')
+const sameWords = (a: string, b: string): boolean => a.replace(/[\s.!~?,]+/g, '') === b.replace(/[\s.!~?,]+/g, '')
 
 async function answerCommand($: $, ctx: Ctx, words: string): Promise<string> {
   const offer = ctx.brain.offer
