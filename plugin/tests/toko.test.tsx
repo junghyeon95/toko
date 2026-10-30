@@ -31,7 +31,7 @@ const BAND = {
 
 type World = { submitted: string[]; submittedAsUser: boolean[]; filled: string[]; blits: number; models: string[]; systems: string[]; saved: Record<string, unknown>; store: Map<string, unknown>; notified: string[]; logs: string[]; isFillRefused: boolean; contexts: string[] }
 
-const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
+const engine = (on: On, store: Record<string, unknown>, modelText: string | null = '{"intent":"stay_quiet"}'): World => {
   const memory = new Map(Object.entries(store))
   const world: World = { submitted: [], submittedAsUser: [], filled: [], blits: 0, models: [], systems: [], saved: {}, store: memory, notified: [], logs: [], isFillRefused: false, contexts: [] }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
@@ -69,7 +69,8 @@ const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"
   on('model.complete', (_, e) => {
     world.models.push(e.prompt)
     world.systems.push(e.system ?? '')
-    return { value: { isAnswered: true, text: modelText, usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    const usage = { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    return { value: modelText === null ? { isAnswered: false, reason: 'aborted', usage } : { isAnswered: true, text: modelText, usage } }
   })
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
@@ -1422,7 +1423,7 @@ test('/toko today writes the day as work done and work going on, from every sess
   expect(prompts[0]).not.toContain('「Y」')
   await $.command.run({ command: 'toko', args: 'ai off' } as never)
   expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe(
-    '10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n- 「B」 리뷰해 줘\n(작은 모델을 쓸 수 없어서 세션별 마지막 질문만 보여요)',
+    '10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n- 「B」 리뷰해 줘\n(작은 모델이 꺼져 있어서 세션별 마지막 질문만 보여요)',
   )
 })
 
@@ -1439,7 +1440,21 @@ test('/toko today falls back to each session’s last question once the whole da
   mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:budget': { day: '2026-10-29', aiCalls: 30 }, 'toko:worked:a': WORKED_A }, '한 일\n- 배포 확인했어요')
   await begin($)
-  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n(작은 모델을 쓸 수 없어서 세션별 마지막 질문만 보여요)')
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n(오늘 작은 모델 한도를 다 써서 세션별 마지막 질문만 보여요)')
+})
+
+test('/toko today says the small model did not answer in time when the call comes back unanswered', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:worked:a': WORKED_A }, null)
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n(작은 모델이 시간 안에 답하지 못해서 세션별 마지막 질문만 보여요)')
+})
+
+test('/toko today says the small model’s reply could not be read when it has no 한 일 lines', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:worked:a': WORKED_A }, '오늘은 배포를 확인했어요')
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'today' } as never)).text?.split('\n\n')[0]).toBe('10월 29일 (목) 한 일\n- 「A」 배포 봐 줘\n(작은 모델 답을 읽지 못해서 세션별 마지막 질문만 보여요)')
 })
 
 test('/toko ai 60 raises the day’s limit so /toko today keeps the small model past 30 calls', async ($, on) => {

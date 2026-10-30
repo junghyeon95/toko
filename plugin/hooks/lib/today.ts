@@ -68,7 +68,7 @@ export const addTurn = (session: WorkedSession, prompt: string, answer: string):
 
 const sectionOf = (line: string): 'done' | 'ongoing' | null => (line === '한 일' ? 'done' : line === '진행 중' ? 'ongoing' : null)
 
-export const workText = (now: number, sessions: readonly WorkedSession[], reply: string | null): string => {
+export const workText = (now: number, sessions: readonly WorkedSession[], reply: string | null, missReason: string): string => {
   const header = `${dateLabel(now)} 한 일`
   if (sessions.length === 0) {
     return `${header}\n- 아직 기록된 일이 없어요`
@@ -83,7 +83,7 @@ export const workText = (now: number, sessions: readonly WorkedSession[], reply:
   }
   if (picked.done.length + picked.ongoing.length === 0) {
     const fallback = sessions.map(session => `- 「${session.label || '이름 없는 세션'}」 ${session.turns.at(-1)?.prompt ?? ''}`.trim())
-    return [header, ...fallback, '(작은 모델을 쓸 수 없어서 세션별 마지막 질문만 보여요)'].join('\n')
+    return [header, ...fallback, `(${missReason} 세션별 마지막 질문만 보여요)`].join('\n')
   }
   return [header, ...picked.done, ...(picked.ongoing.length === 0 ? [] : ['진행 중', ...picked.ongoing])].join('\n')
 }

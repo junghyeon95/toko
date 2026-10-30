@@ -2735,9 +2735,10 @@ export async function todayWork($: $, brain: Brain): Promise<string> {
     .filter(isWorked)
     .filter(session => session.day === today(brain) && session.turns.length > 0)
     .sort((a, b) => a.since - b.since)
-  const reply = sessions.length === 0 ? null : await askForUser($, brain, persona.workDayPrompt(sessions), 900, 20000, persona.peerSummarySystem)
+  const blocked = !brain.settings.isAiOn ? '작은 모델이 꺼져 있어서' : brain.budget.aiCalls >= brain.settings.aiDailyCalls ? '오늘 작은 모델 한도를 다 써서' : null
+  const reply = sessions.length === 0 ? null : await askForUser($, brain, persona.workDayPrompt(sessions), 900, 60_000, persona.peerSummarySystem)
   count(brain, 'today')
-  return workText(brain.now, sessions, reply)
+  return workText(brain.now, sessions, reply, blocked ?? (reply === null ? '작은 모델이 시간 안에 답하지 못해서' : '작은 모델 답을 읽지 못해서'))
 }
 
 export async function peerMatches($: $, brain: Brain, query: string): Promise<readonly Peer[]> {
