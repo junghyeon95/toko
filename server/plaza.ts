@@ -448,28 +448,49 @@ const hashOf = (text: string): string => {
   return hash.toString(36)
 }
 
+export type Spot = { u: number; v: number }
+
+export type Chat = { id: string; from: string; at: number; text: string }
+
+export const CHAT_TTL_MS = 30_000
+const MAX_CHATS = 20
+
 export type RoomView = { key: string; name: string; isOwnerOut: boolean; picture: Sprite; owner: Sprite; guests: { name: string; sprite: Sprite }[] }
 
 export type PlazaView = {
   now: number
-  pets: { key: string; name: string; mood: Mood; sprite: Sprite }[]
+  pets: { key: string; name: string; mood: Mood; sprite: Sprite; spot?: [number, number] }[]
   events: { key: string; at: number; kind: Action; from: string; to: string | null; line: string }[]
   bonks: BonkBoard
   rooms: RoomView[]
   weather: Weather | null
+  chats: { key: string; from: string; at: number; text: string }[]
 }
 
 const isAction = (kind: PlazaEvent['kind']): kind is Action => ACTIONS.has(kind)
 
-export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS, rooms: RoomView[] = [], weather: Weather | null = null): PlazaView => ({
+export const plazaView = (
+  members: readonly Member[],
+  events: readonly PlazaEvent[],
+  now: number,
+  bonks: BonkBoard = NO_BONKS,
+  rooms: RoomView[] = [],
+  weather: Weather | null = null,
+  spots: ReadonlyMap<string, Spot> = new Map(),
+  chats: readonly Chat[] = [],
+): PlazaView => ({
   now,
   bonks,
   weather,
-  pets: members.map(member => ({ key: hashOf(member.id), name: member.name, mood: member.mood, sprite: member.sprite ?? standIn(member.color) })),
+  pets: members.map(member => {
+    const spot = spots.get(member.id)
+    return { key: hashOf(member.id), name: member.name, mood: member.mood, sprite: member.sprite ?? standIn(member.color), ...(spot === undefined ? {} : { spot: [spot.u, spot.v] as [number, number] }) }
+  }),
   events: events
     .flatMap(event => (isAction(event.kind) ? [{ key: hashOf(event.id), at: event.at, kind: event.kind, from: hashOf(event.from.id), to: event.to === null ? null : hashOf(event.to), line: event.line }] : []))
     .slice(-20),
   rooms,
+  chats: chats.filter(chat => now - chat.at < CHAT_TTL_MS).map(chat => ({ key: hashOf(chat.id), from: hashOf(chat.from), at: chat.at, text: chat.text })),
 })
 
 const PAGE = await Bun.file(`${import.meta.dir}/page.html`).text()
@@ -584,6 +605,8 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   let bonkDay = ''
   const bonkCounts = new Map<string, number>()
   let weather: Weather | null = null
+  const spots = new Map<string, Spot>()
+  let chats: Chat[] = []
 
   const nextId = (): string => {
     counter += 1
@@ -644,7 +667,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     return { total: counts.reduce((sum, [, count]) => sum + count, 0), top: counts.slice(0, 5).map(([kind, count]) => ({ kind, label: BONK_KINDS[kind] ?? '', count })) }
   }
 
-  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at), roomsView(), weather)
+  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at), roomsView(), weather, spots, chats)
 
   const messageFor = (listener: Listener, at: number, order?: readonly Member[]): string =>
     listener.id === null
@@ -692,7 +715,9 @@ export const createPlaza = (options: PlazaOptions = {}) => {
         tabs.delete(id)
         actions.delete(id)
         actions.delete(`bonk:${id}`)
+        actions.delete(`say:${id}`)
         changed.delete(id)
+        spots.delete(id)
       }
     }
     if (members.size !== before) {
@@ -812,6 +837,30 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     const recent = (actions.get(id) ?? []).filter(time => at - time < 60_000)
     actions.set(id, [...recent, at])
     return recent.length >= actionsPerMinute
+  }
+
+  const place = (id: string, u: unknown, v: unknown): Response => {
+    if (typeof u !== 'number' || typeof v !== 'number' || !Number.isFinite(u) || !Number.isFinite(v)) {
+      return json(400, { error: 'bad request' })
+    }
+    const toSpot = (value: number): number => Math.round(Math.max(-1, Math.min(1, value)) * 1000) / 1000
+    spots.set(id, { u: toSpot(u), v: toSpot(v) })
+    broadcast()
+    return json(202, { ok: true })
+  }
+
+  const speak = (id: string, raw: unknown): Response => {
+    const at = now()
+    const text = clean(raw, 40)
+    if (text.length === 0 || FORBIDDEN.test(text)) {
+      return json(400, { error: 'that line cannot be said here' })
+    }
+    if (isRateLimited(`say:${id}`, at)) {
+      return json(429, { error: 'too many lines, take a breath' })
+    }
+    chats = [...chats.filter(chat => at - chat.at < CHAT_TTL_MS), { id: nextId(), from: id, at, text }].slice(-MAX_CHATS)
+    broadcast()
+    return json(202, { ok: true })
   }
 
   const fallbackLine = (kind: Action): string => {
@@ -996,6 +1045,17 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     if (request.method === 'GET' && url.pathname === '/v1/room') {
       const room = rooms.get(url.searchParams.get('id') ?? '')
       return room === undefined || !room.isOpen ? json(404, { error: 'not found' }) : json(200, { ...room, stickers: (room.stickers ?? []).map(sticker => sticker.kind), guests: guestsOf(room.owner.id) })
+    }
+    if (request.method === 'POST' && (url.pathname === '/v1/walk' || url.pathname === '/v1/say')) {
+      const body = await readBody(request)
+      if (body === null || typeof body.id !== 'string') {
+        return json(400, { error: 'bad request' })
+      }
+      prune(now())
+      if (!members.has(body.id)) {
+        return json(404, { error: 'that pet is not in the plaza' })
+      }
+      return url.pathname === '/v1/walk' ? place(body.id, body.u, body.v) : speak(body.id, body.text)
     }
     if (request.method !== 'POST' || !POST_PATHS.has(url.pathname)) {
       return json(404, { error: 'not found' })

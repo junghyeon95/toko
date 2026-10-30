@@ -14,6 +14,12 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .tag,.say{position:absolute;left:0;top:0;font-size:calc(11px*var(--u));line-height:1.3}
 .tag{white-space:nowrap;padding:calc(1px*var(--u)) calc(5px*var(--u)) calc(2px*var(--u));border:calc(2px*var(--u)) solid var(--ink);border-radius:calc(4px*var(--u));background:#fffaf0;box-shadow:0 calc(2px*var(--u)) 0 rgba(61,51,70,.3)}
 .tag i{margin-left:calc(4px*var(--u));font-style:normal;color:#8a7f96}
+.tag.mine{background:#ffe8c7;border-color:#e0578f}
+.tag.mine::before{content:'나 ';color:#e0578f}
+.chat{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:6px;padding:8px;background:#fffaf0;border:3px solid var(--ink);box-shadow:0 4px 0 rgba(61,51,70,.3)}
+.chat input{width:min(260px,50vw);font:12px Galmuri11,sans-serif;color:var(--ink);padding:4px 8px;border:2px solid var(--ink);background:#fff}
+.chat button{font:12px Galmuri11,sans-serif;color:var(--ink);padding:4px 10px;border:2px solid var(--ink);background:#ffe8c7;cursor:pointer}
+.chat button:hover{background:#ffd49a}
 .tag.excited i{color:#e0578f}.tag.sleepy i{color:#3b6fc4}.tag.worried i{color:#c27c1a}.tag.sulky i{color:#7a6b8a}
 .say{width:max-content;max-width:calc(160px*var(--u));padding:calc(3px*var(--u)) calc(7px*var(--u)) calc(4px*var(--u));border:calc(2px*var(--u)) solid var(--ink);border-radius:calc(6px*var(--u));background:#fff;text-align:center;word-break:keep-all;animation:pop .3s steps(3)}
 .say::after{content:'';position:absolute;left:50%;bottom:calc(-10px*var(--u));margin-left:calc(-5px*var(--u));border:calc(5px*var(--u)) solid transparent;border-top-color:var(--ink)}
@@ -39,7 +45,8 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 #roomView::backdrop{background:rgba(43,34,51,.55)}
 #roomCanvas{display:block;max-width:100%;image-rendering:pixelated;background:#2b2233}
 #roomView p{margin:10px 0}
-@media (max-width:520px){.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.board{top:auto;bottom:14px}.tag i{display:none}.rooms{top:auto;bottom:14px;right:14px}}
+.chat[hidden]{display:none}
+@media (max-width:520px){.chat{bottom:auto;top:50%}.sign{left:14px;top:14px;right:14px}.sign h1{font-size:22px}.board{top:auto;bottom:14px}.tag i{display:none}.rooms{top:auto;bottom:14px;right:14px}}
 </style>
 </head>
 <body>
@@ -49,6 +56,7 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 <aside class="sign board" id="bonks" hidden><h2>뿅망치 전광판</h2><p>오늘 Clawd가 <b id="bonk-total">0</b>번 맞았어요</p><ol id="bonk-top"></ol><canvas id="bonk-art" width="26" height="20" aria-hidden="true"></canvas></aside>
 <nav id="rooms" class="rooms" aria-label="열린 방" hidden><b>방 구경</b><div id="roomList" style="display:flex;flex-direction:column;gap:4px"></div></nav>
 <dialog id="roomView" aria-labelledby="roomTitle"><canvas id="roomCanvas"></canvas><p id="roomTitle"></p><button id="roomClose" type="button">닫기</button></dialog>
+<form id="chat" class="chat" hidden><input id="chatText" maxlength="40" autocomplete="off" placeholder="방향키로 걷고, Enter로 말하기" aria-label="광장에서 말하기"><button type="submit">말하기</button></form>
 <p id="empty" {{empty}}>아직 아무도 없어요. 토코를 데리고 놀러 오세요</p>
 <noscript><ul>{{roster}}</ul></noscript>
 <script id="state" type="application/json">{{state}}</script>
@@ -68,6 +76,13 @@ const MOOD = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '�
 const SAY = { wave: '안녕! 잠깐 쉬어 가', heart: '하트 보낼게', snack: '간식 나눠 먹자', 'stretch-call': '다 같이 기지개 켜자!', cheer: '응원해!' }
 const KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
 const INK = '#3d3346'
+const ME_KEY = 'toko-plaza-me'
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+const STEER_SPEED = 30
+const STEER_SEND_EVERY = 0.2
+const STEER_HOLD = 20
+const FLOAT_LIFE = 5
+const FLOAT_RISE = 5
 
 let W = 0
 let H = 0
@@ -82,6 +97,9 @@ let last = 0
 let phase = 'day'
 let isFirstSync = true
 const pets = new Map()
+const held = new Set()
+const floats = []
+const echoes = []
 const effects = []
 const seen = new Set()
 const rockets = []
@@ -91,6 +109,28 @@ let nextRocketAt = 0
 
 const random = seed => () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296
 const between = (low, high) => low + Math.random() * (high - low)
+const hashOf = text => {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0
+  return hash.toString(36)
+}
+const readMe = () => {
+  const match = /^#me=([a-z0-9-]{4,64})$/i.exec(location.hash)
+  if (match !== null) {
+    try {
+      localStorage.setItem(ME_KEY, match[1])
+    } catch {}
+    history.replaceState(null, '', location.pathname + location.search)
+    return match[1]
+  }
+  try {
+    return localStorage.getItem(ME_KEY)
+  } catch {
+    return null
+  }
+}
+const myId = readMe()
+const myKey = myId === null ? null : hashOf(myId)
 const sheet = (w, h, paint) => {
   const c = document.createElement('canvas')
   c.width = w
@@ -428,10 +468,24 @@ const say = (pet, text, seconds) => {
   pet.sayUntil = clock + seconds
 }
 
+const toSpot = pet => [(pet.x - L.walk.x) / L.walk.rx, (pet.y - L.walk.y) / L.walk.ry]
+const fromSpot = ([u, v]) => ({ x: L.walk.x + u * L.walk.rx, y: L.walk.y + v * L.walk.ry })
+
+const shout = (pet, text) => {
+  pet.say?.remove()
+  pet.say = null
+  pet.sayUntil = 0
+  const el = document.createElement('div')
+  el.className = 'say float'
+  el.textContent = text
+  labels.append(el)
+  floats.push({ el, x: pet.x, y: pet.y - pet.art.tall - 4, born: clock })
+}
+
 const dress = (pet, data) => {
   pet.name = data.name
   pet.mood = MOOD[data.mood] === undefined ? 'calm' : data.mood
-  pet.tag.className = `tag ${pet.mood}`
+  pet.tag.className = `tag ${pet.mood}${pet.key === myKey ? ' mine' : ''}`
   pet.tag.textContent = data.name
   const state = document.createElement('i')
   state.textContent = MOOD[pet.mood]
@@ -446,8 +500,9 @@ const dress = (pet, data) => {
 const join = (data, isArriving) => {
   const tag = document.createElement('div')
   labels.append(tag)
-  const home = spot(null, isArriving ? inFront : anywhere) ?? { x: L.cx, y: L.cy + L.ry - 8 }
-  const pet = { key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2), acts: [], act: null, holdUntil: 0, waveFrom: 0, waveUntil: 0 }
+  const placed = data.spot === undefined ? null : fromSpot(data.spot)
+  const home = (placed !== null && valid(placed.x, placed.y) ? placed : spot(null, isArriving ? inFront : anywhere)) ?? { x: L.cx, y: L.cy + L.ry - 8 }
+  const pet = { spotKey: JSON.stringify(data.spot ?? null), steering: false, sentAt: 0, key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2), acts: [], act: null, holdUntil: 0, waveFrom: 0, waveUntil: 0 }
   dress(pet, data)
   if (isArriving) {
     if (!still) Object.assign(pet, { x: L.cx + between(-6, 6), y: H + pet.art.feet, route: [home], mode: 'walk' })
@@ -737,6 +792,37 @@ $('roomView').addEventListener('close', () => {
   openRoomKey = null
 })
 
+const follow = (pet, place) => {
+  const key = JSON.stringify(place ?? null)
+  if (pet === undefined || place === undefined || pet.key === myKey || key === pet.spotKey) return
+  pet.spotKey = key
+  if (pet.mode === 'leave' || pet.mode === 'visit') return
+  Object.assign(pet, { route: [fromSpot(place)], mode: 'steer', acts: [], act: null, holdUntil: clock + STEER_HOLD })
+}
+
+const sendSpot = pet => {
+  pet.sentAt = clock
+  const [u, v] = toSpot(pet)
+  fetch('/v1/walk', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: myId, u, v }) }).catch(() => {})
+}
+
+const steer = (pet, dt) => {
+  const [dx, dy] = [...held].reduce(([x, y], key) => [x + ARROWS[key][0], y + ARROWS[key][1]], [0, 0])
+  if (dx === 0 && dy === 0) {
+    if (pet.steering) sendSpot(pet)
+    pet.steering = false
+    return false
+  }
+  const length = Math.hypot(dx, dy)
+  const [mx, my] = [(dx / length) * STEER_SPEED * dt, (dy / length) * STEER_SPEED * 0.6 * dt]
+  const next = [{ x: pet.x + mx, y: pet.y + my }, { x: pet.x + mx, y: pet.y }, { x: pet.x, y: pet.y + my }].find(point => valid(point.x, point.y))
+  if (next !== undefined) Object.assign(pet, next)
+  if (dx !== 0) pet.dir = dx < 0 ? -1 : 1
+  Object.assign(pet, { steering: true, route: [], mode: 'idle', acts: [], act: null, holdUntil: clock + STEER_HOLD })
+  if (clock - pet.sentAt >= STEER_SEND_EVERY) sendSpot(pet)
+  return true
+}
+
 const sync = view => {
   showRooms(view.rooms)
   const keys = new Set(view.pets.map(data => data.key))
@@ -749,7 +835,16 @@ const sync = view => {
       dress(pet, data)
     } else dress(pet, data)
   }
+  for (const data of view.pets) follow(pets.get(data.key), data.spot)
   for (const pet of pets.values()) if (!keys.has(pet.key) && pet.mode !== 'leave') leave(pet)
+  for (const chat of view.chats ?? []) {
+    if (seen.has(chat.key)) continue
+    seen.add(chat.key)
+    const echo = chat.from === myKey ? echoes.indexOf(chat.text) : -1
+    if (echo >= 0) echoes.splice(echo, 1)
+    else if (pets.has(chat.from) && (!isFirstSync || view.now - chat.at < 10_000)) shout(pets.get(chat.from), chat.text)
+  }
+  $('chat').hidden = myKey === null || !pets.has(myKey)
   for (const event of view.events) {
     if (seen.has(event.key)) continue
     seen.add(event.key)
@@ -779,11 +874,12 @@ const step = (pet, dt) => {
     pet.say = null
     pet.sayUntil = 0
   }
+  if (pet.key === myKey && pet.mode !== 'leave' && steer(pet, dt)) return true
   const target = pet.route[0]
   if (target !== undefined) {
     const [dx, dy] = [target.x - pet.x, target.y - pet.y]
     const distance = Math.hypot(dx, dy)
-    const speed = pet.mode === 'visit' ? VISIT_SPEED : (pet.mode === 'idle' ? 14 : 18) * (pet.mood === 'sleepy' ? 0.7 : pet.mood === 'excited' ? 1.2 : 1)
+    const speed = pet.mode === 'visit' ? VISIT_SPEED : pet.mode === 'steer' ? STEER_SPEED : (pet.mode === 'idle' ? 14 : 18) * (pet.mood === 'sleepy' ? 0.7 : pet.mood === 'excited' ? 1.2 : 1)
     if (Math.abs(dx) > 0.5) pet.dir = dx < 0 ? -1 : 1
     if (distance <= speed * dt) {
       pet.x = target.x
@@ -847,7 +943,7 @@ const step = (pet, dt) => {
 
 const drawPet = pet => {
   const { image, w, feet } = pet.art
-  const isMoving = pet.route.length > 0
+  const isMoving = pet.route.length > 0 || pet.steering
   const bob = still ? 0 : isMoving ? Math.floor(clock * 7 + pet.phase) % 2 : Math.floor(clock * 1.6 + pet.phase) % 2
   const hop = pet.hopUntil > clock ? Math.round(4 * Math.abs(Math.sin((pet.hopUntil - clock) * Math.PI * 2.5))) : 0
   oval(ctx, pet.x, pet.y + 1, 6, 2, 'rgba(61,51,70,.22)')
@@ -962,6 +1058,17 @@ const placeLabels = () => {
     pet.tag.style.transform = `translate(${x}px, ${y}px) translateX(-50%)`
     if (pet.say !== null) pet.say.style.transform = `translate(${x}px, ${(Math.round(pet.y) - pet.art.tall - 4) * S}px) translate(-50%, -100%)`
   }
+  for (const bubble of [...floats]) {
+    const age = clock - bubble.born
+    if (age >= FLOAT_LIFE) {
+      bubble.el.remove()
+      floats.splice(floats.indexOf(bubble), 1)
+      continue
+    }
+    const rise = still ? 0 : age * FLOAT_RISE
+    bubble.el.style.opacity = String(Math.min(1, (FLOAT_LIFE - age) / 1.5))
+    bubble.el.style.transform = `translate(${Math.round(bubble.x) * S}px, ${Math.round(bubble.y - rise) * S}px) translate(-50%, -100%)`
+  }
 }
 
 const bonkBoard = $('bonks')
@@ -1059,6 +1166,41 @@ phase = phaseOf(hourNow())
 resize()
 sync(JSON.parse($('state').textContent))
 addEventListener('resize', resize)
+const chatText = $('chatText')
+const isTyping = () => document.activeElement === chatText
+addEventListener('keydown', event => {
+  if (myKey === null || !pets.has(myKey) || $('roomView').open) return
+  if (event.key === 'Enter' && !isTyping()) {
+    event.preventDefault()
+    chatText.focus()
+    return
+  }
+  if (event.key === 'Escape' && isTyping()) chatText.blur()
+  if (isTyping() || ARROWS[event.key] === undefined) return
+  event.preventDefault()
+  held.add(event.key)
+})
+addEventListener('keyup', event => held.delete(event.key))
+addEventListener('blur', () => held.clear())
+const CHAT_HINT = chatText.placeholder
+const hint = text => {
+  chatText.placeholder = text
+  setTimeout(() => (chatText.placeholder = CHAT_HINT), 3000)
+}
+$('chat').addEventListener('submit', async event => {
+  event.preventDefault()
+  const text = chatText.value.replace(/\s+/g, ' ').trim()
+  chatText.value = ''
+  chatText.blur()
+  const pet = pets.get(myKey)
+  if (text.length === 0 || pet === undefined) return
+  shout(pet, text)
+  echoes.push(text)
+  const response = await fetch('/v1/say', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: myId, text }) }).catch(() => null)
+  if (response?.ok) return
+  echoes.splice(echoes.indexOf(text), 1)
+  hint(response?.status === 429 ? '조금 쉬었다가 말해요' : response?.status === 400 ? '그 말은 광장에서 못 해요' : '말이 전해지지 않았어요')
+})
 if ('EventSource' in window) new EventSource('/v1/plaza/stream').addEventListener('view', message => sync(JSON.parse(message.data)))
 else setInterval(poll, 4000)
 setInterval(() => {

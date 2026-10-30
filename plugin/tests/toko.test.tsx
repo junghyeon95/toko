@@ -580,6 +580,18 @@ test('a friend’s pet stays in the room and plays with toko, and toko can visit
   expect(posts.at(-1)).toMatchObject({ url: 'http://plaza.test/v1/visit/end', body: {} })
 })
 
+test('/toko plaza link gives a page address that knows which pet is mine', { options: { serverUrl: 'http://plaza.test/' } }, async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'pme123', 'toko:wallet': { coins: 0, items: [], worn: [] } })
+  await begin($)
+  const result = await $.command.run({ command: 'toko', args: 'plaza link' } as never)
+  expect(result.text.split('\n')).toEqual([
+    '이 주소를 브라우저로 열면 광장에서 말랑을(를) 직접 움직일 수 있어요. 방향키로 걷고 Enter로 말해요.',
+    '주소에 내 광장 id가 들어 있으니 다른 사람에게 보내지 마세요.',
+    'http://plaza.test/#me=pme123',
+  ])
+})
+
 test('a gift from a friend lands in the room with their name on it, and what toko is doing rides along on the poll', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me', 'toko:wallet': { coins: 0, items: [], worn: [] } })

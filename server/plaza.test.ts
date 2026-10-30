@@ -281,6 +281,34 @@ describe('plaza', () => {
   })
 })
 
+describe('walking and talking from the plaza page', () => {
+  test('a pet steered from the page shows its spot and its lines to everyone, without its plaza id', async () => {
+    let clock = 1_000
+    const plaza = createPlaza({ now: () => clock })
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    expect((await plaza.handle(post('/v1/walk', { id: 'aaaa1', u: 0.25, v: -3 }))).status).toBe(202)
+    expect((await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '  안녕\n 다들  ' }))).status).toBe(202)
+    const view = (await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body
+    expect(view.pets[0].spot).toEqual([0.25, -1])
+    expect(view.chats).toEqual([{ key: expect.any(String), from: view.pets[0].key, at: 1_000, text: '안녕 다들' }])
+    expect(JSON.stringify(view)).not.toContain('aaaa1')
+    clock += 31_000
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    expect((await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.chats).toEqual([])
+  })
+
+  test('only a pet in the plaza can walk or talk, rude or empty lines are refused, and talking too much is slowed down', async () => {
+    const plaza = createPlaza({ now: () => 1_000, actionsPerMinute: 2 })
+    expect((await plaza.handle(post('/v1/walk', { id: 'nobody', u: 0, v: 0 }))).status).toBe(404)
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    expect((await plaza.handle(post('/v1/walk', { id: 'aaaa1', u: 'left', v: 0 }))).status).toBe(400)
+    expect((await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '바보야' }))).status).toBe(400)
+    expect((await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '   ' }))).status).toBe(400)
+    const says = [await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '하나' })), await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '둘' })), await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '셋' }))]
+    expect(says.map(response => response.status)).toEqual([202, 202, 429])
+  })
+})
+
 describe('rooms and visits', () => {
   const memoryStorage = () => {
     let text: string | null = null

@@ -17,7 +17,7 @@ import { RESERVED_AI_CALLS, bubbleLine, chatRules, nameProblem } from './lib/per
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
-import { ROOM_ACTS, ROOM_ACT_LABEL, bonkBoardText, findFriend, isRoomAct, weatherText } from './lib/plaza'
+import { ROOM_ACTS, ROOM_ACT_LABEL, bonkBoardText, findFriend, isRoomAct, plazaEndpoint, weatherText } from './lib/plaza'
 import type { PlazaAction, RoomAct } from './lib/plaza'
 import { questText } from './lib/quests'
 import type { RoomSlot } from './lib/room'
@@ -408,7 +408,7 @@ export const HELP = [
   '/toko answer <선택지> — 토코가 물어본 것에 대답하기 (예: /toko answer 숨 고르기)',
   `/toko gacha fashion | gacha pet — 패션 아이템 · 애완동물 랜덤 뽑기(각 ${GACHA.fashion.price}코인, 안 가진 것만 나와요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
-  '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
+  '/toko plaza on | off | link | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장(link: 브라우저에서 내 펫 움직이기)',
   '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면, boss: 보스전, souvenir: 휴식 기념품)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
@@ -533,6 +533,15 @@ async function plazaCommand($: $, brain: Brain, words: readonly string[]): Promi
   const toggle = onOff(sub)
   if (toggle !== null) {
     return changeSettings($, brain, { isPlazaOn: toggle }, toggle ? '광장에 나갈게요.' : '광장에서 나왔어요.')
+  }
+  if (sub === 'link') {
+    const url = plazaEndpoint(brain.serverUrl, `/#me=${encodeURIComponent(brain.plazaId)}`)
+    return {
+      text:
+        url === null
+          ? '광장 서버가 설정되지 않았어요(serverUrl).'
+          : [`이 주소를 브라우저로 열면 광장에서 ${nameOf(brain.pet) ?? '토코'}을(를) 직접 움직일 수 있어요. 방향키로 걷고 Enter로 말해요.`, '주소에 내 광장 id가 들어 있으니 다른 사람에게 보내지 마세요.', url].join('\n'),
+    }
   }
   const action = sub === undefined ? undefined : PLAZA_WORDS[sub]
   if (action === undefined) {
