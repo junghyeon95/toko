@@ -24,7 +24,8 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .sign .hint{margin-top:4px;color:#ffe2c2}
 .sign .weather{margin-top:6px;padding-top:6px;border-top:2px dashed #a86b3c}
 .sign .weather b{color:#ffe2c2}
-.board{top:auto;bottom:20px;max-width:300px}
+.board{top:auto;bottom:20px;max-width:300px;padding-right:106px}
+#bonk-art{position:absolute;right:14px;top:12px;width:78px;height:60px;image-rendering:pixelated;box-shadow:0 0 0 3px #5a3420}
 .board h2{margin:0;font:16px/1.2 Galmuri14,Galmuri11,sans-serif;text-shadow:0 2px 0 #7a4627}
 .board ol{margin:6px 0 0;padding-left:18px;font-size:11px;line-height:1.6}
 .board b{color:#ffe2c2}
@@ -45,7 +46,7 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 <canvas id="world" role="img" aria-label="토코 광장: 들어온 토코들이 분수대 광장을 돌아다니는 그림"></canvas>
 <div id="labels" aria-hidden="true"></div>
 <header class="sign"><h1>토코 광장</h1><p id="count">지금 {{count}}마리가 함께 쉬어 가는 중이에요</p><p class="hint">Claude Code에서 토코를 켜 두면 여기로 놀러 와요</p><p class="weather" id="weather" hidden></p></header>
-<aside class="sign board" id="bonks" hidden><h2>뿅망치 전광판</h2><p>오늘 Clawd가 <b id="bonk-total">0</b>번 맞았어요</p><ol id="bonk-top"></ol></aside>
+<aside class="sign board" id="bonks" hidden><h2>뿅망치 전광판</h2><p>오늘 Clawd가 <b id="bonk-total">0</b>번 맞았어요</p><ol id="bonk-top"></ol><canvas id="bonk-art" width="26" height="20" aria-hidden="true"></canvas></aside>
 <nav id="rooms" class="rooms" aria-label="열린 방" hidden><b>방 구경</b><div id="roomList" style="display:flex;flex-direction:column;gap:4px"></div></nav>
 <dialog id="roomView" aria-labelledby="roomTitle"><canvas id="roomCanvas"></canvas><p id="roomTitle"></p><button id="roomClose" type="button">닫기</button></dialog>
 <p id="empty" {{empty}}>아직 아무도 없어요. 토코를 데리고 놀러 오세요</p>
@@ -133,6 +134,14 @@ const FX = {
   crumb: art(['gG', 'Gg'], { g: '#d8954a', G: '#7a4a2a' }),
   hand: art(['.o.o.o.', 'oyoyoyo', 'oyyyyyo', 'oyyyyyo', '.oyyyo.', '..ooo..'], { o: INK, y: '#fff1dc' }),
 }
+const CLAWD_COLORS = { O: '#d97757', e: '#221122' }
+const CLAWD = art(['.OOOOOOOOOO.', '.OOeOOOOeOO.', '.OOeOOOOeOO.', 'OOOOOOOOOOOO', '.OOOOOOOOOO.', '..O.O..O.O..'], CLAWD_COLORS)
+const CLAWD_FLAT = art(['............', '............', '.OOOOOOOOOO.', 'OOeeOOOOeeOO', 'OOOOOOOOOOOO', 'O.O......O.O'], CLAWD_COLORS)
+const HAMMER_COLORS = { R: '#ee3344', r: '#aa2233', h: '#aa7744' }
+const HAMMER_UP = art(['rRRRr', 'RRRRR', 'rRRRr', '..h..', '..h..', '..h..'], HAMMER_COLORS)
+const HAMMER_DOWN = art(['..h..', '..h..', '..h..', 'rRRRr', 'RRRRR', 'rRRRr'], HAMMER_COLORS)
+const HAMMER_SIDE = art(['.rRr...', 'RRRRhhh', '.rRr...'], HAMMER_COLORS)
+const BONK_STAR = art(['.y.', 'yYy', '.y.'], { y: '#ffc93c', Y: '#fff3b0' })
 const TOSS = { heart: ['heart', 3], snack: ['cookie', 1], cheer: ['star', 3] }
 const VISITS = new Set(['wave', ...Object.keys(TOSS)])
 const VISIT_SPEED = 30
@@ -955,6 +964,24 @@ const placeLabels = () => {
   }
 }
 
+const bonkBoard = $('bonks')
+const bonkArt = $('bonk-art').getContext('2d')
+const drawBonkArt = () => {
+  const t = still ? 1.3 : clock % 2.4
+  box(bonkArt, 0, 0, 26, 20, '#2b2233')
+  box(bonkArt, 0, 18, 26, 2, '#45395a')
+  if (t >= 1.2 && t < 1.8) {
+    bonkArt.drawImage(CLAWD_FLAT, 3, 12)
+    bonkArt.drawImage(HAMMER_DOWN, 6, 8)
+    const rise = Math.floor((t - 1.2) / 0.15)
+    for (const [x, y] of [[0, 10], [15, 9], [12, 4]]) bonkArt.drawImage(BONK_STAR, x, y - rise)
+    return
+  }
+  bonkArt.drawImage(CLAWD, 3, t < 1 && Math.floor(t * 5) % 2 === 1 ? 11 : 12)
+  if (t >= 1.1 && t < 1.2) bonkArt.drawImage(HAMMER_SIDE, 11, 6)
+  else bonkArt.drawImage(HAMMER_UP, 18, t >= 0.9 && t < 1.1 ? 2 : 4)
+}
+
 const tick = now => {
   const dt = Math.min(0.05, (now - last) / 1000 || 0)
   last = now
@@ -993,6 +1020,7 @@ const tick = now => {
     ctx.globalCompositeOperation = 'source-over'
   }
   placeLabels()
+  if (!bonkBoard.hidden) drawBonkArt()
   requestAnimationFrame(tick)
 }
 
