@@ -9,7 +9,7 @@ Claude Code 프롬프트 위에 사는 픽셀 펫입니다. Claude가 일하는 
 Claude Code 터미널 세션의 프롬프트에서 설치합니다.
 
 ```text
-/plugin install toko --marketplace junghyeon95/toko
+/plugin install toko --marketplace teamdable/toko-plaza
 ```
 
 명령 · 광장 서버 설정은 레포 루트의 README를 보세요. `/toko help`로 명령 목록을 볼 수 있습니다.

@@ -16,16 +16,16 @@
 Claude Code 터미널 세션의 프롬프트에서 입력합니다.
 
 ```text
-/plugin install toko --marketplace junghyeon95/toko
+/plugin install toko --marketplace teamdable/toko-plaza
 ```
 
 마켓플레이스를 추가할지 물으면 `y`를 누르고, 범위를 고릅니다. 셸에서는 이렇게 설치합니다.
 
 ```bash
-claude plugin install toko --marketplace junghyeon95/toko
+claude plugin install toko --marketplace teamdable/toko-plaza
 ```
 
-데스크톱 앱에서는 프롬프트 옆의 + → Plugins → Add marketplace에 `junghyeon95/toko`를 넣고 Add plugin을 누릅니다. 데스크톱과 VS Code 화면에서는 픽셀 그림 대신 한 줄 글로 보입니다.
+데스크톱 앱에서는 프롬프트 옆의 + → Plugins → Add marketplace에 `teamdable/toko-plaza`를 넣고 Add plugin을 누릅니다. 데스크톱과 VS Code 화면에서는 픽셀 그림 대신 한 줄 글로 보입니다.
 
 ## 전체 구조
 
