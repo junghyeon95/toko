@@ -538,6 +538,19 @@ test('a rest souvenir shows up in the room without costing a coin', async ($, on
   expect(world.saved['toko:wallet']).toMatchObject({ items: ['water-bottle'], room: { 'floor-1': 'water-bottle' } })
 })
 
+test('/toko coins explains every way to earn coins with the amounts the pet really pays', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 45, items: [], worn: [] } })
+  await begin($)
+  const lines = (await $.command.run({ command: 'toko', args: 'coins' } as never)).text.split('\n')
+  expect(lines[0]).toBe('코인 모으는 법 · 지금 45코인')
+  expect(lines).toContain('- 턴이 끝날 때 출력 토큰만큼 받아요: 500토큰 9코인 · 1,500토큰 18코인 · 7,500토큰 36코인')
+  expect(lines).toContain('- 기지개 15코인 · 마무리 정리 20코인 · 집중 타이머 끝까지 10코인')
+  expect(lines).toContain('- 오늘의 퀘스트 하나에 5코인, 셋 다 하면 10코인과 선물 상자 (/toko quests)')
+  expect(lines).toContain('- 업적 하나에 10~80코인 (/toko badges)')
+  expect(lines).toContain('- 테스트를 통과시킨 직후 벌레 잡기: 한 마리에 2코인, 최대 20코인')
+})
+
 test('a demo hands out coins, and an odd amount is refused', async ($, on) => {
   mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 45, items: [], worn: [] } })

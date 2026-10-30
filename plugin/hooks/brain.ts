@@ -41,7 +41,7 @@ import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordS
 import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
-import { DYES, GACHA, HEALTH_REWARD, SEASONS, SPEND, balanceOf, buy, dyeOf, exchangeStars, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, isInSeason, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
+import { BUG_REWARD, DYES, GACHA, HEALTH_REWARD, SEASONS, SPEND, balanceOf, buy, dyeOf, exchangeStars, capTokenIncome, earnBalance, earnedTokenToday, emptyEarn, isEmptyEarn, isInSeason, pullGacha, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
 import type { GachaKind, ShopItem, TurnUsage } from './lib/economy'
 import type { RoomSlot } from './lib/room'
 import { SOUVENIRS, autoPlace, completedSets, cozinessOf, cycleSlot, isRoomItem, layoutOf, newSouvenirs, placeItem, slotLabel, storeItem, ROOM_SETS } from './lib/room'
@@ -1626,7 +1626,7 @@ async function stepGame($: $, brain: Brain): Promise<void> {
     return
   }
   if (brain.now >= game.endsAt) {
-    const reward = Math.min(20, game.caught * 2)
+    const reward = Math.min(BUG_REWARD.max, game.caught * BUG_REWARD.each)
     brain.game = null
     healthReward(brain, reward)
     remember(brain, 'played', `bugs ${game.caught}`)

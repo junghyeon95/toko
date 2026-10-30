@@ -4,11 +4,11 @@ import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
 import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, giveName, catchInGame, chatted, checkInit, comeHome, createBrain, cycleRoom, demoBoss, demoCoins, demoSouvenir, doingOf, dyeItem, exchangeForStars, giftToFriend, noteDoing, sendSticker, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, placeInRoom, playInRoom, purchase, reflect, refreshShared, remember, roomViewOf, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, sendGuestHome, startHatch, stopFocus, storeInRoom, summarizePeer, viewFriendRoom, visitFriend, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
-import { badgeText } from './lib/badges'
-import { failedCount } from './lib/boss'
-import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
-import { GACHA, SHOP, SPEND, STAR_PIECES_PER_PICK, shopItem } from './lib/economy'
-import { featureOfCommand, featureOfTool, featureText } from './lib/features'
+import { BADGES, badgeText } from './lib/badges'
+import { BOSS_REWARD, BOSS_STREAK, failedCount } from './lib/boss'
+import { DEX_NAMES, DEX_REWARD, dexText, isEncounterKind } from './lib/dex'
+import { BUG_REWARD, CACHE_BONUS, DAILY_TOKEN_CAP, GACHA, HEALTH_REWARD, SHOP, SPEND, STAR_PIECES_PER_PICK, shopItem, turnIncome } from './lib/economy'
+import { FEATURE_REWARD, featureOfCommand, featureOfTool, featureText } from './lib/features'
 import { isCheckPrompt, permissionKey } from './lib/tips'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
@@ -19,7 +19,7 @@ import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
 import { ROOM_ACTS, ROOM_ACT_LABEL, bonkBoardText, findFriend, isRoomAct, plazaEndpoint, weatherText } from './lib/plaza'
 import type { PlazaAction, RoomAct } from './lib/plaza'
-import { questText } from './lib/quests'
+import { QUEST_BONUS, QUEST_REWARD, questText } from './lib/quests'
 import type { RoomSlot } from './lib/room'
 import { ROOM_SLOTS, furnitureText, isRoomItem, isRoomSlot, layoutOf, storedRoomItems } from './lib/room'
 import { hashText } from './lib/random'
@@ -396,6 +396,7 @@ export const HELP = [
   '/toko doing auto | off | <문구> — 광장 이름표에 지금 하는 일 보여 주기',
   '/toko card — 펫 카드',
   '/toko focus 25 | focus off — 집중 타이머(그동안 말 걸지 않기)',
+  '/toko coins — 코인 모으는 법',
   '/toko quests — 오늘의 퀘스트',
   '/toko badges — 업적',
   '/toko dex — 인카운터 도감',
@@ -527,6 +528,36 @@ const findShelved = (shelf: readonly TokoPet[], query: string): TokoPet | undefi
 
 const DEMO_COINS = 1000
 const MAX_DEMO_COINS = 100_000
+
+const TOKEN_EXAMPLES = [500, 1_500, 7_500] as const
+
+const coinGuide = (brain: Brain): string => {
+  const badgeRewards = BADGES.map(badge => badge.reward)
+  const tokenCoins = TOKEN_EXAMPLES.map(tokens => `${tokens.toLocaleString('en-US')}토큰 ${turnIncome({ input_tokens: 0, output_tokens: tokens, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })}코인`)
+  return [
+    `코인 모으는 법 · 지금 ${balance(brain)}코인`,
+    '',
+    '일하면서',
+    `- 턴이 끝날 때 출력 토큰만큼 받아요: ${tokenCoins.join(' · ')}`,
+    `- 캐시를 절반 넘게 읽은 턴은 ${CACHE_BONUS}배예요. 토큰 수입은 하루 ${DAILY_TOKEN_CAP}코인에서 멈춰요`,
+    '',
+    '쉬면서 (하루 상한 없음)',
+    `- 기지개 ${HEALTH_REWARD.breakAccepted}코인 · 마무리 정리 ${HEALTH_REWARD.finishedOnTime}코인 · 집중 타이머 끝까지 ${HEALTH_REWARD.focusDone}코인`,
+    `- 광장 같이 기지개 ${HEALTH_REWARD.plazaStretch}코인 · 먼 곳 보기 ${HEALTH_REWARD.eyeRestDone}코인 · 숨 고르기 ${HEALTH_REWARD.breathDone}코인`,
+    '',
+    '매일',
+    `- 오늘의 퀘스트 하나에 ${QUEST_REWARD}코인, 셋 다 하면 ${QUEST_BONUS}코인과 선물 상자 (/toko quests)`,
+    '',
+    '처음 해 보면',
+    `- 인카운터를 처음 보면 ${DEX_REWARD.first}코인, 반짝이면 ${DEX_REWARD.shiny}코인 더 (/toko dex)`,
+    `- Claude Code 기능을 처음 쓰면 ${FEATURE_REWARD}코인 (/toko features)`,
+    `- 업적 하나에 ${Math.min(...badgeRewards)}~${Math.max(...badgeRewards)}코인 (/toko badges)`,
+    '',
+    '가끔',
+    `- 같은 테스트가 ${BOSS_STREAK}번 실패한 뒤 통과하면 보스를 쓰러뜨리고 ${BOSS_REWARD}코인`,
+    `- 테스트를 통과시킨 직후 벌레 잡기: 한 마리에 ${BUG_REWARD.each}코인, 최대 ${BUG_REWARD.max}코인`,
+  ].join('\n')
+}
 
 const PLAZA_WORDS: Readonly<Record<string, PlazaAction>> = { wave: 'wave', heart: 'heart', snack: 'snack', cheer: 'cheer', invite: 'stretch-call' }
 
@@ -809,6 +840,8 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       return { text: card(brain) }
     case 'focus':
       return { text: await focusCommand($, ctx, value) }
+    case 'coins':
+      return { text: coinGuide(brain) }
     case 'quests':
       return { text: questText(progressOf(brain).quests) }
     case 'badges':
