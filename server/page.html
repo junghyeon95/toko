@@ -31,6 +31,7 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .rooms b{font:14px/1 Galmuri14,Galmuri11,sans-serif}
 .rooms button,#roomView button{font:inherit;color:var(--ink);text-align:left;padding:4px 8px;border:2px solid var(--ink);background:#ffe8c7;cursor:pointer}
 .rooms button:hover,#roomView button:hover{background:#ffd49a}
+.rooms button.out{background:#f1ece4;color:#7a6f80;border-style:dashed}
 #roomView{padding:14px;border:4px solid var(--ink);background:#fffaf0;color:var(--ink);font:12px Galmuri11,sans-serif;max-width:calc(100vw - 40px)}
 #roomView::backdrop{background:rgba(43,34,51,.55)}
 #roomCanvas{display:block;max-width:100%;image-rendering:pixelated;background:#2b2233}
@@ -602,7 +603,7 @@ const drawRoom = () => {
     const y = tall - 1 - (art.feet + 1) * 2
     g.drawImage(art.image, x * ROOM_SCALE, y * ROOM_SCALE, art.w * 2 * ROOM_SCALE, sprite.rows.length * 2 * ROOM_SCALE)
   })
-  $('roomTitle').textContent = room.guests.length === 0 ? `${room.name}네 방` : `${room.name}네 방 — 놀러 온 손님: ${room.guests.map(guest => guest.name).join(', ')}`
+  $('roomTitle').textContent = [`${room.name}네 방${room.isOwnerOut ? ' (주인은 광장에 없음)' : ''}`, ...(room.guests.length === 0 ? [] : [`놀러 온 손님: ${room.guests.map(guest => guest.name).join(', ')}`])].join(' — ')
 }
 
 const showRooms = list => {
@@ -612,7 +613,8 @@ const showRooms = list => {
     ...rooms.map(room => {
       const button = document.createElement('button')
       button.type = 'button'
-      button.textContent = room.guests.length === 0 ? `${room.name}네 방` : `${room.name}네 방 · 손님 ${room.guests.length}`
+      button.textContent = [`${room.name}네 방`, ...(room.guests.length === 0 ? [] : [`손님 ${room.guests.length}`]), ...(room.isOwnerOut ? ['광장에 없음'] : [])].join(' · ')
+      button.classList.toggle('out', room.isOwnerOut === true)
       button.addEventListener('click', () => {
         openRoomKey = room.key
         drawRoom()

@@ -370,7 +370,7 @@ const hashOf = (text: string): string => {
   return hash.toString(36)
 }
 
-export type RoomView = { key: string; name: string; picture: Sprite; owner: Sprite; guests: { name: string; sprite: Sprite }[] }
+export type RoomView = { key: string; name: string; isOwnerOut: boolean; picture: Sprite; owner: Sprite; guests: { name: string; sprite: Sprite }[] }
 
 export type PlazaView = {
   now: number
@@ -544,10 +544,12 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       .map(room => ({
         key: hashOf(room.owner.id),
         name: room.owner.name,
+        isOwnerOut: !members.has(room.owner.id),
         picture: room.picture,
         owner: spriteFor(room.owner),
         guests: [...visits.values()].filter(stay => stay.host === room.owner.id).map(stay => ({ name: stay.guest.name, sprite: spriteFor(stay.guest) })),
       }))
+      .sort((a, b) => Number(a.isOwnerOut) - Number(b.isOwnerOut))
 
 
   const eventsFor = (id: string, since: number): PlazaEvent[] =>
@@ -616,13 +618,15 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     }
   }
 
-  const keepCards = (me: Member): void => {
-    const card = senderOf(me)
+  const cardOf = (me: Member): PlazaEvent['from'] => senderOf(members.get(me.id) ?? me)
+
+  const keepCards = (me: Member): boolean => {
+    const card = cardOf(me)
     const visit = visits.get(me.id)
     const room = rooms.get(me.id)
     const isStale = (visit !== undefined && JSON.stringify(visit.guest) !== JSON.stringify(card)) || (room !== undefined && JSON.stringify(room.owner) !== JSON.stringify(card))
     if (!isStale) {
-      return
+      return false
     }
     if (visit !== undefined) {
       visits.set(me.id, { ...visit, guest: card })
@@ -631,6 +635,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       rooms.set(me.id, { ...room, owner: card })
     }
     persist()
+    return true
   }
 
   const keepRoom = (me: Member, raw: Record<string, unknown> | null): void => {
@@ -640,7 +645,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     }
     const picture = parsePicture(raw?.roomPicture)
     const before = rooms.get(me.id)
-    const room: Room = { owner: senderOf(me), layout, isOpen: raw?.isRoomOpen !== false, ...(picture === null ? {} : { picture }), stickers: before?.stickers ?? [] }
+    const room: Room = { owner: cardOf(me), layout, isOpen: raw?.isRoomOpen !== false, ...(picture === null ? {} : { picture }), stickers: before?.stickers ?? [] }
     if (JSON.stringify(before) === JSON.stringify(room)) {
       return
     }
@@ -650,7 +655,6 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   }
 
   const join = (me: Member): void => {
-    keepCards(me)
     const before = members.get(me.id)
     const reports = tabs.get(me.id) ?? new Map<string, Member>()
     reports.set(me.tab ?? '', me)
@@ -661,8 +665,11 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     }
     tabs.set(me.id, reports)
     remerge(me.id)
-    if (!sameLook(before, members.get(me.id))) {
+    const isNewLook = !sameLook(before, members.get(me.id))
+    if (isNewLook) {
       changed.set(me.id, me.lastSeen)
+    }
+    if (keepCards(me) || isNewLook) {
       broadcast()
     }
   }
@@ -761,7 +768,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       return json(409, { error: 'the room is full' })
     }
     const before = visits.get(me.id)
-    visits.set(me.id, { guest: senderOf(me), host: to, since: at, notes: [] })
+    visits.set(me.id, { guest: cardOf(me), host: to, since: at, notes: [] })
     persist()
     if (before !== undefined) {
       record({ id: nextId(), at, kind: 'home', from: senderOf(me), to: before.host, line: `${me.name}이(가) 집에 갔어`, guest: me.id })

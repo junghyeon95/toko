@@ -354,4 +354,29 @@ describe('rooms and visits', () => {
     const view = await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))
     expect(view.body.pets.some((pet: { doing?: string }) => pet.doing !== undefined)).toBe(false)
   })
+
+  const picture = { palette: ['ffffff'], rows: ['0'] }
+  const tab = (tab: string, name: string, status: string) => ({ me: { ...me('pung1', name), status, tab, room: { rug: 'rug' }, roomPicture: picture }, since: 0 })
+
+  test('the room list shows the same name as the pet on the plaza, whichever tab reported last', async () => {
+    const plaza = createPlaza({ now: () => 1_000 })
+    await plaza.handle(post('/v1/poll', tab('one', '풍풍이', 'working')))
+    await plaza.handle(post('/v1/poll', tab('two', '녀우', 'away')))
+    const view = await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))
+    expect(view.body.pets.map((pet: { name: string }) => pet.name)).toEqual(['풍풍이'])
+    expect(view.body.rooms.map((room: { name: string }) => room.name)).toEqual(['풍풍이'])
+  })
+
+  test('a room whose owner left the plaza stays open but is marked as out and listed last', async () => {
+    let clock = 1_000
+    const plaza = createPlaza({ now: () => clock })
+    await plaza.handle(post('/v1/poll', { me: { ...me('gone1', '풍풍이'), room: { rug: 'rug' }, roomPicture: picture }, since: 0 }))
+    clock += 120_000
+    await plaza.handle(post('/v1/poll', { me: { ...me('here1', '녀우'), room: { rug: 'rug' }, roomPicture: picture }, since: 0 }))
+    const view = await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))
+    expect(view.body.rooms.map((room: { name: string; isOwnerOut: boolean }) => [room.name, room.isOwnerOut])).toEqual([
+      ['녀우', false],
+      ['풍풍이', true],
+    ])
+  })
 })
