@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, giveName, catchInGame, chatted, checkInit, comeHome, createBrain, cycleRoom, demoBoss, demoSouvenir, doingOf, dyeItem, exchangeForStars, giftToFriend, noteDoing, sendSticker, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, placeInRoom, playInRoom, purchase, reflect, refreshShared, remember, roomViewOf, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, sendGuestHome, startHatch, stopFocus, storeInRoom, summarizePeer, viewFriendRoom, visitFriend, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, giveName, catchInGame, chatted, checkInit, comeHome, createBrain, cycleRoom, demoBoss, demoCoins, demoSouvenir, doingOf, dyeItem, exchangeForStars, giftToFriend, noteDoing, sendSticker, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, placeInRoom, playInRoom, purchase, reflect, refreshShared, remember, roomViewOf, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, sendGuestHome, startHatch, stopFocus, storeInRoom, summarizePeer, viewFriendRoom, visitFriend, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { failedCount } from './lib/boss'
@@ -409,7 +409,7 @@ export const HELP = [
   `/toko gacha fashion | gacha pet — 패션 아이템 · 애완동물 랜덤 뽑기(각 ${GACHA.fashion.price}코인, 안 가진 것만 나와요)`,
   '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | link | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장(link: 브라우저에서 내 펫 움직이기)',
-  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면, boss: 보스전, souvenir: 휴식 기념품)',
+  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용, update: 새 기능 소개, halloween: 할로윈 장면, boss: 보스전, souvenir: 휴식 기념품, coins [개수]: 코인 받기)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
 ].join('\n')
@@ -524,6 +524,9 @@ const findShelved = (shelf: readonly TokoPet[], query: string): TokoPet | undefi
   const index = Number(query)
   return Number.isInteger(index) ? shelf[index - 1] : shelf.find(pet => pet.soul?.name === query)
 }
+
+const DEMO_COINS = 1000
+const MAX_DEMO_COINS = 100_000
 
 const PLAZA_WORDS: Readonly<Record<string, PlazaAction>> = { wave: 'wave', heart: 'heart', snack: 'snack', cheer: 'cheer', invite: 'stretch-call' }
 
@@ -861,6 +864,15 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       if (kind === 'update') {
         $.clock.after(1, () => void demoNews($, ctx))
         return { text: '업데이트 내역에서 새 기능을 고르고 있어요. 몇 초 뒤에 토코가 알려 줄게요.' }
+      }
+      if (kind === 'coins') {
+        const amount = Number(rest[1] ?? DEMO_COINS)
+        if (!Number.isInteger(amount) || amount < 1 || amount > MAX_DEMO_COINS) {
+          return { text: `코인은 1부터 ${MAX_DEMO_COINS}까지 정수로 적어 주세요. 예: /toko event coins ${DEMO_COINS}` }
+        }
+        const text = await demoCoins($, brain, amount)
+        await sync($, brain)
+        return { text }
       }
       if (kind === 'boss') {
         const text = await demoBoss($, brain)

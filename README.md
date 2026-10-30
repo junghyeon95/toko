@@ -333,7 +333,7 @@ Claude Code 기능을 처음 써 볼 때마다 기능 도감에 도장이 찍히
 | `/toko send <이름\|번호> <내용>` | 탭 이름 일부나 번호로 고른 옆 세션에 보냅니다. 그 세션이 일하는 중이면 끝난 뒤 들어갑니다. `send` 대신 `보내`, `/toko 배포한테 … 보내줘`도 됩니다 |
 | `/toko news` | 지금까지 소개한 Claude Code 새 기능을 다시 봅니다 |
 | `/toko features` | 기능 도감. 써 본 기능과 아직 안 써 본 기능의 쓰는 법을 봅니다 |
-| `/toko event <종류>` | 권유나 장면을 바로 띄웁니다(시연용). 예: `/toko event butterfly shiny`, `/toko event update`(새 기능 소개) |
+| `/toko event <종류>` | 권유나 장면을 바로 띄웁니다(시연용). 예: `/toko event butterfly shiny`, `/toko event update`(새 기능 소개), `/toko event coins 1000`(코인 받기, 1~100000) |
 | `/toko plaza` · `plaza wave <이름>` · `plaza invite` | 광장 |
 | `/bonk <이유>` · `/feed` · `/play` · `/memo <내용>` | 분풀이 · 먹이 · 놀기 · 메모 맡기기 |
 
@@ -386,7 +386,7 @@ docker build -t toko-plaza .     # 컨테이너로 띄울 때. uid 1000, HOME=/a
 
 ```bash
 claude plugin validate plugin   # 매니페스트와 훅 모듈을 엔진이 읽는 방식으로 검사
-claude plugin test plugin       # 플러그인 테스트 196개(방 꾸미기 · 테마 세트 · 휴식 기념품 · 방문 · 선물 · 경제 · 터미널 사이 동기화 · 게이트 · 렌더링 · 애완동물 · 분풀이 · 이름 짓기 · 광장 · 옆 세션 소식 · 뽑기 · 업적 · 퀘스트 · 집중 · 도감 · 미터 · 메모 · 오늘 요약 · 종족 말투 · 새 기능 소개 · 기능 도감 · 상황별 팁 · 뿅망치 메모리 · 보스전 · 할로윈 · Claude 날씨)
+claude plugin test plugin       # 플러그인 테스트 197개(방 꾸미기 · 테마 세트 · 휴식 기념품 · 방문 · 선물 · 경제 · 터미널 사이 동기화 · 게이트 · 렌더링 · 애완동물 · 분풀이 · 이름 짓기 · 광장 · 옆 세션 소식 · 뽑기 · 업적 · 퀘스트 · 집중 · 도감 · 미터 · 메모 · 오늘 요약 · 종족 말투 · 새 기능 소개 · 기능 도감 · 상황별 팁 · 뿅망치 메모리 · 보스전 · 할로윈 · Claude 날씨)
 cd server && bun test           # 광장 서버 테스트 33개
 ```
 

@@ -538,6 +538,18 @@ test('a rest souvenir shows up in the room without costing a coin', async ($, on
   expect(world.saved['toko:wallet']).toMatchObject({ items: ['water-bottle'], room: { 'floor-1': 'water-bottle' } })
 })
 
+test('a demo hands out coins, and an odd amount is refused', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 45, items: [], worn: [] } })
+  await begin($)
+  const result = await $.command.run({ command: 'toko', args: 'event coins' } as never)
+  expect(result.text).toBe('1000코인을 받았어요. 지금 1045코인이에요.')
+  expect(world.saved['toko:wallet']).toMatchObject({ coins: 1045 })
+  const odd = await $.command.run({ command: 'toko', args: 'event coins -5' } as never)
+  expect(odd.text).toBe('코인은 1부터 100000까지 정수로 적어 주세요. 예: /toko event coins 1000')
+  expect(world.saved['toko:wallet']).toMatchObject({ coins: 1045 })
+})
+
 test('a friend’s pet stays in the room and plays with toko, and toko can visit and come back', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me', 'toko:wallet': { coins: 0, items: ['cushion'], worn: [], room: { 'floor-1': 'cushion' } } })

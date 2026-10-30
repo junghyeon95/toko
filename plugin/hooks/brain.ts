@@ -683,6 +683,12 @@ export async function demoSouvenir($: $, brain: Brain): Promise<string> {
   return `${item.name} 기념품을 받았어요.`
 }
 
+export async function demoCoins($: $, brain: Brain, amount: number): Promise<string> {
+  brain.wallet = { ...brain.wallet, coins: brain.wallet.coins + amount }
+  await save($, brain)
+  return `${amount}코인을 받았어요. 지금 ${balance(brain)}코인이에요.`
+}
+
 async function announce($: $, brain: Brain, phrases: readonly string[]): Promise<void> {
   if (phrases.length === 0) {
     return
