@@ -300,7 +300,12 @@ const parseCard = (value: unknown): Card | null => {
   }
 }
 
-type Saved = { rooms: Room[]; visits: Visit[]; gifts: [string, Gift[]][] }
+type Saved = { rooms: Room[]; visits: Visit[]; gifts: [string, Gift[]][]; spots: [string, Spot][] }
+
+const toSpot = (value: number): number => Math.round(Math.max(-1, Math.min(1, value)) * 1000) / 1000
+
+const isSpot = (value: Record<string, unknown> | null): value is { u: number; v: number } =>
+  typeof value?.u === 'number' && typeof value.v === 'number' && Number.isFinite(value.u) && Number.isFinite(value.v)
 
 export const parseSaved = (text: string | null): Saved => {
   try {
@@ -334,9 +339,14 @@ export const parseSaved = (text: string | null): Saved => {
     const gifts: [string, Gift[]][] = (Array.isArray(raw?.gifts) ? raw.gifts : [])
       .filter((entry): entry is [unknown, unknown] => Array.isArray(entry) && entry.length === 2)
       .map(([to, list]) => [clean(to, 64), (Array.isArray(list) ? list : []).map(gift => asRecord(gift)).filter((gift): gift is Record<string, unknown> => gift !== null).map(gift => ({ id: clean(gift.id, 64), item: clean(gift.item, 24), from: clean(gift.from, 12), at: typeof gift.at === 'number' ? gift.at : 0 }))])
-    return { rooms, visits, gifts }
+    const spots: [string, Spot][] = (Array.isArray(raw?.spots) ? raw.spots : [])
+      .filter((entry): entry is [unknown, unknown] => Array.isArray(entry) && entry.length === 2)
+      .map(([id, value]) => [clean(id, 64), asRecord(value)] as const)
+      .filter((entry): entry is readonly [string, { u: number; v: number }] => entry[0].length > 0 && isSpot(entry[1]))
+      .map(([id, spot]) => [id, { u: toSpot(spot.u), v: toSpot(spot.v) }])
+    return { rooms, visits, gifts, spots }
   } catch {
-    return { rooms: [], visits: [], gifts: [] }
+    return { rooms: [], visits: [], gifts: [], spots: [] }
   }
 }
 
@@ -605,7 +615,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   let bonkDay = ''
   const bonkCounts = new Map<string, number>()
   let weather: Weather | null = null
-  const spots = new Map<string, Spot>()
+  const spots = new Map<string, Spot>(saved.spots)
   let chats: Chat[] = []
 
   const nextId = (): string => {
@@ -624,7 +634,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       .map(member => ({ ...friendOf(member), isRoomOpen: rooms.get(member.id)?.isOpen === true }))
 
   const persist = (): void => {
-    storage?.write(JSON.stringify({ rooms: [...rooms.values()], visits: [...visits.values()], gifts: [...gifts.entries()] }))
+    storage?.write(JSON.stringify({ rooms: [...rooms.values()], visits: [...visits.values()], gifts: [...gifts.entries()], spots: [...spots.entries()] }))
   }
 
   const guestsOf = (host: string) => [...visits.values()].filter(visit => visit.host === host).map(visit => ({ ...visit.guest, since: visit.since }))
@@ -717,7 +727,6 @@ export const createPlaza = (options: PlazaOptions = {}) => {
         actions.delete(`bonk:${id}`)
         actions.delete(`say:${id}`)
         changed.delete(id)
-        spots.delete(id)
       }
     }
     if (members.size !== before) {
@@ -840,11 +849,12 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   }
 
   const place = (id: string, u: unknown, v: unknown): Response => {
-    if (typeof u !== 'number' || typeof v !== 'number' || !Number.isFinite(u) || !Number.isFinite(v)) {
+    const raw = { u, v }
+    if (!isSpot(raw)) {
       return json(400, { error: 'bad request' })
     }
-    const toSpot = (value: number): number => Math.round(Math.max(-1, Math.min(1, value)) * 1000) / 1000
-    spots.set(id, { u: toSpot(u), v: toSpot(v) })
+    spots.set(id, { u: toSpot(raw.u), v: toSpot(raw.v) })
+    persist()
     broadcast()
     return json(202, { ok: true })
   }

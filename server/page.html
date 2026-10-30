@@ -502,7 +502,7 @@ const join = (data, isArriving) => {
   labels.append(tag)
   const placed = data.spot === undefined ? null : fromSpot(data.spot)
   const home = (placed !== null && valid(placed.x, placed.y) ? placed : spot(null, isArriving ? inFront : anywhere)) ?? { x: L.cx, y: L.cy + L.ry - 8 }
-  const pet = { spotKey: JSON.stringify(data.spot ?? null), steering: false, sentAt: 0, key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2), acts: [], act: null, holdUntil: 0, waveFrom: 0, waveUntil: 0 }
+  const pet = { spot: data.spot ?? null, spotKey: JSON.stringify(data.spot ?? null), steering: false, sentAt: 0, key: data.key, tag, say: null, sayUntil: 0, look: '', x: home.x, y: home.y, dir: Math.random() < 0.5 ? -1 : 1, route: [], mode: 'idle', wait: between(0.5, 4), phase: Math.random() * 10, hopUntil: 0, nextFx: between(0.5, 2), acts: [], act: null, holdUntil: 0, waveFrom: 0, waveUntil: 0 }
   dress(pet, data)
   if (isArriving) {
     if (!still) Object.assign(pet, { x: L.cx + between(-6, 6), y: H + pet.art.feet, route: [home], mode: 'walk' })
@@ -796,6 +796,7 @@ const follow = (pet, place) => {
   const key = JSON.stringify(place ?? null)
   if (pet === undefined || place === undefined || pet.key === myKey || key === pet.spotKey) return
   pet.spotKey = key
+  pet.spot = place
   if (pet.mode === 'leave' || pet.mode === 'visit') return
   Object.assign(pet, { route: [fromSpot(place)], mode: 'steer', acts: [], act: null, holdUntil: clock + STEER_HOLD })
 }
@@ -803,6 +804,7 @@ const follow = (pet, place) => {
 const sendSpot = pet => {
   pet.sentAt = clock
   const [u, v] = toSpot(pet)
+  pet.spot = [u, v]
   fetch('/v1/walk', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: myId, u, v }) }).catch(() => {})
 }
 
@@ -923,7 +925,11 @@ const step = (pet, dt) => {
   const isCrowded = [...pets.values()].some(other => other !== pet && other.route.length === 0 && Math.abs(other.x - pet.x) < 14 && Math.abs(other.y - pet.y) < 6)
   if (isCrowded && pet.wait > 0.6) pet.wait = 0.6
   pet.wait -= dt
-  if (pet.wait <= 0 && !still) {
+  if (pet.wait <= 0 && !still && pet.spot !== null) {
+    const home = fromSpot(pet.spot)
+    if (Math.hypot(home.x - pet.x, home.y - pet.y) > 2) pet.route = [home]
+    pet.wait = between(2, 6)
+  } else if (pet.wait <= 0 && !still) {
     const friends = [...pets.values()].filter(other => other !== pet && other.mode === 'idle')
     const friend = Math.random() < 0.3 ? friends[Math.floor(Math.random() * friends.length)] : undefined
     const nearFriend = () => ({ x: friend.x + (Math.random() < 0.5 ? -1 : 1) * between(19, 24), y: friend.y + between(-2, 2) })
@@ -1150,7 +1156,7 @@ const resize = () => {
   clouds = [0, 1, 2, 3].map(i => ({ image: cloud(26 + i * 6, i + 3), x: (W / 4) * i + between(0, 30), y: 6 + ((i * 11) % 24), speed: 2 + i * 0.6 }))
   flyers = [0, 1, 2].map(i => ({ x: L.cx + (i - 1) * L.rx * 0.6, y: L.cy - L.ry * 0.2 + i * 10, reach: 20 + i * 8, speed: 0.4 + i * 0.15, seed: i * 2.1, color: i }))
   for (const pet of pets.values()) {
-    const home = spot(null) ?? { x: L.cx, y: L.cy + L.ry - 8 }
+    const home = (pet.spot === null ? spot(null) : fromSpot(pet.spot)) ?? { x: L.cx, y: L.cy + L.ry - 8 }
     Object.assign(pet, { x: home.x, y: home.y, route: [] })
   }
 }

@@ -307,6 +307,22 @@ describe('walking and talking from the plaza page', () => {
     const says = [await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '하나' })), await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '둘' })), await plaza.handle(post('/v1/say', { id: 'aaaa1', text: '셋' }))]
     expect(says.map(response => response.status)).toEqual([202, 202, 429])
   })
+
+  test('a pet comes back to the spot it was walked to, after leaving and after a server restart', async () => {
+    let saved: string | null = null
+    const storage = { read: () => saved, write: (text: string) => (saved = text) }
+    let clock = 1_000
+    const first = createPlaza({ now: () => clock, storage })
+    await first.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    await first.handle(post('/v1/walk', { id: 'aaaa1', u: -0.5, v: 0.25 }))
+    clock += 200_000
+    await first.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 }))
+    expect(first.members.has('aaaa1')).toBe(false)
+    const second = createPlaza({ now: () => clock, storage })
+    await second.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    const view = (await read(await second.handle(new Request('http://plaza.test/v1/plaza')))).body
+    expect(view.pets.map((pet: { name: string; spot?: unknown }) => [pet.name, pet.spot])).toEqual([['말랑', [-0.5, 0.25]]])
+  })
 })
 
 describe('rooms and visits', () => {
