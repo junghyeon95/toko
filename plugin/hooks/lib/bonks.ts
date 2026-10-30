@@ -66,17 +66,17 @@ export const kindSystem = 'Claude Code 사용자가 Claude를 때린 이유를 �
 
 export const kindPrompt = (reason: string): string =>
   [
-    '아래 불만에 가장 가까운 유형의 id 하나만 답한다. 맞는 게 없으면 other.',
-    ...Object.entries(BONK_KINDS)
-      .filter(([kind]) => kind !== 'just')
-      .map(([kind, label]) => `${kind}: ${label}`),
+    '아래 이유에 가장 가까운 유형의 id 하나만 답한다.',
+    'Claude의 답이나 행동에서 마음에 안 든 점을 짚는 말이면(말투 · 언어 · 이름 · 내용도 포함) 잘못 유형 가운데서 고르고, 딱 맞는 게 없으면 other.',
+    'Claude가 한 일을 짚지 않는 장난 · 놀림 · 애칭 · 심심풀이 · 화풀이만 just. 예: "돼지야" → just, "왜 영어로 말해" → other',
+    ...Object.entries(BONK_KINDS).map(([kind, label]) => `${kind}: ${label}`),
     '',
-    `불만: ${reason}`,
+    `이유: ${reason}`,
   ].join('\n')
 
 export const parseKind = (text: string): string | null => {
   const word = /[a-z][a-z-]*/.exec(text.trim().toLowerCase())?.[0] ?? ''
-  return word !== 'just' && Object.hasOwn(BONK_KINDS, word) ? word : null
+  return Object.hasOwn(BONK_KINDS, word) ? word : null
 }
 
 const KIND_WORDS: readonly (readonly [string, RegExp])[] = [
@@ -85,16 +85,18 @@ const KIND_WORDS: readonly (readonly [string, RegExp])[] = [
   ['overreach', /(시키지\s*않|안\s*시킨|멋대로|마음대로|건드리지)/],
   ['made-up', /(지어|없는\s*걸|거짓|환각)/],
   ['wrong-spot', /(엉뚱|다른\s*파일|딴\s*데)/],
-  ['risky', /(위험|날렸|force|강제|rm\s)/i],
+  ['risky', /(위험|날렸|force|강제|rm\s|묻지\s*(도\s*)?않|물어보지\s*(도\s*)?않)/i],
   ['wordy', /(길어|장황|너무\s*길|말이\s*많)/],
   ['stuck', /(맴돌|맴도|루프|빙빙)/],
   ['ignored', /(말\s*(을\s*)?안\s*들|안\s*지키|무시|하지\s*말)/],
   ['repeat', /(또|같은\s*실수|반복|몇\s*번)/],
 ]
 
+const BLAME = /(왜|잘못|틀리|틀렸|실수|안\s*되|안\s*돼|못\s*하|못\s*했|버그|에러|오류|고쳐|하지\s*마|이상하|엉망|제대로)/
+
 export const guessKind = (reason: string): string => {
   const text = reason.trim()
-  return text === '' ? 'just' : (KIND_WORDS.find(([, pattern]) => pattern.test(text))?.[0] ?? 'other')
+  return KIND_WORDS.find(([, pattern]) => pattern.test(text))?.[0] ?? (BLAME.test(text) ? 'other' : 'just')
 }
 
 export const MEMORY_ASK = '예전에도 같은 이유로 맞은 적이 있어. 앞으로도 지켜야 할 거면 auto memory에 피드백으로 남겨 줘. CLAUDE.md에는 쓰지 말고, 비슷한 메모가 이미 있으면 새로 만들지 말고 그걸 고쳐 줘.'

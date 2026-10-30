@@ -539,20 +539,22 @@ test('plaza snapshots drop my own echo and anything malformed', async () => {
   expect(plazaEndpoint('javascript:alert(1)', '/v1/poll')).toBe(null)
 })
 
-test('a bonk reason becomes one of the fixed kinds, from the model or from plain words', async () => {
+test('a bonk reason becomes one of the fixed kinds, from the model or from plain words, and teasing without a mistake is just a bonk', async () => {
   expect(parseKind('unverified\n')).toBe('unverified')
   expect(parseKind(' Test-Dodge ')).toBe('test-dodge')
-  expect(parseKind('just')).toBe(null)
+  expect(parseKind('just')).toBe('just')
   expect(parseKind('잘 모르겠어')).toBe(null)
   expect(guessKind('')).toBe('just')
   expect(guessKind('테스트 지우지 말랬잖아')).toBe('test-dodge')
   expect(guessKind('돌려 보지도 않고 됐다고 함')).toBe('unverified')
   expect(guessKind('시키지 않은 파일까지 고침')).toBe('overreach')
   expect(guessKind('또 그러네')).toBe('repeat')
-  expect(guessKind('음')).toBe('other')
+  expect(guessKind('물어보지도 않고 push 했어?')).toBe('risky')
+  expect(guessKind('갑자기 왜 영어로 얘기해')).toBe('other')
+  expect(guessKind('돼지야')).toBe('just')
+  expect(guessKind('음')).toBe('just')
   const prompt = kindPrompt('테스트 지우지 마')
-  expect(Object.keys(BONK_KINDS).filter(kind => kind !== 'just').every(kind => prompt.includes(`${kind}:`))).toBe(true)
-  expect(prompt).not.toContain('just:')
+  expect(Object.keys(BONK_KINDS).every(kind => prompt.includes(`${kind}:`))).toBe(true)
 })
 
 test('the plaza’s bonk board keeps only known kinds and reads as one line', async () => {
