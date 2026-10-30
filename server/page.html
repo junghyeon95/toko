@@ -927,7 +927,7 @@ const step = (pet, dt) => {
   pet.wait -= dt
   if (pet.wait <= 0 && !still && pet.spot !== null) {
     const home = fromSpot(pet.spot)
-    if (Math.hypot(home.x - pet.x, home.y - pet.y) > 2) pet.route = [home]
+    if (valid(home.x, home.y) && Math.hypot(home.x - pet.x, home.y - pet.y) > 2) pet.route = [home]
     pet.wait = between(2, 6)
   } else if (pet.wait <= 0 && !still) {
     const friends = [...pets.values()].filter(other => other !== pet && other.mode === 'idle')

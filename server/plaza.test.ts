@@ -308,6 +308,26 @@ describe('walking and talking from the plaza page', () => {
     expect(says.map(response => response.status)).toEqual([202, 202, 429])
   })
 
+  test('every pet gets its own spot away from the fountain and keeps it after a server restart', async () => {
+    let saved: string | null = null
+    const storage = { read: () => saved, write: (text: string) => (saved = text) }
+    const first = createPlaza({ storage })
+    for (const [id, name] of [['aaaa1', '말랑'], ['bbbb2', '콩떡'], ['cccc3', '보들'], ['dddd4', '몽글']]) {
+      await first.handle(post('/v1/poll', { me: me(id, name), since: 0 }))
+    }
+    const spotsOf = async (plaza: ReturnType<typeof createPlaza>) =>
+      Object.fromEntries((await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.pets.map((pet: { name: string; spot: [number, number] }) => [pet.name, pet.spot]))
+    const before = await spotsOf(first)
+    const spots = Object.values(before) as [number, number][]
+    expect(spots.every(([u, v]) => (u / 0.38) ** 2 + ((v - 0.05) / 0.5) ** 2 > 1 && u ** 2 + v ** 2 <= 1)).toBe(true)
+    expect(new Set(spots.map(spot => spot.join())).size).toBe(4)
+    const second = createPlaza({ storage })
+    for (const [id, name] of [['dddd4', '몽글'], ['cccc3', '보들'], ['bbbb2', '콩떡'], ['aaaa1', '말랑']]) {
+      await second.handle(post('/v1/poll', { me: me(id, name), since: 0 }))
+    }
+    expect(await spotsOf(second)).toEqual(before)
+  })
+
   test('a pet comes back to the spot it was walked to, after leaving and after a server restart', async () => {
     let saved: string | null = null
     const storage = { read: () => saved, write: (text: string) => (saved = text) }

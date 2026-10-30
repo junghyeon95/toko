@@ -304,6 +304,23 @@ type Saved = { rooms: Room[]; visits: Visit[]; gifts: [string, Gift[]][]; spots:
 
 const toSpot = (value: number): number => Math.round(Math.max(-1, Math.min(1, value)) * 1000) / 1000
 
+const SPOT_TRIES = 24
+
+const isClearOfFountain = (spot: Spot): boolean => (spot.u / 0.38) ** 2 + ((spot.v - 0.05) / 0.5) ** 2 > 1
+
+const roomAround = (spot: Spot, taken: readonly Spot[]): number => Math.min(Infinity, ...taken.map(other => Math.hypot(spot.u - other.u, (spot.v - other.v) * 2)))
+
+export const pickSpot = (id: string, taken: readonly Spot[]): Spot => {
+  let seed = parseInt(hashOf(id), 36)
+  const next = (): number => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296
+  const candidates = Array.from({ length: SPOT_TRIES }, () => {
+    const angle = next() * Math.PI * 2
+    const reach = 0.5 + next() * 0.4
+    return { u: toSpot(Math.cos(angle) * reach), v: toSpot(Math.sin(angle) * reach) }
+  }).filter(isClearOfFountain)
+  return candidates.reduce((best, spot) => (roomAround(spot, taken) > roomAround(best, taken) ? spot : best), candidates[0] ?? { u: 0, v: 0.75 })
+}
+
 const isSpot = (value: Record<string, unknown> | null): value is { u: number; v: number } =>
   typeof value?.u === 'number' && typeof value.v === 'number' && Number.isFinite(value.u) && Number.isFinite(value.v)
 
@@ -779,6 +796,11 @@ export const createPlaza = (options: PlazaOptions = {}) => {
 
   const join = (me: Member): void => {
     const before = members.get(me.id)
+    if (!spots.has(me.id)) {
+      const taken = [...members.keys()].map(id => spots.get(id)).filter((spot): spot is Spot => spot !== undefined)
+      spots.set(me.id, pickSpot(me.id, taken))
+      persist()
+    }
     const reports = tabs.get(me.id) ?? new Map<string, Member>()
     reports.set(me.tab ?? '', me)
     for (const [tab, report] of reports) {
