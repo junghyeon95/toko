@@ -372,6 +372,7 @@ export const HELP = [
   '/toko <하고 싶은 말> — 토코와 이야기하기 (예: /toko 안녕!, /toko 오늘의 퀘스트는 뭐야?)',
   '토코야 <말> — 슬래시 없이 불러도 /toko <말> 과 같아요 (펫 이름+아/야도)',
   '/toko — 토코의 방 열기 (상점 · 꾸미기 · 펫 뽑기 · 광장)',
+  '/toko close — 토코의 방 닫기',
   '/toko mute | unmute — 말 걸기 끄기/켜기',
   '/toko hide | show — 띠 숨기기/보이기',
   '/toko quiet 22-09 | quiet off — 방해 금지 시간',
@@ -556,6 +557,14 @@ export async function openRoom($: $, ctx: Ctx): Promise<string> {
   return opened.isPlaced ? '토코의 방을 열었어요.' : `방을 열 자리가 없어요: ${opened.reason}`
 }
 
+export async function closeRoom($: $): Promise<string> {
+  if (!(await $.ui.panes()).some(pane => pane.id === ROOM_ID)) {
+    return '방이 열려 있지 않아요.'
+  }
+  await $.ui.close({ id: ROOM_ID })
+  return '토코의 방을 닫았어요.'
+}
+
 export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<CommandRunResult> {
   return (await subcommand($, ctx, args)) ?? (await choiceAnswer($, ctx, args.trim())) ?? (await naturalSend($, ctx, args.trim())) ?? chatCommand($, ctx, args.trim())
 }
@@ -658,6 +667,8 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
     case undefined:
     case 'room':
       return { text: await openRoom($, ctx) }
+    case 'close':
+      return { text: await closeRoom($) }
     case 'help':
       return { text: HELP }
     case 'mute':

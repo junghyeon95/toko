@@ -381,6 +381,22 @@ test('/toko mute keeps the pet quiet, and settings survive in the store', async 
   expect(help.text).toContain('/bonk')
 })
 
+test('/toko close closes the open room, and says so when no room is open', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET })
+  const open = new Set<string>()
+  on('ui.panes', () => ({ value: [...open].map(id => ({ id, isPlaced: true })) }))
+  on('ui.close', (_, e) => {
+    open.delete(e.id)
+    return { value: undefined }
+  })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'close' } as never)).text).toBe('방이 열려 있지 않아요.')
+  open.add('toko-room')
+  expect((await $.command.run({ command: 'toko', args: 'close' } as never)).text).toBe('토코의 방을 닫았어요.')
+  expect(open.has('toko-room')).toBe(false)
+})
+
 test('/toko with free words lets Claude answer as the pet, its state riding as hidden context', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET })
