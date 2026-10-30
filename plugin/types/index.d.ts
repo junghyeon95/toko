@@ -110,6 +110,7 @@ export type TokoOffer = {
   at: number
   expiresAt: number
   peer?: string
+  isQuiet?: boolean
 }
 
 export type TokoEarning = { durationMs: number; coins: number; at: number }

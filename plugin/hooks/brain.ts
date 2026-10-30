@@ -900,7 +900,7 @@ export async function startHatch($: $, brain: Brain): Promise<void> {
       setLook(brain.scene, lookOf(brain))
     }
     await sync($, brain)
-    await askName($, brain)
+    await askName($, brain, true)
     await save($, brain)
   }
   if (brain.isReducedMotion || brain.scene === null) {
@@ -925,10 +925,16 @@ export async function greet($: $, brain: Brain): Promise<void> {
   await reactLine($, brain, 'hello')
 }
 
-export async function askName($: $, brain: Brain): Promise<void> {
-  if (canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now))) {
-    await openOffer($, brain, 'name', fallbackLine(brain.random, OFFER_FALLBACK, 'name', speciesOf(brain)))
+export async function askName($: $, brain: Brain, isJustHatched = false): Promise<void> {
+  const isFree = canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now))
+  if (isFree || isJustHatched) {
+    await openOffer($, brain, 'name', fallbackLine(brain.random, OFFER_FALLBACK, 'name', speciesOf(brain)), undefined, undefined, !isFree)
   }
+}
+
+export async function giveName($: $, brain: Brain, name: string): Promise<void> {
+  const line = isAwaitingName(brain.pet) ? `${name}! 마음에 쏙 들어. 잘 부탁해` : `이제 나는 ${name}! 새 이름 마음에 들어`
+  await namePet($, brain, name, line)
 }
 
 export async function namePet($: $, brain: Brain, name: string, line: string): Promise<void> {
@@ -1013,8 +1019,17 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
   return CHOICES
 }
 
-export async function openOffer($: $, brain: Brain, kind: string, line: string, parts?: readonly TokoBubblePart[], peer?: string): Promise<void> {
-  brain.offer = { id: `${kind}-${brain.now}`, kind, line, choices: choicesFor(kind), at: brain.now, expiresAt: brain.now + OFFER_TIMEOUT_MS, ...(peer === undefined ? {} : { peer }) }
+export async function openOffer($: $, brain: Brain, kind: string, line: string, parts?: readonly TokoBubblePart[], peer?: string, isQuiet = false): Promise<void> {
+  brain.offer = {
+    id: `${kind}-${brain.now}`,
+    kind,
+    line,
+    choices: choicesFor(kind),
+    at: brain.now,
+    expiresAt: brain.now + OFFER_TIMEOUT_MS,
+    ...(peer === undefined ? {} : { peer }),
+    ...(isQuiet ? { isQuiet } : {}),
+  }
   if (kind !== 'bonk-end' && kind !== 'name' && kind !== 'peer') {
     brain.budget = recordBubble(brain.budget, brain.now)
   }
@@ -1027,7 +1042,9 @@ export async function openOffer($: $, brain: Brain, kind: string, line: string, 
   }
   brain.isDirty = true
   await update($, offerAtom, () => brain.offer)
-  await say($, brain, line, 'say', parts)
+  if (!isQuiet) {
+    await say($, brain, line, 'say', parts)
+  }
 }
 
 async function closeOffer($: $, brain: Brain): Promise<void> {
@@ -2260,6 +2277,11 @@ export async function think($: $, brain: Brain): Promise<void> {
   await watchLongTurn($, brain)
   await maybeEncounter($, brain)
   await checkProgress($, brain)
+  if (brain.offer?.isQuiet === true && canSpeak(presenceOf(brain), brain.settings, hour) && isGap(presenceOf(brain))) {
+    brain.offer = { ...brain.offer, isQuiet: false }
+    await update($, offerAtom, () => brain.offer)
+    await say($, brain, brain.offer.line)
+  }
   if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || isBonking(brain) || isFocusing(brain)) {
     return
   }
@@ -2325,7 +2347,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
 
 async function maybeEncounter($: $, brain: Brain): Promise<void> {
   const scene = brain.scene
-  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || isBonking(brain) || isFocusing(brain)) {
+  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || isBonking(brain) || isFocusing(brain) || isAwaitingName(brain.pet)) {
     return
   }
   if (!canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {

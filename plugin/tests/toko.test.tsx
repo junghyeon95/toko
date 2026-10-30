@@ -159,8 +159,67 @@ test('a prompt sent before naming does not chase the name question away', async 
   await $.turn.start({ text: 'fix it', turnId: 't1' } as never)
   await clock.advance(40_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /대답: / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /이름 짓기: 입력창에 이름만/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a pet that hatches while Claude works shows its name question on the band at once, and says it when the turn is over', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.UTC(2026, 9, 30, 1, 0) })
+  engine(on, {}, SOUL_REPLY)
+  await begin($)
+  await clock.advance(1000)
+  await $.turn.start({ text: '이 버그 고쳐 줘', turnId: 't1' } as never)
+  await clock.advance(8000)
+  const during = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await during.find({ type: 'Text', text: /이름 짓기: 입력창에 이름만/ })).toBeDefined()
+  expect(await during.find({ type: 'Text', text: /이름이 없어/ })).toBeUndefined()
+  await during.unmount()
+  await clock.advance(52_000)
+  const meanwhile = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await meanwhile.find({ type: 'Text', text: /할로윈/ })).toBeUndefined()
+  await meanwhile.unmount()
+  await $.turn.complete({ answer: '고쳤어요', durationMs: 60_000, isAborted: false, turnId: 't1', reason: 'answer', usage: USAGE })
+  await clock.advance(2000)
+  const after = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await after.find({ type: 'Text', text: /이름이 없어/ })).toBeDefined()
+  await after.unmount()
+})
+
+test('while the name question is up, sending just a name names the pet without reaching Claude, but sentences, everyday replies and asks still go to Claude', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, {}, SOUL_REPLY)
+  await begin($)
+  await clock.advance(9000)
+  for (const text of ['응', 'ㅇㅇ', '커밋해줘', 'continue', '이 버그 고쳐 줘', '?', '열세글자가넘어가는아주긴이름']) {
+    expect(await $.prompt.submit({ text, origin: { kind: 'composer' } } as never)).not.toHaveProperty('drop')
+  }
+  expect(world.submitted).toEqual(['응', 'ㅇㅇ', '커밋해줘', 'continue', '이 버그 고쳐 줘', '?', '열세글자가넘어가는아주긴이름'])
+  expect(await $.prompt.submit({ text: '모찌!', origin: { kind: 'composer' } } as never)).toMatchObject({ drop: '이름을 "모찌"(으)로 지었어요. 바꾸려면 /toko name <이름>' })
+  expect((world.saved['toko:pet'] as { soul: { name: string; isNamed: boolean } }).soul).toMatchObject({ name: '모찌', isNamed: true })
+  expect(world.submitted).not.toContain('모찌!')
+  expect(await $.prompt.submit({ text: '말랑', origin: { kind: 'composer' } } as never)).not.toHaveProperty('drop')
+})
+
+test('a newborn waiting for a name gets no chance scenes like the Halloween one, even after the name question was set aside', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.UTC(2026, 9, 30, 1, 0) })
+  const world = engine(on, {}, SOUL_REPLY)
+  await begin($)
+  await clock.advance(9000)
+  await $.command.run({ command: 'toko', args: 'answer accept' } as never)
+  expect(world.filled).toEqual(['/toko name '])
+  await $.turn.start({ text: '로그 정리해 줘', turnId: 't1' } as never)
+  const seen: string[] = []
+  for (let waited = 0; waited < 120_000; waited += 2000) {
+    await clock.advance(2000)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    if ((await ui.find({ type: 'Text', text: /할로윈/ })) !== undefined) {
+      seen.push(`${waited / 1000}s`)
+    }
+    await ui.unmount()
+  }
+  expect(seen).toEqual([])
+  const memory = world.store.get('toko:memory') as { events?: { kind: string }[] } | undefined
+  expect((memory?.events ?? []).filter(event => event.kind === 'encounter')).toEqual([])
 })
 
 test('a pet left unnamed asks again when the next session starts', async ($, on) => {
@@ -169,7 +228,7 @@ test('a pet left unnamed asks again when the next session starts', async ($, on)
   await begin($)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /이름 없음/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /대답: / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /이름 짓기: 입력창에 이름만/ })).toBeDefined()
   await ui.unmount()
 })
 

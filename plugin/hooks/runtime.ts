@@ -2,7 +2,7 @@ import type { CommandRunResult, EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, chatted, checkInit, comeHome, createBrain, cycleRoom, demoBoss, demoSouvenir, doingOf, dyeItem, exchangeForStars, giftToFriend, noteDoing, sendSticker, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, namePet, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, placeInRoom, playInRoom, purchase, reflect, refreshShared, remember, roomViewOf, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, sendGuestHome, startHatch, stopFocus, storeInRoom, summarizePeer, viewFriendRoom, visitFriend, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, giveName, catchInGame, chatted, checkInit, comeHome, createBrain, cycleRoom, demoBoss, demoSouvenir, doingOf, dyeItem, exchangeForStars, giftToFriend, noteDoing, sendSticker, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, memoryAskOf, moveInGame, newsReport, noteFeature, noteTurnText, noteWorked, offerLine, onAttention, onCheckPrompt, onEdit, onGit, onMeasure, onPermission, onSubagents, onTest, onTurnComplete, onTyping, openOffer, openPlazaStream, parkMemo, peersText, peerMatches, fillSend, play, pollPeers, pollPlaza, prepareNews, progressOf, pullFromGacha, placeInRoom, playInRoom, purchase, reflect, refreshShared, remember, roomViewOf, replyToPeer, resetDayIfNeeded, runEncounter, runHalloween, save, say, sendPlaza, sendToPeer, showNews, signalPeers, startBonk, startFocus, sendGuestHome, startHatch, stopFocus, storeInRoom, summarizePeer, viewFriendRoom, visitFriend, switchPet, sync, syncShared, tendVisitor, tendWaitBuddy, think, todayTally, todayWork, toggleWear, tryNews } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { failedCount } from './lib/boss'
@@ -608,6 +608,21 @@ const CUES: Readonly<Record<string, RegExp>> = {
   'name:auto': /^네가지어(?:줘)?$/,
 }
 
+const NOT_A_NAME = /^(?:응+|ㅇ+|ㅇㅋ|ㄴㄴ|ㄱ+|ㅋ+|ㅎ+|넵?|네+|예|아니(?:요)?|싫어|좋아|그래|오케이|계속|다시|고|됐어|고마워|감사|나중에|안녕(?:하세요)?|하이|헬로|도와줘|도움말|ok(?:ay)?|yes|no|y|n|go|continue|later|hi|hello|hey|help|fix|test|tests|commit|push|pull|build|run|deploy|review|lint|format|explain|status|diff|merge|rebase|undo|stop|exit|quit|clear)$/i
+
+const ASKING = /(?:해|해줘|해봐|해요|해라|하자|할래|할까|했어|하기|줘|봐|주세요|하세요)$/
+
+export const nameFromReply = (offer: Brain['offer'], text: string): string | null => {
+  const word = text.trim().replace(/[.!~?]+$/, '')
+  const isName = offer?.kind === 'name' && nameProblem(word) === null && /\p{L}/u.test(word) && !/^[/!#@]/.test(word) && !NOT_A_NAME.test(word) && !ASKING.test(word)
+  return isName ? word : null
+}
+
+export async function nameByReply($: $, ctx: Ctx, name: string): Promise<void> {
+  await now($, ctx)
+  await giveName($, ctx.brain, name)
+}
+
 export const cuedChoice = (offer: Brain['offer'], text: string): TokoChoice | null => {
   const words = text.replace(/[\s.!~?,]+/g, '')
   return offer?.choices.find(choice => CUES[`${offer.kind}:${choice.key}`]?.test(words) === true) ?? null
@@ -794,8 +809,7 @@ async function subcommand($: $, ctx: Ctx, args: string): Promise<{ text: string 
       if (problem !== null) {
         return { text: problem }
       }
-      const line = isAwaitingName(brain.pet) ? `${name}! 마음에 쏙 들어. 잘 부탁해` : `이제 나는 ${name}! 새 이름 마음에 들어`
-      await namePet($, brain, name, line)
+      await giveName($, brain, name)
       return { text: `이름을 "${name}"(으)로 지었어요.` }
     }
     case 'answer':

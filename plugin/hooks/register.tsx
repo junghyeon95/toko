@@ -50,6 +50,8 @@ import {
   memoCommand,
   memoDrop,
   memoFill,
+  nameByReply,
+  nameFromReply,
   newsTry,
   permissionAsked,
   petStatus,
@@ -69,6 +71,8 @@ import {
   typing,
   wearItem,
 } from './runtime'
+
+const NAME_HINT = '이름 짓기: 입력창에 이름만 써서 보내 줘 (예: 콩떡) · "네가 지어"도 돼'
 
 const petAtom = atom({ plugin: 'toko', key: 'pet' } as const, null)
 const shelfAtom = atom({ plugin: 'toko', key: 'shelf' } as const, [])
@@ -150,7 +154,12 @@ export const register: Register = (on, options) => {
     const isPersonTyped = e.origin.kind === 'composer' && e.command === undefined && e.isMeta !== true
     const words = isPersonTyped ? calledWords(e.text, nameOf(ctx.brain.pet)) : null
     const cued = isPersonTyped && words === null ? cuedChoice(ctx.brain.offer, e.text) : null
-    await submitted($, ctx, e.text, isPersonTyped && words === null && cued === null)
+    const named = isPersonTyped && words === null && cued === null ? nameFromReply(ctx.brain.offer, e.text) : null
+    await submitted($, ctx, e.text, isPersonTyped && words === null && cued === null && named === null)
+    if (named !== null) {
+      await nameByReply($, ctx, named)
+      return { drop: `이름을 "${named}"(으)로 지었어요. 바꾸려면 /toko name <이름>` }
+    }
     if (cued !== null) {
       await choose($, ctx, cued)
       return { drop: `${cued.label}(으)로 대답했어요.` }
@@ -280,7 +289,7 @@ export const register: Register = (on, options) => {
             <Button key="catch" label="잡기" hotkey="s" variant="primary" onPress={press(() => gameCatch($, ctx))} />,
             <Button key="right" label="▶" hotkey="d" onPress={press(() => gameMove($, ctx, 8))} />,
           ]
-    const answers = game === null && offer !== null ? `대답: ${offer.choices.map(choice => choice.label).join(' · ')} — /toko 로 말해 줘` : ''
+    const answers = game === null && offer !== null ? (offer.kind === 'name' ? NAME_HINT : `대답: ${offer.choices.map(choice => choice.label).join(' · ')} — /toko 로 말해 줘`) : ''
     const gauge = settings?.isMeterOn === false || meter === null ? '' : meterText(meter)
     const level = meter === null ? 'normal' : meterLevel(meter)
     const controls = (
