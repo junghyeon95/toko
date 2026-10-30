@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
-import { claudeCodeGenerator, createPlaza, dllmGenerator, pickGenerator, sanitizeLine } from './plaza'
+import { TUNER_USAGE_URL, WEATHER_KEEP_MS, claudeCodeGenerator, createPlaza, dllmGenerator, nextWeather, pickGenerator, readTunerUsage, sanitizeLine, watchWeather, weatherOf } from './plaza'
 
 const me = (id: string, name: string) => ({ id, name, color: 'mint', mood: 'calm', status: 'working' })
 
@@ -378,5 +380,133 @@ describe('rooms and visits', () => {
       ['녀우', false],
       ['풍풍이', true],
     ])
+  })
+})
+
+describe('claude tuner weather', () => {
+  const row = (fiveHour: number, extra: Record<string, unknown> = {}) => ({
+    email: 'someone@dable.io',
+    provider: 'claude',
+    default_org: true,
+    status: 'ok',
+    windows: { five_hour: { utilization: fiveHour, seconds_to_reset: 600 } },
+    ...extra,
+  })
+
+  test('only fresh Claude readings count, a window that already reset counts as zero, and nobody is named', () => {
+    const rows = [
+      row(100),
+      row(70),
+      row(60),
+      row(20),
+      row(0),
+      row(100, { windows: { five_hour: { utilization: 100, seconds_to_reset: 0 } } }),
+      row(90, { provider: 'chatgpt' }),
+      row(80, { default_org: false }),
+      row(50, { status: 'stale' }),
+      'junk',
+    ]
+    const weather = weatherOf(rows, 5)
+    expect(weather).toEqual({ level: 'festival', reporting: 6, atLimit: 1, over60: 3, average: 42, at: 5 })
+    expect(JSON.stringify(weather)).not.toContain('dable.io')
+    expect(weatherOf(rows.slice(0, 4), 5)).toBe(null)
+  })
+
+  test('the plaza gets busy on a high average or when a few people pass 60%, whichever comes first', () => {
+    const idle = (count: number) => Array.from({ length: count }, () => row(1))
+    expect(weatherOf([row(5), row(5), row(5), row(5), row(5)], 0)?.level).toBe('calm')
+    expect(weatherOf([row(61), row(61), ...idle(8)], 0)?.level).toBe('busy')
+    expect(weatherOf([row(12), row(12), row(12), row(12), row(12)], 0)?.level).toBe('busy')
+    expect(weatherOf([row(60), row(60), row(60), row(60), row(60), ...idle(40)], 0)).toMatchObject({ level: 'festival', over60: 5, average: 8 })
+  })
+
+  test('the usage is read page by page with the org key, and a refused key reads as nothing', async () => {
+    const auth: (string | null)[] = []
+    const pages: Record<string, unknown> = {
+      [TUNER_USAGE_URL]: { data: [row(10), row(20)], next_cursor: 'b@dable.io' },
+      [`${TUNER_USAGE_URL}?cursor=b%40dable.io`]: { data: [row(30)], next_cursor: null },
+    }
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      auth.push(new Headers(init?.headers).get('authorization'))
+      return new Response(JSON.stringify(pages[url]), { status: 200 })
+    }) as unknown as typeof fetch
+    expect((await readTunerUsage('ctk_test', fetcher))?.length).toBe(3)
+    expect(auth).toEqual(['Bearer ctk_test', 'Bearer ctk_test'])
+    const refused = (async () => new Response(JSON.stringify({ code: 'org_api_key_invalid' }), { status: 401 })) as unknown as typeof fetch
+    expect(await readTunerUsage('ctk_bad', refused)).toBe(null)
+  })
+
+  test('a failed read keeps the last weather for fifteen minutes, then the sign goes away', () => {
+    const last = weatherOf([row(50), row(50), row(50), row(50), row(50)], 0)
+    expect(nextWeather(null, last, WEATHER_KEEP_MS - 1)).toBe(last)
+    expect(nextWeather(null, last, WEATHER_KEEP_MS)).toBe(null)
+    expect(nextWeather([], last, 1)).toBe(null)
+  })
+
+  test('the weather rides along on the page view, the poll, and the health check', async () => {
+    const plaza = createPlaza({ keepAliveMs: 60_000 })
+    await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))
+    await plaza.settle()
+    expect((await read(await plaza.handle(new Request('http://plaza.test/v1/plaza')))).body.weather).toBe(null)
+    const page = await listen('/v1/plaza/stream', plaza)
+    await page.next('view')
+    const weather = { level: 'festival', reporting: 40, atLimit: 6, over60: 18, average: 52, at: 1 } as const
+    plaza.setWeather(weather)
+    await plaza.settle()
+    expect((await page.next('view')).weather).toEqual(weather)
+    expect((await read(await plaza.handle(post('/v1/poll', { me: me('bbbb2', '콩떡'), since: 0 })))).body.weather).toEqual(weather)
+    expect((await read(await plaza.handle(new Request('http://plaza.test/health')))).body.weather).toBe('festival')
+    await page.close()
+  })
+
+  test('the org key never shows up on the page, the poll, the stream, the health check, or the logs', async () => {
+    const key = 'ctk_never-print-this-key'
+    const logs: string[] = []
+    const log = console.log
+    console.log = (...parts: unknown[]) => {
+      logs.push(parts.join(' '))
+    }
+    try {
+      const plaza = createPlaza({ keepAliveMs: 60_000 })
+      const page = await listen('/v1/plaza/stream', plaza)
+      const friend = await listen('/v1/stream?id=bbbb2&tab=t1', plaza)
+      const opened = [await page.next('view'), await friend.next('plaza')]
+      const answer = (async () => new Response(JSON.stringify({ data: [row(70), row(70), row(70), row(70), row(70)], next_cursor: null }), { status: 200 })) as unknown as typeof fetch
+      const refuse = (async () => new Response(JSON.stringify({ code: 'org_api_key_invalid', key }), { status: 401 })) as unknown as typeof fetch
+      const stops = [watchWeather(key, plaza.setWeather, answer), watchWeather(key, plaza.setWeather, refuse)]
+      await new Promise(resolve => setTimeout(resolve, 20))
+      stops.forEach(stop => stop())
+      await plaza.settle()
+      const seen = [
+        ...opened.map(message => JSON.stringify(message)),
+        JSON.stringify(await page.next('view')),
+        await (await plaza.handle(new Request('http://plaza.test/'))).text(),
+        await (await plaza.handle(new Request('http://plaza.test/v1/plaza'))).text(),
+        await (await plaza.handle(post('/v1/poll', { me: me('aaaa1', '말랑'), since: 0 }))).text(),
+        await (await plaza.handle(new Request('http://plaza.test/health'))).text(),
+        ...logs,
+      ].join('\n')
+      expect(logs).toContain('claude tuner usage: http 401')
+      expect(seen).not.toContain(key)
+      expect(seen).not.toContain('never-print')
+      await page.close()
+      await friend.close()
+    } finally {
+      console.log = log
+    }
+  })
+
+  test('no real Claude Tuner key is ever written into the repository', () => {
+    const roots = [import.meta.dir, join(import.meta.dir, '..', 'plugin')]
+    const files = (dir: string): string[] =>
+      readdirSync(dir).flatMap(name => {
+        const path = join(dir, name)
+        if (name === 'node_modules' || name === 'data' || name.startsWith('.')) {
+          return []
+        }
+        return statSync(path).isDirectory() ? files(path) : [path]
+      })
+    const leaked = roots.flatMap(files).filter(path => /ctk_eyJ[\w-]+\.[\w-]+/.test(readFileSync(path, 'utf8')))
+    expect(leaked).toEqual([])
   })
 })

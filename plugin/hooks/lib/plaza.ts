@@ -126,11 +126,15 @@ export type PlazaBonks = { total: number; top: readonly { kind: string; count: n
 
 export const NO_BONKS: PlazaBonks = { total: 0, top: [] }
 
+export type PlazaWeatherLevel = 'calm' | 'busy' | 'festival'
+
+export type PlazaWeather = { level: PlazaWeatherLevel; reporting: number; atLimit: number; over60: number; average: number }
+
 export type PlazaGift = { id: string; item: string; from: string }
 
 export type PlazaHome = { guests: readonly TokoGuest[]; away: TokoAway | null; stickers: readonly string[]; gifts: readonly PlazaGift[] }
 
-export type PlazaSnapshot = { friends: readonly TokoFriend[]; events: readonly PlazaEvent[]; bonks: PlazaBonks; now: number; home: PlazaHome | null }
+export type PlazaSnapshot = { friends: readonly TokoFriend[]; events: readonly PlazaEvent[]; bonks: PlazaBonks; weather: PlazaWeather | null; now: number; home: PlazaHome | null }
 
 const COLORS: ReadonlySet<string> = new Set(['honey', 'mint', 'peach', 'lavender'])
 const MOODS: ReadonlySet<string> = new Set(['excited', 'calm', 'sleepy', 'worried', 'sulky'])
@@ -201,6 +205,29 @@ const parseBonks = (value: unknown): PlazaBonks => {
   return { total: count(raw?.total), top: top.slice(0, 5) }
 }
 
+const WEATHER_WORDS: Readonly<Record<PlazaWeatherLevel, string>> = { calm: '맑음', busy: '북적북적', festival: '축제' }
+
+const parseWeather = (value: unknown): PlazaWeather | null => {
+  const raw = asRecord(value)
+  if (raw === null || typeof raw.level !== 'string' || !Object.hasOwn(WEATHER_WORDS, raw.level)) {
+    return null
+  }
+  return { level: raw.level as PlazaWeatherLevel, reporting: count(raw.reporting), atLimit: count(raw.atLimit), over60: count(raw.over60), average: Math.min(100, count(raw.average)) }
+}
+
+export const weatherText = (weather: PlazaWeather | null): string | null => {
+  if (weather === null) {
+    return null
+  }
+  const detail =
+    weather.level === 'calm'
+      ? `${weather.reporting}명 평균 5시간 한도 ${weather.average}% 사용 중`
+      : `5시간 한도 60% 넘은 사람 ${weather.over60}명${weather.atLimit > 0 ? ` · 다 쓴 사람 ${weather.atLimit}명` : ''} · 평균 ${weather.average}%`
+  return `데이블 Claude 날씨: ${WEATHER_WORDS[weather.level]} · ${detail}`
+}
+
+export const FESTIVAL_LINE = '광장에 축제가 열렸어! 데이블 사람들이 지금 Claude를 엄청 쓰고 있대'
+
 export const bonkBoardText = (bonks: PlazaBonks): string | null =>
   bonks.total === 0
     ? null
@@ -258,7 +285,7 @@ export const parseSnapshot = (body: string, myId: string): PlazaSnapshot | null 
     }
     const friends = (Array.isArray(raw.friends) ? raw.friends : []).map(parseFriend).filter(isPresent).filter(friend => friend.id !== myId)
     const events = (Array.isArray(raw.events) ? raw.events : []).map(parseEvent).filter(isPresent).filter(event => event.from.id !== myId)
-    return { friends: friends.slice(0, 30), events: events.slice(-20), bonks: parseBonks(raw.bonks), now: typeof raw.now === 'number' ? raw.now : 0, home: parseHome(raw) }
+    return { friends: friends.slice(0, 30), events: events.slice(-20), bonks: parseBonks(raw.bonks), weather: parseWeather(raw.weather), now: typeof raw.now === 'number' ? raw.now : 0, home: parseHome(raw) }
   } catch {
     return null
   }

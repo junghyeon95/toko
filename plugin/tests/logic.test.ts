@@ -8,7 +8,7 @@ import { MAX_LINE, OFFER_FALLBACK, REACTION_FALLBACK, SPECIES_VOICE, bonkMessage
 import { freshSignal, lastAiTitle, parseSendWords, sendTarget, signalLabel, signalParts, transcriptExcerpt } from '../hooks/lib/peers'
 import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
 import { BONK_KINDS, guessKind, kindPrompt, parseKind } from '../hooks/lib/bonks'
-import { bonkBoardText, lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf } from '../hooks/lib/plaza'
+import { bonkBoardText, lookSprite, parseSnapshot, plazaEndpoint, spriteOf, wearOf, weatherText } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
 import { createRandom } from '../hooks/lib/random'
 import { DEFAULT, createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
@@ -567,6 +567,17 @@ test('the plaza’s bonk board keeps only known kinds and reads as one line', as
   expect(bonkBoardText(bonks ?? { total: 0, top: [] })).toBe('뿅망치 전광판: 오늘 Clawd가 9번 맞았어요 · 1위 안 돌려 보고 됐다고 함(5번), 2위 말이 너무 김(1번)')
   expect(parseSnapshot(JSON.stringify({ now: 1, friends: [], events: [] }), 'me')?.bonks).toEqual({ total: 0, top: [] })
   expect(bonkBoardText({ total: 0, top: [] })).toBe(null)
+})
+
+test('the plaza’s Claude weather keeps only known levels and reads as one line', async () => {
+  const body = JSON.stringify({ now: 5, friends: [], events: [], weather: { level: 'busy', reporting: 53, atLimit: 0, over60: 2, average: 11.7, at: 5 } })
+  const weather = parseSnapshot(body, 'me')?.weather ?? null
+  expect(weather).toEqual({ level: 'busy', reporting: 53, atLimit: 0, over60: 2, average: 11 })
+  expect(weatherText(weather)).toBe('데이블 Claude 날씨: 북적북적 · 5시간 한도 60% 넘은 사람 2명 · 평균 11%')
+  expect(weatherText({ level: 'calm', reporting: 53, atLimit: 0, over60: 0, average: 3 })).toBe('데이블 Claude 날씨: 맑음 · 53명 평균 5시간 한도 3% 사용 중')
+  expect(parseSnapshot(JSON.stringify({ now: 1, friends: [], events: [], weather: { level: '<b>' } }), 'me')?.weather).toBe(null)
+  expect(parseSnapshot(JSON.stringify({ now: 1, friends: [], events: [] }), 'me')?.weather).toBe(null)
+  expect(weatherText(null)).toBe(null)
 })
 
 test('the plaza gets the pet’s own picture, one palette key per pixel', async () => {

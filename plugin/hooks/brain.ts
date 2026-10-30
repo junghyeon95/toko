@@ -66,8 +66,8 @@ import { failureStreak } from './lib/perceive'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, restoreLost, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, RESERVED_AI_CALLS, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, NO_BONKS, PLAZA_POLL_MS, ROOM_ACT_LABEL, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseRoom, parseSnapshot, plazaEndpoint, plazaStreamUrl, roomPicture, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
-import type { PlazaAction, PlazaBonks, PlazaEvent, PlazaHome, PlazaSnapshot, PlazaStatus, RoomAct } from './lib/plaza'
+import { FESTIVAL_LINE, FRIEND_TTL_MS, NO_BONKS, PLAZA_POLL_MS, ROOM_ACT_LABEL, STREAM_RETRY_MAX_MS, STREAM_STEADY_MS, eventText, isForMe, lookSprite, parseRoom, parseSnapshot, plazaEndpoint, plazaStreamUrl, roomPicture, shouldDismissVisitor, splitEvents, visitorOf, wireColor } from './lib/plaza'
+import type { PlazaAction, PlazaBonks, PlazaEvent, PlazaHome, PlazaSnapshot, PlazaStatus, PlazaWeather, RoomAct } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, hashText, pick, pickWeighted } from './lib/random'
 import type { Look, RoomView, Scene, Step } from './lib/scene'
@@ -248,6 +248,7 @@ export type Brain = {
   plazaTab: string
   friends: readonly TokoFriend[]
   plazaBonks: PlazaBonks
+  plazaWeather: PlazaWeather | null
   feed: readonly { at: number; text: string }[]
   lastPollAt: number
   plazaStream: 'off' | 'connecting' | 'live' | 'unsupported'
@@ -349,6 +350,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   plazaTab: '',
   friends: [],
   plazaBonks: NO_BONKS,
+  plazaWeather: null,
   feed: [],
   lastPollAt: 0,
   plazaStream: 'off',
@@ -2484,6 +2486,11 @@ export async function pollPlaza($: $, brain: Brain): Promise<void> {
 async function takeSnapshot($: $, brain: Brain, snapshot: PlazaSnapshot): Promise<void> {
   brain.friends = snapshot.friends
   brain.plazaBonks = snapshot.bonks
+  const before = brain.plazaWeather
+  brain.plazaWeather = snapshot.weather
+  if (snapshot.weather?.level === 'festival' && before !== null && before.level !== 'festival' && !isHushed(brain)) {
+    await say($, brain, FESTIVAL_LINE, 'quiet')
+  }
   const fresh = snapshot.events.filter(event => !brain.seenEvents.includes(event.id) && isForMe(event, brain.plazaId))
   brain.seenEvents = [...brain.seenEvents, ...fresh.map(event => event.id)].slice(-200)
   for (const event of fresh) {

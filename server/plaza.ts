@@ -105,6 +105,17 @@ const NO_BONKS: BonkBoard = { total: 0, top: [] }
 
 const kstDayOf = (at: number): string => new Date(at + 9 * 3_600_000).toISOString().slice(0, 10)
 
+export type WeatherLevel = 'calm' | 'busy' | 'festival'
+
+export type Weather = { level: WeatherLevel; reporting: number; atLimit: number; over60: number; average: number; at: number }
+
+export const WEATHER_MIN_PEOPLE = 5
+export const WEATHER_LEVELS = { busy: { average: 10, over60: 2 }, festival: { average: 20, over60: 5 } } as const
+export const WEATHER_EVERY_MS = 180_000
+export const WEATHER_KEEP_MS = 15 * 60_000
+export const TUNER_USAGE_URL = 'https://api.claudetuner.com/api/v1/usage/current'
+const TUNER_MAX_PAGES = 10
+
 const ACTION_WORDS: Readonly<Record<Action, string>> = {
   wave: '손 흔들기',
   heart: '하트',
@@ -130,6 +141,73 @@ export const sanitizeLine = (text: string | null): string | null => {
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+
+const fiveHourOf = (row: Record<string, unknown>): number | null => {
+  const window = asRecord(asRecord(row.windows)?.five_hour)
+  const utilization = window?.utilization
+  if (typeof utilization !== 'number' || !Number.isFinite(utilization)) {
+    return null
+  }
+  return window?.seconds_to_reset === 0 ? 0 : Math.min(100, Math.max(0, utilization))
+}
+
+export const weatherOf = (rows: readonly unknown[], at: number): Weather | null => {
+  const usage = rows
+    .map(asRecord)
+    .filter((row): row is Record<string, unknown> => row !== null && row.provider === 'claude' && row.default_org === true && row.status === 'ok')
+    .map(fiveHourOf)
+    .filter((value): value is number => value !== null)
+  if (usage.length < WEATHER_MIN_PEOPLE) {
+    return null
+  }
+  const average = usage.reduce((sum, value) => sum + value, 0) / usage.length
+  const over60 = usage.filter(value => value >= 60).length
+  const reaches = (level: Exclude<WeatherLevel, 'calm'>): boolean => average >= WEATHER_LEVELS[level].average || over60 >= WEATHER_LEVELS[level].over60
+  const level: WeatherLevel = reaches('festival') ? 'festival' : reaches('busy') ? 'busy' : 'calm'
+  return { level, reporting: usage.length, atLimit: usage.filter(value => value >= 100).length, over60, average: Math.round(average), at }
+}
+
+export const readTunerUsage = async (key: string, fetcher: typeof fetch = fetch): Promise<unknown[] | null> => {
+  const rows: unknown[] = []
+  let cursor: string | null = null
+  for (let page = 0; page < TUNER_MAX_PAGES; page += 1) {
+    const url: string = cursor === null ? TUNER_USAGE_URL : `${TUNER_USAGE_URL}?cursor=${encodeURIComponent(cursor)}`
+    try {
+      const response = await fetcher(url, { headers: { authorization: `Bearer ${key}`, accept: 'application/json' }, signal: AbortSignal.timeout(10_000) })
+      if (!response.ok) {
+        console.log(`claude tuner usage: http ${response.status}`)
+        return null
+      }
+      const body = asRecord(await response.json())
+      rows.push(...(Array.isArray(body?.data) ? body.data : []))
+      cursor = typeof body?.next_cursor === 'string' && body.next_cursor.length > 0 ? body.next_cursor : null
+    } catch {
+      console.log('claude tuner usage: unreachable')
+      return null
+    }
+    if (cursor === null) {
+      return rows
+    }
+  }
+  return rows
+}
+
+const weatherKey = (weather: Weather | null): string =>
+  weather === null ? '' : [weather.level, weather.reporting, weather.atLimit, weather.over60, weather.average].join(':')
+
+export const nextWeather = (rows: readonly unknown[] | null, last: Weather | null, at: number): Weather | null =>
+  rows !== null ? weatherOf(rows, at) : last !== null && at - last.at < WEATHER_KEEP_MS ? last : null
+
+export const watchWeather = (key: string, onWeather: (weather: Weather | null) => void, fetcher: typeof fetch = fetch, now: () => number = () => Date.now()): (() => void) => {
+  let last: Weather | null = null
+  const check = async (): Promise<void> => {
+    last = nextWeather(await readTunerUsage(key, fetcher), last, now())
+    onWeather(last)
+  }
+  void check()
+  const timer = setInterval(() => void check(), WEATHER_EVERY_MS)
+  return () => clearInterval(timer)
+}
 
 export const parseSprite = (value: unknown): Sprite | null => {
   const raw = asRecord(value)
@@ -378,13 +456,15 @@ export type PlazaView = {
   events: { key: string; at: number; kind: Action; from: string; to: string | null; line: string }[]
   bonks: BonkBoard
   rooms: RoomView[]
+  weather: Weather | null
 }
 
 const isAction = (kind: PlazaEvent['kind']): kind is Action => ACTIONS.has(kind)
 
-export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS, rooms: RoomView[] = []): PlazaView => ({
+export const plazaView = (members: readonly Member[], events: readonly PlazaEvent[], now: number, bonks: BonkBoard = NO_BONKS, rooms: RoomView[] = [], weather: Weather | null = null): PlazaView => ({
   now,
   bonks,
+  weather,
   pets: members.map(member => ({ key: hashOf(member.id), name: member.name, mood: member.mood, sprite: member.sprite ?? standIn(member.color) })),
   events: events
     .flatMap(event => (isAction(event.kind) ? [{ key: hashOf(event.id), at: event.at, kind: event.kind, from: hashOf(event.from.id), to: event.to === null ? null : hashOf(event.to), line: event.line }] : []))
@@ -503,6 +583,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
   let flushTimer: ReturnType<typeof setTimeout> | undefined
   let bonkDay = ''
   const bonkCounts = new Map<string, number>()
+  let weather: Weather | null = null
 
   const nextId = (): string => {
     counter += 1
@@ -563,12 +644,12 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     return { total: counts.reduce((sum, [, count]) => sum + count, 0), top: counts.slice(0, 5).map(([kind, count]) => ({ kind, label: BONK_KINDS[kind] ?? '', count })) }
   }
 
-  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at), roomsView())
+  const viewAt = (at: number): PlazaView => plazaView([...members.values()], events, at, bonkBoard(at), roomsView(), weather)
 
   const messageFor = (listener: Listener, at: number, order?: readonly Member[]): string =>
     listener.id === null
       ? sseMessage('view', viewAt(at))
-      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id, order), events: eventsFor(listener.id, 0), bonks: bonkBoard(at), ...homeOf(listener.id) })
+      : sseMessage('plaza', { now: at, friends: friendsOf(listener.id, order), events: eventsFor(listener.id, 0), bonks: bonkBoard(at), weather, ...homeOf(listener.id) })
 
   const flush = (): void => {
     clearTimeout(flushTimer)
@@ -588,6 +669,14 @@ export const createPlaza = (options: PlazaOptions = {}) => {
 
   const broadcast = (): void => {
     flushTimer ??= setTimeout(flush, flushMs)
+  }
+
+  const setWeather = (next: Weather | null): void => {
+    const isSame = weatherKey(next) === weatherKey(weather)
+    weather = next
+    if (!isSame) {
+      broadcast()
+    }
   }
 
   const record = (event: PlazaEvent): void => {
@@ -737,7 +826,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
     join(me)
-    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since), bonks: bonkBoard(at), ...homeOf(me.id) })
+    return json(200, { now: at, friends: friendsOf(me.id), events: eventsFor(me.id, since), bonks: bonkBoard(at), weather, ...homeOf(me.id) })
   }
 
   const bonk = (me: Member, kind: string): Response => {
@@ -902,7 +991,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       return stream(id, /^[a-z0-9]{1,16}$/i.test(tab) ? tab : '')
     }
     if (request.method === 'GET' && url.pathname === '/health') {
-      return json(200, { ok: true, members: members.size })
+      return json(200, { ok: true, members: members.size, weather: weather?.level ?? null })
     }
     if (request.method === 'GET' && url.pathname === '/v1/room') {
       const room = rooms.get(url.searchParams.get('id') ?? '')
@@ -956,7 +1045,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     }
   }
 
-  return { handle, members, rooms, visits, events: () => events, settle }
+  return { handle, members, rooms, visits, events: () => events, settle, setWeather }
 }
 
 if (import.meta.main) {
@@ -964,5 +1053,9 @@ if (import.meta.main) {
   const { generate, source } = pickGenerator(env)
   const plaza = createPlaza({ generate, storage: fileStorage(env.TOKO_DATA_FILE ?? `${import.meta.dir}/data/plaza.json`) })
   const server = Bun.serve({ port: Number(env.PORT ?? 8080), hostname: env.HOST ?? '0.0.0.0', idleTimeout: 120, fetch: plaza.handle })
-  console.log(`toko plaza listening on http://${server.hostname}:${server.port} (lines: ${source})`)
+  const tunerKey = (env.TOKO_TUNER_KEY ?? '').trim()
+  if (tunerKey.length > 0) {
+    watchWeather(tunerKey, plaza.setWeather)
+  }
+  console.log(`toko plaza listening on http://${server.hostname}:${server.port} (lines: ${source}, weather: ${tunerKey.length > 0 ? 'claude tuner' : 'off'})`)
 }

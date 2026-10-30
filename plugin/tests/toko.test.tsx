@@ -569,6 +569,26 @@ test('a /bonk tells the plaza only what kind of mistake it was, and /toko plaza 
   expect(status.text).toContain('오늘 Clawd가 7번 맞았어요 · 1위 안 돌려 보고 됐다고 함(4번), 2위 테스트를 지우거나 건너뜀(3번)')
 })
 
+test('the plaza’s Claude weather shows in /toko plaza, and the pet says so once when it turns into a festival', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })
+  let weather = { level: 'calm', reporting: 53, atLimit: 0, over60: 0, average: 3, at: START }
+  on('http.fetch', () => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ now: START, friends: [], events: [], weather }) } }))
+  await begin($)
+  await clock.advance(25_000)
+  expect((await $.command.run({ command: 'toko', args: 'plaza' } as never)).text).toContain('데이블 Claude 날씨: 맑음 · 53명 평균 5시간 한도 3% 사용 중')
+  weather = { level: 'festival', reporting: 53, atLimit: 2, over60: 6, average: 24, at: START }
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  let isSaid = false
+  for (let second = 0; second < 30 && !isSaid; second += 1) {
+    await clock.advance(1000)
+    isSaid = (await ui.findAll({ type: 'Text' })).some(element => /축제가 열렸어/.test(element.text ?? ''))
+  }
+  expect(isSaid).toBe(true)
+  expect((await $.command.run({ command: 'toko', args: 'plaza' } as never)).text).toContain('데이블 Claude 날씨: 축제 · 5시간 한도 60% 넘은 사람 6명 · 다 쓴 사람 2명 · 평균 24%')
+  await ui.unmount()
+})
+
 test('friends arrive over the plaza event stream, and an open stream only reports what changed', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })

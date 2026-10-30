@@ -22,6 +22,8 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 .sign p{margin:8px 0 0;font-size:11px}
 #empty{position:fixed;left:50%;top:72%;transform:translate(-50%,-50%);margin:0;padding:6px 12px;border:2px solid var(--ink);background:#fffaf0;font-size:calc(11px*var(--u));white-space:nowrap}
 .sign .hint{margin-top:4px;color:#ffe2c2}
+.sign .weather{margin-top:6px;padding-top:6px;border-top:2px dashed #a86b3c}
+.sign .weather b{color:#ffe2c2}
 .board{top:auto;bottom:20px;max-width:300px}
 .board h2{margin:0;font:16px/1.2 Galmuri14,Galmuri11,sans-serif;text-shadow:0 2px 0 #7a4627}
 .board ol{margin:6px 0 0;padding-left:18px;font-size:11px;line-height:1.6}
@@ -42,7 +44,7 @@ body{font-family:Galmuri11,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;color
 <body>
 <canvas id="world" role="img" aria-label="토코 광장: 들어온 토코들이 분수대 광장을 돌아다니는 그림"></canvas>
 <div id="labels" aria-hidden="true"></div>
-<header class="sign"><h1>토코 광장</h1><p id="count">지금 {{count}}마리가 함께 쉬어 가는 중이에요</p><p class="hint">Claude Code에서 토코를 켜 두면 여기로 놀러 와요</p></header>
+<header class="sign"><h1>토코 광장</h1><p id="count">지금 {{count}}마리가 함께 쉬어 가는 중이에요</p><p class="hint">Claude Code에서 토코를 켜 두면 여기로 놀러 와요</p><p class="weather" id="weather" hidden></p></header>
 <aside class="sign board" id="bonks" hidden><h2>뿅망치 전광판</h2><p>오늘 Clawd가 <b id="bonk-total">0</b>번 맞았어요</p><ol id="bonk-top"></ol></aside>
 <nav id="rooms" class="rooms" aria-label="열린 방" hidden><b>방 구경</b><div id="roomList" style="display:flex;flex-direction:column;gap:4px"></div></nav>
 <dialog id="roomView" aria-labelledby="roomTitle"><canvas id="roomCanvas"></canvas><p id="roomTitle"></p><button id="roomClose" type="button">닫기</button></dialog>
@@ -57,6 +59,10 @@ const ctx = canvas.getContext('2d')
 const labels = $('labels')
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches
 const forcedHour = new URLSearchParams(location.search).get('hour')
+const forcedWeather = new URLSearchParams(location.search).get('weather')
+const WEATHER = { calm: '맑음', busy: '북적북적', festival: '축제' }
+const FIREWORK_COLORS = ['#ff4f9a', '#ffc300', '#22c7ff', '#62e04a', '#b36bff', '#ff7a30']
+const FLAG_COLORS = ['#ff5d8f', '#ffd23f', '#3ec1ff', '#7ed957', '#b07cff']
 const MOOD = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
 const SAY = { wave: '안녕! 잠깐 쉬어 가', heart: '하트 보낼게', snack: '간식 나눠 먹자', 'stretch-call': '다 같이 기지개 켜자!', cheer: '응원해!' }
 const KEYS = '0123456789abcdefghijklmnopqrstuvwxyz'
@@ -77,6 +83,10 @@ let isFirstSync = true
 const pets = new Map()
 const effects = []
 const seen = new Set()
+const rockets = []
+const sparks = []
+let weather = null
+let nextRocketAt = 0
 
 const random = seed => () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296
 const between = (low, high) => low + Math.random() * (high - low)
@@ -467,6 +477,93 @@ const showInPlace = (pet, kind, line, target) => {
   }
 }
 
+const weatherLine = w => {
+  const detail =
+    w.reporting === undefined
+      ? '미리보기'
+      : w.level === 'calm'
+        ? `${w.reporting}명 평균 5시간 한도 ${w.average}% 사용 중`
+        : `5시간 한도 60% 넘은 사람 ${w.over60}명${w.atLimit > 0 ? ` · 다 쓴 사람 ${w.atLimit}명` : ''} · 평균 ${w.average}%`
+  return [`데이블 Claude 날씨 `, WEATHER[w.level], ` · ${detail}`]
+}
+
+const showWeather = data => {
+  const next = forcedWeather in WEATHER ? { ...(data ?? {}), level: forcedWeather } : data ?? null
+  if (next?.level === 'festival' && weather?.level !== 'festival') {
+    for (const pet of pets.values()) pet.hopUntil = clock + 1.2
+    const all = [...pets.values()].filter(pet => pet.mode !== 'leave')
+    const lucky = all[Math.floor(Math.random() * all.length)]
+    if (lucky !== undefined) say(lucky, '축제다!', 4)
+  }
+  weather = next
+  $('weather').hidden = weather === null
+  if (weather === null) return
+  const [label, level, detail] = weatherLine(weather)
+  const strong = document.createElement('b')
+  strong.textContent = level
+  $('weather').replaceChildren(label, strong, detail)
+}
+
+const launch = () => {
+  nextRocketAt = clock + between(0.35, 0.9)
+  rockets.push({ x: between(W * 0.08, W * 0.92), y: L.horizon - 4, vy: between(-80, -60), top: between(4, Math.max(8, L.horizon - 30)), color: FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)] })
+}
+
+const drawFireworks = dt => {
+  if (clock >= nextRocketAt) launch()
+  for (let i = rockets.length - 1; i >= 0; i -= 1) {
+    const rocket = rockets[i]
+    rocket.y += rocket.vy * dt
+    box(ctx, rocket.x, rocket.y, 1, 2, '#fff1c9')
+    if (rocket.y > rocket.top) continue
+    rockets.splice(i, 1)
+    for (let k = 0; k < 24; k += 1) {
+      const angle = (Math.PI * 2 * k) / 24 + between(-0.1, 0.1)
+      const speed = between(18, 30)
+      sparks.push({ x: rocket.x, y: rocket.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, age: 0, life: between(0.8, 1.3), color: rocket.color })
+    }
+  }
+  for (let i = sparks.length - 1; i >= 0; i -= 1) {
+    const spark = sparks[i]
+    spark.age += dt
+    if (spark.age > spark.life) {
+      sparks.splice(i, 1)
+      continue
+    }
+    spark.x += spark.vx * dt
+    spark.y += spark.vy * dt
+    spark.vy += 16 * dt
+    drawSpark(spark)
+  }
+}
+
+const drawSpark = spark => {
+  const size = spark.age < spark.life / 2 ? 2 : 1
+  ctx.globalAlpha = Math.max(0, 1 - spark.age / spark.life)
+  box(ctx, spark.x, spark.y, size, size, spark.color)
+  ctx.globalAlpha = 1
+}
+
+const drawBunting = () => {
+  const top = { x: L.fountain.x, y: L.fountain.y - 30 }
+  for (const lamp of props.filter(prop => prop.glow !== null)) {
+    const from = { x: lamp.glow.x, y: lamp.glow.y - 2 }
+    const length = Math.hypot(top.x - from.x, top.y - from.y)
+    const steps = Math.max(2, Math.round(length))
+    for (let i = 0; i <= steps; i += 1) {
+      const t = i / steps
+      const [x, y] = [from.x + (top.x - from.x) * t, from.y + (top.y - from.y) * t + Math.sin(Math.PI * t) * 7]
+      box(ctx, x, y, 1, 1, '#5a3420')
+      if (i % 6 !== 3 || i === steps) continue
+      const color = FLAG_COLORS[Math.floor(i / 6) % FLAG_COLORS.length]
+      const flutter = still ? 0 : Math.floor(clock * 3 + i) % 2
+      box(ctx, x - 1, y + 1, 3, 1, color)
+      box(ctx, x - 1 + flutter, y + 2, 2, 1, color)
+      box(ctx, x, y + 3, 1, 1, color)
+    }
+  }
+}
+
 const isBeside = (pet, friend) => Math.abs(friend.x - pet.x) < 32 && Math.abs(friend.y - pet.y) < 8
 
 const detours = () => {
@@ -652,6 +749,7 @@ const sync = view => {
   isFirstSync = false
   $('count').textContent = `지금 ${view.pets.length}마리가 함께 쉬어 가는 중이에요`
   $('empty').hidden = view.pets.length > 0
+  showWeather(view.weather)
   const board = view.bonks ?? { total: 0, top: [] }
   $('bonks').hidden = board.total === 0
   $('bonk-total').textContent = String(board.total)
@@ -863,6 +961,8 @@ const tick = now => {
   clock += dt
   drawSky(dt)
   ctx.drawImage(scenery, 0, 0)
+  const isFestival = weather?.level === 'festival'
+  if (isFestival && !still) drawFireworks(dt)
   for (const pet of [...pets.values()]) {
     if (!step(pet, dt)) {
       pet.tag.remove()
@@ -875,12 +975,18 @@ const tick = now => {
   things.sort((a, b) => a.y - b.y)
   for (const thing of things) thing.draw()
   drawEffects(dt)
+  if (isFestival) drawBunting()
   for (const fly of flyers) {
     const t = clock * fly.speed + fly.seed
     const [x, y] = [fly.x + Math.sin(t) * fly.reach, fly.y + Math.sin(t * 1.7) * 8]
     if (phase === 'day') ctx.drawImage(WINGS[fly.color][Math.floor(clock * 7 + fly.seed) % 2], Math.round(x), Math.round(y))
   }
   if (phase === 'night') drawNight()
+  if (phase === 'night' && isFestival && !still) {
+    ctx.globalCompositeOperation = 'lighter'
+    for (const spark of sparks) drawSpark(spark)
+    ctx.globalCompositeOperation = 'source-over'
+  }
   if (phase === 'dusk') {
     ctx.globalCompositeOperation = 'multiply'
     box(ctx, 0, 0, W, H, '#ffd9bf')

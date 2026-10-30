@@ -5,3 +5,7 @@ node_modules/
 plugin/.claude-plugin/types/
 .mcpb-cache/
 server/data/
+
+.env
+.env.*
+server/.env*

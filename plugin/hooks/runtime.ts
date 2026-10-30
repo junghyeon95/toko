@@ -17,7 +17,7 @@ import { RESERVED_AI_CALLS, bubbleLine, chatRules, nameProblem } from './lib/per
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
-import { ROOM_ACTS, ROOM_ACT_LABEL, bonkBoardText, findFriend, isRoomAct } from './lib/plaza'
+import { ROOM_ACTS, ROOM_ACT_LABEL, bonkBoardText, findFriend, isRoomAct, weatherText } from './lib/plaza'
 import type { PlazaAction, RoomAct } from './lib/plaza'
 import { questText } from './lib/quests'
 import type { RoomSlot } from './lib/room'
@@ -538,7 +538,8 @@ async function plazaCommand($: $, brain: Brain, words: readonly string[]): Promi
     const friends = brain.friends.map(friend => `- ${friend.name} (${SPECIES[friend.species].label}, ${friend.status})`)
     const header = brain.serverUrl.length === 0 ? '광장 서버가 설정되지 않았어요(serverUrl).' : `광장: ${brain.settings.isPlazaOn ? '켜짐' : '꺼짐'} · 친구 ${brain.friends.length}명`
     const board = bonkBoardText(brain.plazaBonks)
-    return { text: [header, ...friends, ...(board === null ? [] : [board])].join('\n') }
+    const weather = weatherText(brain.plazaWeather)
+    return { text: [header, ...(weather === null ? [] : [weather]), ...friends, ...(board === null ? [] : [board])].join('\n') }
   }
   if (action === 'stretch-call' || target === 'all' || target === '') {
     return { text: await sendPlaza($, brain, action, null) }
