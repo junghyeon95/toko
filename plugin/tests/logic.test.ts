@@ -18,7 +18,7 @@ import { autoPlace, completedSets, cozinessOf, cycleSlot, furnitureText, layoutO
 import { mergeShared } from '../hooks/lib/shared'
 import { dyeGrid, hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
-import { SPECIES_ART } from '../hooks/lib/sprites'
+import { SPECIES_ART, eyeGrids } from '../hooks/lib/sprites'
 
 const usage = (output: number, cacheRead = 0) => ({ input_tokens: 1000, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
 
@@ -432,6 +432,19 @@ test('a draw lands on a known species, rare about one time in ten', async () => 
   expect(clampName('  말랑이는 귀여워 ')).toBe('말랑이는')
   expect(nextStage({ stage: 'baby', daysTogether: 3, breaksAccepted: 3, lastDay: '' })).toBe('child')
   expect(nextStage({ stage: 'baby', daysTogether: 30, breaksAccepted: 0, lastDay: '' })).toBe('baby')
+})
+
+test('데불이 hatches from an ordinary egg as a sky-blue owl with navy eyes, yellow crescents and a hoot', async () => {
+  const random = createRandom(7)
+  const rolls = Array.from({ length: 4000 }, () => rollSpecies(random))
+  expect(SPECIES.debul).toEqual({ label: '데불이', rarity: 'normal' })
+  expect(rolls.includes('debul')).toBe(true)
+  const sprite = lookSprite({ bones: { seed: 1, species: 'debul' }, stage: 'adult', mood: 'calm', hammer: 'toy' })
+  expect(sprite?.palette).toEqual(expect.arrayContaining(['ddeeff', '005577', 'ffffaa', 'ffffff']))
+  expect(SPECIES_ART.debul.body.every(row => row.length === 16)).toBe(true)
+  expect(eyeGrids('owl', 'lidded')).toEqual([['bb', 'ee'], ['bb', 'ee']])
+  expect(eyeGrids('round', 'lidded')).toEqual([['oo', 'ee'], ['oo', 'ee']])
+  expect(voiceLine('debul', '물 한 모금 어때?')).toBe('물 한 모금 어때? 부엉')
 })
 
 test('model replies are parsed defensively', async () => {

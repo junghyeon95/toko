@@ -15,7 +15,7 @@ export type Face = { leftEye: Point; rightEye: Point; mouth: Point; leftBlush: P
 
 const FACE: Face = { leftEye: [3, 5], rightEye: [11, 5], mouth: [7, 7], leftBlush: [2, 7], rightBlush: [13, 7] }
 
-type EyeStyle = 'round' | 'dot' | 'sparkle' | 'solid'
+type EyeStyle = 'round' | 'dot' | 'sparkle' | 'solid' | 'owl'
 
 type EyeShape = 'open' | 'happy' | 'closed' | 'lidded'
 
@@ -24,6 +24,7 @@ const EYE_GRIDS: Readonly<Record<EyeStyle, readonly [Grid, Grid]>> = {
   dot: [['.e', '.e'], ['e.', 'e.']],
   sparkle: [['we', 'ew'], ['we', 'ew']],
   solid: [['ee', 'ee'], ['ee', 'ee']],
+  owl: [['Tw', 'YY'], ['Tw', 'YY']],
 }
 
 const EYE_SHAPES: Readonly<Record<Exclude<EyeShape, 'open'>, Grid>> = {
@@ -32,8 +33,17 @@ const EYE_SHAPES: Readonly<Record<Exclude<EyeShape, 'open'>, Grid>> = {
   lidded: ['oo', 'ee'],
 }
 
-export const eyeGrids = (eyes: EyeStyle, shape: EyeShape): readonly [Grid, Grid] =>
-  shape === 'open' ? EYE_GRIDS[eyes] : [EYE_SHAPES[shape], EYE_SHAPES[shape]]
+const STYLE_SHAPES: Partial<Record<EyeStyle, Partial<Record<Exclude<EyeShape, 'open'>, Grid>>>> = {
+  owl: { lidded: ['bb', 'ee'] },
+}
+
+export const eyeGrids = (eyes: EyeStyle, shape: EyeShape): readonly [Grid, Grid] => {
+  if (shape === 'open') {
+    return EYE_GRIDS[eyes]
+  }
+  const grid = STYLE_SHAPES[eyes]?.[shape] ?? EYE_SHAPES[shape]
+  return [grid, grid]
+}
 
 export type Mark = { grid: Grid; dx: number; dy: number }
 
@@ -378,6 +388,32 @@ export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
     hatDy: 0,
     neckY: 8,
     armY: 7,
+  },
+  debul: {
+    body: [
+      '...o........o...',
+      '...oo......oo...',
+      '...oboooooobo...',
+      '..obAbbbbbbAbo..',
+      '.obbTTbbbbTTbbo.',
+      '.obTbbTbbTbbTbo.',
+      '.obTbbTbbTbbTbo.',
+      '.obbTTbbbbTTbbo.',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obKbbllllllbbKbo',
+      'obKbbllllllbbKbo',
+      'obbKbllllllbKbbo',
+      '.obbbbllllbbbbo.',
+      '..oooooooooooo..',
+    ],
+    eyes: 'owl',
+    face: { leftEye: [4, 5], rightEye: [10, 5], mouth: [7, 8], leftBlush: [2, 9], rightBlush: [13, 9] },
+    colors: { o: '#14222E', b: '#D9F0FD', l: '#FFFFFF', p: '#D9F0FD', t: '#004D7F', f: '#96CDFD', m: '#004D7F' },
+    hatDy: 0,
+    neckY: 9,
+    armY: 8,
+    mouths: { wavy: 'small' },
   },
 }
 

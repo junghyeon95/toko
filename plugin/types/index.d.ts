@@ -1,4 +1,4 @@
-export type TokoSpecies = 'cat' | 'bear' | 'chick' | 'bunny' | 'frog' | 'penguin' | 'fox' | 'dragon' | 'unicorn' | 'ghost' | 'phoenix' | 'robot' | 'axolotl'
+export type TokoSpecies = 'cat' | 'bear' | 'chick' | 'bunny' | 'frog' | 'penguin' | 'fox' | 'dragon' | 'unicorn' | 'ghost' | 'phoenix' | 'robot' | 'axolotl' | 'debul'
 export type TokoRarity = 'normal' | 'rare'
 export type TokoStage = 'egg' | 'baby' | 'child' | 'adult'
 export type TokoMood = 'excited' | 'calm' | 'sleepy' | 'worried' | 'sulky'

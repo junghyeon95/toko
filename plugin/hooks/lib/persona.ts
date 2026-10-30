@@ -201,6 +201,16 @@ export const SPECIES_VOICE: Readonly<Record<TokoSpecies, SpeciesVoice>> = {
       water: ['뽀글, 물은 내 집이야. 너도 한 모금 마셔', '물 한 모금 어때? 나는 늘 마시는 중 뽀글'],
     },
   },
+  debul: {
+    persona: '데이블의 하늘색 부엉이. 밤새 기사를 읽어 아는 게 많고, 동그란 눈으로 차분히 곁을 지킨다.',
+    style: '차분하고 다정하게 말하고 끝에 "부엉"을 붙인다.',
+    sound: '부엉',
+    place: 'tail',
+    lines: {
+      nap: ['부엉, 밤은 내가 지킬게. 너는 이제 쉬어', '눈이 자꾸 감기지? 오늘은 여기까지 해도 돼 부엉'],
+      testPass: ['동그란 눈으로 다 봤어. 통과야 부엉!', '꼼꼼하게 해냈네. 부엉!'],
+    },
+  },
 }
 
 const PLAIN_KEYS: ReadonlySet<string> = new Set(['bonkHit', 'breatheIn', 'breatheOut'])

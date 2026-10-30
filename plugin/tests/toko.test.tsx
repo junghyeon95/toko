@@ -1174,7 +1174,7 @@ test('a drawn pet survives an old terminal that writes back the pet it had befor
 
 test('a full collection stops the draw before it takes any coins', async ($, on) => {
   mock.clock(on, { now: START })
-  const species = ['cat', 'bear', 'chick', 'bunny', 'frog', 'fox', 'dragon', 'unicorn', 'ghost', 'phoenix', 'robot', 'axolotl']
+  const species = ['cat', 'bear', 'chick', 'bunny', 'frog', 'fox', 'dragon', 'unicorn', 'ghost', 'phoenix', 'robot', 'axolotl', 'debul']
   const shelf = species.map((kind, index) => ({ ...FRIEND_PET, id: `pet-s${index}`, bones: { seed: 100 + index, species: kind } }))
   const world = engine(on, { 'toko:pet': PET, 'toko:shelf': shelf, 'toko:wallet': { coins: 500, items: [], worn: [] } })
   await begin($)

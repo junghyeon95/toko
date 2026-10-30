@@ -34,6 +34,7 @@ export const SPECIES: Readonly<Record<TokoSpecies, { label: string; rarity: Toko
   phoenix: { label: '불사조', rarity: 'rare' },
   robot: { label: '로봇', rarity: 'rare' },
   axolotl: { label: '우파루파', rarity: 'rare' },
+  debul: { label: '데불이', rarity: 'normal' },
 }
 
 export const UNNAMED = '이름 없음'

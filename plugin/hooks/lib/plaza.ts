@@ -57,6 +57,7 @@ const WIRE_COLOR: Readonly<Record<TokoSpecies, WireColor>> = {
   phoenix: 'peach',
   robot: 'mint',
   axolotl: 'peach',
+  debul: 'lavender',
 }
 
 export const wireColor = (species: TokoSpecies): WireColor => WIRE_COLOR[species]
